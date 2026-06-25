@@ -1,0 +1,41 @@
+{
+	"name": "obsidian-pi-vault-mind",
+	"version": "0.1.0",
+	"description": "Vault Mind side panel for Obsidian — live queue, status, search, and chat for the pi-vault-mind extension.",
+	"type": "module",
+	"main": "main.js",
+	"files": [
+		"main.js",
+		"styles.css",
+		"manifest.json",
+		"README.md",
+		"LICENSE",
+		"THIRD_PARTY_NOTICES.md"
+	],
+	"author": "Kyle Brodeur",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/kylebrodeur/pi-vault-mind.git",
+		"directory": "packages/obsidian"
+	},
+	"scripts": {
+		"check": "tsc --noEmit",
+		"build": "node esbuild.config.mjs production",
+		"dev": "node esbuild.config.mjs development",
+		"package": "node esbuild.config.mjs production && node --input-type=module -e \"import fs from 'node:fs'; fs.mkdirSync('dist',{recursive:true}); for (const f of ['main.js','manifest.json','styles.css','README.md','LICENSE','THIRD_PARTY_NOTICES.md','versions.json']) fs.copyFileSync(f,'dist/'+f);\""
+	},
+	"peerDependencies": {
+		"obsidian": "^1.7.0"
+	},
+	"devDependencies": {
+		"@codemirror/state": "^6.5.0",
+		"@codemirror/view": "^6.38.0",
+		"@types/node": "^20.0.0",
+		"electron": "^42.5.0",
+		"esbuild": "^0.25.0",
+		"obsidian": "^1.7.0",
+		"tslib": "^2.8.0",
+		"typescript": "^5.0.0"
+	}
+}
