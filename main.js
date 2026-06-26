@@ -997,6 +997,9 @@ var ChatView = class extends import_obsidian4.ItemView {
   getDisplayText() {
     return "Vault Mind Chat";
   }
+  getIcon() {
+    return "vault-mind";
+  }
   async onOpen() {
     const container = this.containerEl.children[1];
     container.empty();
@@ -1506,6 +1509,9 @@ var QueueView = class extends import_obsidian5.ItemView {
   getDisplayText() {
     return "Vault Mind Queue";
   }
+  getIcon() {
+    return "vault-mind";
+  }
   async onOpen() {
     const container = this.containerEl.children[1];
     container.empty();
@@ -1801,6 +1807,9 @@ var SetupView = class extends import_obsidian6.ItemView {
   }
   getDisplayText() {
     return "Vault Mind Setup";
+  }
+  getIcon() {
+    return "vault-mind";
   }
   async onOpen() {
     const container = this.containerEl.children[1];
@@ -2282,6 +2291,9 @@ var StatusView = class extends import_obsidian8.ItemView {
   getDisplayText() {
     return "Vault Mind Status";
   }
+  getIcon() {
+    return "vault-mind";
+  }
   async onOpen() {
     const container = this.containerEl.children[1];
     container.empty();
@@ -2553,6 +2565,7 @@ var VIEW_TYPE_QUEUE = "vault-mind-queue";
 var VIEW_TYPE_STATUS = "vault-mind-status";
 var VIEW_TYPE_CHAT = "vault-mind-chat";
 var VIEW_TYPE_SETUP = "vault-mind-setup";
+var VAULT_MIND_ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z"/><path d="M9 21h6"/><path d="M10 9a2 2 0 0 1 4 0"/><path d="M8 12h1"/><path d="M15 12h1"/><circle cx="12" cy="6" r="1"/></svg>`;
 var DEFAULT_SETTINGS = {
   host: "127.0.0.1",
   port: 11435,
@@ -2698,6 +2711,7 @@ var VaultMindPlugin = class extends import_obsidian9.Plugin {
   statusBarItem = null;
   contextPushTimer = null;
   async onload() {
+    (0, import_obsidian9.addIcon)("vault-mind", VAULT_MIND_ICON);
     await this.loadSettings();
     const savedData = await this.loadData() ?? {};
     this.tokenStore = new TokenStore(
@@ -2791,7 +2805,7 @@ var VaultMindPlugin = class extends import_obsidian9.Plugin {
         void this.openView(VIEW_TYPE_STATUS);
       }
     });
-    const ribbonIconEl = this.addRibbonIcon("zap", "Vault Mind", () => {
+    const ribbonIconEl = this.addRibbonIcon("vault-mind", "Vault Mind", () => {
       this.openView(VIEW_TYPE_QUEUE);
     });
     ribbonIconEl.addClass("vault-mind-ribbon-icon");
@@ -2804,7 +2818,7 @@ var VaultMindPlugin = class extends import_obsidian9.Plugin {
         void this.openView(VIEW_TYPE_QUEUE);
       }
     });
-    (0, import_obsidian9.setIcon)(ribbonIconEl, "zap");
+    (0, import_obsidian9.setIcon)(ribbonIconEl, "vault-mind");
     this.addCommand({
       id: "open-queue",
       name: "Open queue",
