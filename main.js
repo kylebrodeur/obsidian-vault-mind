@@ -380,8 +380,8 @@ var VaultMindClient = class {
     }, this.reconnectDelay);
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, 3e4);
   }
-  async httpJson(method, path5, body) {
-    const res = await fetch(`${this.baseUrl}${path5}`, {
+  async httpJson(method, path6, body) {
+    const res = await fetch(`${this.baseUrl}${path6}`, {
       method,
       headers: this.authHeaders,
       body: body ? JSON.stringify(body) : void 0
@@ -644,6 +644,57 @@ ${stderr}`.trim();
   }
 };
 
+// src/pi-detect.ts
+var import_node_child_process3 = require("node:child_process");
+var fs3 = __toESM(require("node:fs"), 1);
+var os3 = __toESM(require("node:os"), 1);
+var path4 = __toESM(require("node:path"), 1);
+function detectPiBinary(configured, vaultPath) {
+  if (path4.isAbsolute(configured) && fs3.existsSync(configured)) {
+    return configured;
+  }
+  const shellPath = whichPi(configured);
+  if (shellPath) return shellPath;
+  const home = os3.homedir();
+  const candidates = [
+    path4.join(home, ".local", "bin", "pi"),
+    path4.join(home, ".pi", "bin", "pi"),
+    "/usr/local/bin/pi",
+    "/opt/homebrew/bin/pi",
+    path4.join(home, ".nvm", "versions", "node", "current", "bin", "pi"),
+    // npm global installs
+    path4.join(home, ".npm-global", "bin", "pi")
+  ];
+  if (vaultPath) {
+    candidates.unshift(path4.join(vaultPath, "node_modules", ".bin", "pi"));
+  }
+  for (const candidate of candidates) {
+    if (fs3.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+function whichPi(name) {
+  const shell = process.env.SHELL || (process.platform === "darwin" ? "/bin/zsh" : "/bin/bash");
+  const cmd = process.platform === "win32" ? `where ${name}` : `which ${name}`;
+  try {
+    const result = (0, import_node_child_process3.execSync)(cmd, {
+      encoding: "utf-8",
+      shell,
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 5e3,
+      env: { ...process.env }
+    });
+    const resolved = result.trim().split("\n")[0];
+    if (resolved && fs3.existsSync(resolved)) {
+      return resolved;
+    }
+  } catch {
+  }
+  return null;
+}
+
 // src/protocol.ts
 var import_obsidian3 = require("obsidian");
 var isString = (value) => typeof value === "string";
@@ -652,9 +703,9 @@ var DiffModal = class extends import_obsidian3.Modal {
   oldContent;
   newContent;
   onAccept;
-  constructor(app, { path: path5, old, new: newContent }, onAccept) {
+  constructor(app, { path: path6, old, new: newContent }, onAccept) {
     super(app);
-    this.path = path5;
+    this.path = path6;
     this.oldContent = old;
     this.newContent = newContent;
     this.onAccept = onAccept;
@@ -683,32 +734,32 @@ var DiffModal = class extends import_obsidian3.Modal {
 };
 function registerVaultMindProtocolHandlers(plugin) {
   plugin.registerObsidianProtocolHandler("vault-mind/open-file", (params) => {
-    const path5 = params?.path;
-    if (!isString(path5)) {
+    const path6 = params?.path;
+    if (!isString(path6)) {
       new import_obsidian3.Notice("Vault Mind: missing path parameter");
       return;
     }
-    plugin.app.workspace.openLinkText(path5, "", true);
+    plugin.app.workspace.openLinkText(path6, "", true);
   });
   plugin.registerObsidianProtocolHandler("vault-mind/show-diff", (params) => {
-    const path5 = params?.path;
+    const path6 = params?.path;
     const oldContent = params?.old;
     const newContent = params?.new;
-    if (!isString(path5) || !isString(oldContent) || !isString(newContent)) {
+    if (!isString(path6) || !isString(oldContent) || !isString(newContent)) {
       new import_obsidian3.Notice("Vault Mind: missing path, old, or new parameter");
       return;
     }
-    new DiffModal(plugin.app, { path: path5, old: oldContent, new: newContent }, async () => {
-      const file = plugin.app.vault.getAbstractFileByPath(path5);
+    new DiffModal(plugin.app, { path: path6, old: oldContent, new: newContent }, async () => {
+      const file = plugin.app.vault.getAbstractFileByPath(path6);
       if (!(file instanceof import_obsidian3.TFile)) {
-        new import_obsidian3.Notice(`Vault Mind: file not found: ${path5}`);
+        new import_obsidian3.Notice(`Vault Mind: file not found: ${path6}`);
         return;
       }
       try {
         await plugin.app.vault.modify(file, newContent);
-        new import_obsidian3.Notice(`Vault Mind: accepted changes to ${path5}`);
+        new import_obsidian3.Notice(`Vault Mind: accepted changes to ${path6}`);
       } catch (err) {
-        new import_obsidian3.Notice(`Vault Mind: failed to write ${path5}: ${err.message}`);
+        new import_obsidian3.Notice(`Vault Mind: failed to write ${path6}: ${err.message}`);
       }
     }).open();
   });
@@ -734,7 +785,7 @@ function registerVaultMindProtocolHandlers(plugin) {
 }
 
 // src/views/chat.ts
-var import_node_child_process3 = require("node:child_process");
+var import_node_child_process4 = require("node:child_process");
 var import_node_fs3 = require("node:fs");
 var import_node_path3 = __toESM(require("node:path"), 1);
 var import_node_readline = require("node:readline");
@@ -1091,7 +1142,7 @@ ${text}`;
       (0, import_node_fs3.mkdirSync)(piConfigDir, { recursive: true });
     } catch {
     }
-    this.process = (0, import_node_child_process3.spawn)(this.deps.piBinaryPath, ["--mode", "rpc", "--no-session"], {
+    this.process = (0, import_node_child_process4.spawn)(this.deps.piBinaryPath, ["--mode", "rpc", "--no-session"], {
       shell: true,
       cwd,
       stdio: ["pipe", "pipe", "pipe"],
@@ -2013,7 +2064,7 @@ var SetupView = class extends import_obsidian6.ItemView {
 };
 
 // src/views/status.ts
-var import_node_child_process4 = require("node:child_process");
+var import_node_child_process5 = require("node:child_process");
 var import_obsidian8 = require("obsidian");
 
 // src/modals/libsecret.ts
@@ -2480,13 +2531,13 @@ var StatusView = class extends import_obsidian8.ItemView {
       if (import_obsidian8.Platform.isMacOS) {
         const script = `cd ${shellQuote(cwd)} && export PI_CODING_AGENT_DIR=${shellQuote(piConfigDir)} && ${piBinary} --cwd ${shellQuote(cwd)}`;
         const appleScript = `tell application "Terminal" to do script "${script.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-        (0, import_node_child_process4.spawn)("osascript", ["-e", appleScript]);
+        (0, import_node_child_process5.spawn)("osascript", ["-e", appleScript]);
       } else if (import_obsidian8.Platform.isLinux) {
         const cmd = `cd ${shellQuote(cwd)} && export PI_CODING_AGENT_DIR=${shellQuote(piConfigDir)} && ${piBinary} --cwd ${shellQuote(cwd)}`;
-        (0, import_node_child_process4.spawn)("x-terminal-emulator", ["-e", "bash", "-c", cmd], { env });
+        (0, import_node_child_process5.spawn)("x-terminal-emulator", ["-e", "bash", "-c", cmd], { env });
       } else if (import_obsidian8.Platform.isWin) {
         const cmd = `cd /d ${winQuote(cwd)} && set PI_CODING_AGENT_DIR=${winQuote(piConfigDir)} && ${piBinary} --cwd ${winQuote(cwd)}`;
-        (0, import_node_child_process4.spawn)("cmd", ["/c", "start", "cmd", "/k", cmd], { env, shell: false });
+        (0, import_node_child_process5.spawn)("cmd", ["/c", "start", "cmd", "/k", cmd], { env, shell: false });
       } else {
         new import_obsidian8.Notice("Vault Mind: unsupported platform for TUI launcher");
       }
@@ -2690,6 +2741,13 @@ var VaultMindPlugin = class extends import_obsidian9.Plugin {
     const vaultPath = this.app.vault.adapter.getBasePath?.() || this.app.vault.getName();
     this.vaultPath = vaultPath;
     this.tokenStore.setVaultPath(vaultPath);
+    if (this.settings.piBinaryPath === "pi" || !this.settings.piBinaryPath) {
+      const detected = detectPiBinary(this.settings.piBinaryPath, vaultPath);
+      if (detected && detected !== this.settings.piBinaryPath) {
+        this.settings.piBinaryPath = detected;
+        void this.saveSettings();
+      }
+    }
     const piConfigDir = (0, import_obsidian9.normalizePath)(`${vaultPath}/.pi/agent`);
     const systemMdPath = (0, import_obsidian9.normalizePath)(`${piConfigDir}/system.md`);
     const viewDeps = {
