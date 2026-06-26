@@ -32,6 +32,7 @@ __export(main_exports, {
   default: () => VaultMindPlugin
 });
 module.exports = __toCommonJS(main_exports);
+var import_node_fs5 = require("node:fs");
 var import_view = require("@codemirror/view");
 var import_obsidian9 = require("obsidian");
 
@@ -2825,7 +2826,7 @@ var VaultMindPlugin = class extends import_obsidian9.Plugin {
       callback: () => this.openView(VIEW_TYPE_CHAT)
     });
     this.addSettingTab(new VaultMindSettingTab(this.app, this));
-    if (this.settings.checkExtensionOnStartup) {
+    if (this.settings.checkExtensionOnStartup && (0, import_node_fs5.existsSync)((0, import_obsidian9.normalizePath)(`${vaultPath}/.pi`))) {
       void this.checkExtension();
     }
     registerVaultMindProtocolHandlers(this);
