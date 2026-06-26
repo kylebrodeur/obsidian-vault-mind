@@ -33,114 +33,245 @@ __export(main_exports, {
 });
 module.exports = __toCommonJS(main_exports);
 var import_view = require("@codemirror/view");
-var import_obsidian8 = require("obsidian");
+var import_obsidian9 = require("obsidian");
 
 // src/auth.ts
+var import_node_child_process = require("node:child_process");
 var fs = __toESM(require("node:fs"), 1);
 var os = __toESM(require("node:os"), 1);
 var path = __toESM(require("node:path"), 1);
+var import_obsidian = require("obsidian");
 var ENV_VAR = "PVM_API_TOKEN";
 var DOTENV_REL = path.join(".pi", "agent", "vault-mind.env");
-var INSECURE_CONFIRMATION = "INSECURE";
+var KEYCHAIN_SERVICE = "vault-mind";
+var KEYCHAIN_ACCOUNT = "api-token";
+var OP_ITEM = "vault-mind-api-token";
+function keychainGet() {
+  if (!import_obsidian.Platform.isMacOS) return void 0;
+  try {
+    const result = (0, import_node_child_process.execSync)(
+      `security find-generic-password -s "${KEYCHAIN_SERVICE}" -a "${KEYCHAIN_ACCOUNT}" -w`,
+      { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }
+    );
+    return result.trim() || void 0;
+  } catch {
+    return void 0;
+  }
+}
+function keychainSet(token) {
+  if (!import_obsidian.Platform.isMacOS) return false;
+  try {
+    try {
+      (0, import_node_child_process.execSync)(
+        `security delete-generic-password -s "${KEYCHAIN_SERVICE}" -a "${KEYCHAIN_ACCOUNT}"`,
+        { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }
+      );
+    } catch {
+    }
+    (0, import_node_child_process.execSync)(
+      `security add-generic-password -s "${KEYCHAIN_SERVICE}" -a "${KEYCHAIN_ACCOUNT}" -w "${token}"`,
+      { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+function keychainDelete() {
+  if (!import_obsidian.Platform.isMacOS) return;
+  try {
+    (0, import_node_child_process.execSync)(`security delete-generic-password -s "${KEYCHAIN_SERVICE}" -a "${KEYCHAIN_ACCOUNT}"`, {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+  } catch {
+  }
+}
+function opGet() {
+  try {
+    const result = (0, import_node_child_process.execSync)(`op item get "${OP_ITEM}" --fields password --format json`, {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    const parsed = JSON.parse(result);
+    return parsed.value || void 0;
+  } catch {
+    return void 0;
+  }
+}
+function opSet(token) {
+  try {
+    try {
+      (0, import_node_child_process.execSync)(`op item edit "${OP_ITEM}" password="${token}"`, {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"]
+      });
+      return true;
+    } catch {
+      (0, import_node_child_process.execSync)(`op item create --category=password --title="${OP_ITEM}" password="${token}"`, {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "pipe"]
+      });
+      return true;
+    }
+  } catch {
+    return false;
+  }
+}
+function opAvailable() {
+  try {
+    (0, import_node_child_process.execSync)("op account list", {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
 var readDotenvToken = () => {
   const home = os.homedir();
   if (!home) return void 0;
   const p = path.join(home, DOTENV_REL);
   if (!fs.existsSync(p)) return void 0;
   try {
-    const text = fs.readFileSync(p, "utf-8");
-    for (const line of text.split(/\r?\n/)) {
-      const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*("([^"]*)"|'([^']*)'|[^\s#]+)/);
-      if (!m || m[1] !== ENV_VAR) continue;
-      return m[3] ?? m[4] ?? m[2] ?? void 0;
+    for (const line of fs.readFileSync(p, "utf-8").split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const eq = trimmed.indexOf("=");
+      if (eq === -1) continue;
+      const key = trimmed.slice(0, eq).trim();
+      if (key !== ENV_VAR) continue;
+      let value = trimmed.slice(eq + 1).trim();
+      if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
+        value = value.slice(1, -1);
+      }
+      return value || void 0;
     }
   } catch {
   }
   return void 0;
 };
 var TokenStore = class {
-  pluginData;
+  data;
   saveData;
-  safeStorage;
-  constructor(pluginData, saveData, safeStorage) {
-    this.pluginData = pluginData;
+  vaultPath = null;
+  constructor(data, saveData) {
+    this.data = data;
     this.saveData = saveData;
-    this.safeStorage = safeStorage;
   }
-  /** True when Electron safeStorage is available. */
-  isKeychainAvailable() {
-    return this.safeStorage?.isEncryptionAvailable() ?? false;
+  /** Set the vault path for local .env file operations. */
+  setVaultPath(vaultPath) {
+    this.vaultPath = vaultPath;
   }
-  /** True when the user has opted in to plaintext (INSECURE) storage. */
-  isInsecureOptedIn() {
-    return this.pluginData.insecureOptIn ?? false;
-  }
-  /**
-   * Enable plaintext storage after the user types the literal phrase
-   * "INSECURE". Returns false if the confirmation does not match.
-   */
-  async optInToInsecure(confirmation) {
-    if (confirmation !== INSECURE_CONFIRMATION) return false;
-    this.pluginData = { ...this.pluginData, insecureOptIn: true };
-    await this.saveData(this.pluginData);
-    return true;
-  }
-  /** Current storage mode. */
+  /** Current storage backend. */
   getMode() {
-    if (this.pluginData.tokenCipher) return "keychain";
-    if (this.pluginData.tokenInsecurePlaintext) return "insecure";
-    return "none";
+    return this.data.backend ?? "none";
+  }
+  /** List available backends for the current platform. */
+  availableBackends() {
+    const backends = [];
+    if (import_obsidian.Platform.isMacOS) backends.push("keychain");
+    if (opAvailable()) backends.push("1password");
+    backends.push("envfile");
+    return backends;
+  }
+  /** True when macOS Keychain is usable. */
+  isKeychainAvailable() {
+    return import_obsidian.Platform.isMacOS;
   }
   /**
    * Get the resolved token.
-   * Order: keychain ciphertext → insecure plaintext → dotenv file.
-   * Returns undefined when no token is available.
+   * Order: configured backend → vault .env → global dotenv → env var.
    */
   async getToken() {
-    const cipher = this.pluginData.tokenCipher;
-    if (cipher && this.safeStorage) {
-      try {
-        return this.safeStorage.decryptString(Buffer.from(cipher, "base64"));
-      } catch {
-      }
+    const backend = this.data.backend;
+    if (backend === "keychain") {
+      const t = keychainGet();
+      if (t) return t;
+    } else if (backend === "1password") {
+      const t = opGet();
+      if (t) return t;
+    } else if (backend === "envfile") {
+      const t = this.readVaultEnv();
+      if (t) return t;
     }
-    const plaintext = this.pluginData.tokenInsecurePlaintext;
-    if (plaintext) return plaintext;
-    return readDotenvToken();
+    const vaultEnv = this.readVaultEnv();
+    if (vaultEnv) return vaultEnv;
+    const dotenv = readDotenvToken();
+    if (dotenv) return dotenv;
+    return process.env[ENV_VAR] || void 0;
   }
-  /** Import from the dotenv file and seal it in the keychain. */
+  /** Store a token using the specified backend. */
+  async setToken(token, backend) {
+    const target = backend ?? this.data.backend ?? this.defaultBackend();
+    if (target === "keychain") {
+      if (!keychainSet(token)) return false;
+      this.data = { backend: "keychain" };
+    } else if (target === "1password") {
+      if (!opSet(token)) return false;
+      this.data = { backend: "1password" };
+    } else {
+      this.writeVaultEnv(token);
+      this.data = { backend: "envfile" };
+    }
+    await this.saveData(this.data);
+    return true;
+  }
+  /** Import from the global dotenv and store in the preferred backend. */
   async importFromDotenv() {
     const token = readDotenvToken();
     if (!token) return false;
     return this.setToken(token);
   }
-  /** Store a token. Secure when possible, insecure only after explicit opt-in. */
-  async setToken(token) {
-    if (this.safeStorage?.isEncryptionAvailable()) {
-      const cipher = this.safeStorage.encryptString(token).toString("base64");
-      this.pluginData = { tokenCipher: cipher };
-      await this.saveData(this.pluginData);
-      return true;
-    }
-    if (!this.pluginData.insecureOptIn) return false;
-    this.pluginData = { ...this.pluginData, tokenInsecurePlaintext: token };
-    await this.saveData(this.pluginData);
-    return true;
-  }
-  /**
-   * Store a token in plaintext after explicit opt-in.
-   * confirmation must equal INSECURE_CONFIRMATION.
-   */
-  async setTokenInsecure(token, confirmation) {
-    if (confirmation !== INSECURE_CONFIRMATION) return false;
-    this.pluginData = { tokenInsecurePlaintext: token };
-    await this.saveData(this.pluginData);
-    return true;
-  }
-  /** Remove every stored token copy. */
+  /** Remove the stored token. */
   async forgetToken() {
-    this.pluginData = {};
-    await this.saveData(this.pluginData);
+    if (this.data.backend === "keychain") keychainDelete();
+    if (this.data.backend === "envfile") this.deleteVaultEnv();
+    this.data = {};
+    await this.saveData(this.data);
+  }
+  defaultBackend() {
+    if (import_obsidian.Platform.isMacOS) return "keychain";
+    return "envfile";
+  }
+  vaultEnvPath() {
+    if (!this.vaultPath) return null;
+    return path.join(this.vaultPath, ".pi", "agent", "vault-mind.env");
+  }
+  readVaultEnv() {
+    const p = this.vaultEnvPath();
+    if (!p || !fs.existsSync(p)) return void 0;
+    try {
+      for (const line of fs.readFileSync(p, "utf-8").split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) continue;
+        const eq = trimmed.indexOf("=");
+        if (eq === -1) continue;
+        const key = trimmed.slice(0, eq).trim();
+        if (key !== ENV_VAR) continue;
+        let value = trimmed.slice(eq + 1).trim();
+        if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
+          value = value.slice(1, -1);
+        }
+        return value || void 0;
+      }
+    } catch {
+      return void 0;
+    }
+    return void 0;
+  }
+  writeVaultEnv(token) {
+    const p = this.vaultEnvPath();
+    if (!p) return;
+    const dir = path.dirname(p);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(p, `${ENV_VAR}="${token}"
+`, { encoding: "utf-8", mode: 384 });
+  }
+  deleteVaultEnv() {
+    const p = this.vaultEnvPath();
+    if (p && fs.existsSync(p)) fs.unlinkSync(p);
   }
 };
 
@@ -379,22 +510,34 @@ function readServerPort(vaultPath) {
 }
 
 // src/modals/install-extension.ts
-var import_node_child_process = require("node:child_process");
+var import_node_child_process2 = require("node:child_process");
 var import_node_fs2 = __toESM(require("node:fs"), 1);
 var import_node_os2 = __toESM(require("node:os"), 1);
 var import_node_path2 = __toESM(require("node:path"), 1);
 var import_node_util = require("node:util");
-var import_obsidian = require("obsidian");
-var execAsync = (0, import_node_util.promisify)(import_node_child_process.exec);
-function getPackageJsonPath() {
+var import_obsidian2 = require("obsidian");
+var execAsync = (0, import_node_util.promisify)(import_node_child_process2.exec);
+function getGlobalPackageJsonPath() {
   return import_node_path2.default.join(import_node_os2.default.homedir(), ".pi/agent/npm/node_modules/pi-vault-mind/package.json");
 }
-async function checkVaultMindInstalled(piBinaryPath) {
-  if (import_node_fs2.default.existsSync(getPackageJsonPath())) {
+function getLocalPackageJsonPath(cwd) {
+  return import_node_path2.default.join(cwd, ".pi/npm/node_modules/pi-vault-mind/package.json");
+}
+function loginShell() {
+  return process.env.SHELL || (process.platform === "darwin" ? "/bin/zsh" : "/bin/bash");
+}
+async function checkVaultMindInstalled(piBinaryPath, cwd) {
+  if (cwd && import_node_fs2.default.existsSync(getLocalPackageJsonPath(cwd))) {
+    return true;
+  }
+  if (import_node_fs2.default.existsSync(getGlobalPackageJsonPath())) {
     return true;
   }
   try {
-    const { stdout, stderr } = await execAsync(`${piBinaryPath} list`);
+    const { stdout, stderr } = await execAsync(`${piBinaryPath} list`, {
+      shell: loginShell(),
+      env: { ...process.env, PATH: process.env.PATH }
+    });
     const output = `${stdout}
 ${stderr}`;
     return output.includes("pi-vault-mind");
@@ -402,7 +545,7 @@ ${stderr}`;
     return false;
   }
 }
-var InstallVaultMindExtensionModal = class extends import_obsidian.Modal {
+var InstallVaultMindExtensionModal = class extends import_obsidian2.Modal {
   options;
   statusEl = null;
   installButton = null;
@@ -419,7 +562,7 @@ var InstallVaultMindExtensionModal = class extends import_obsidian.Modal {
     contentEl.createEl("p", {
       text: "The Vault Mind Obsidian plugin needs the pi-vault-mind pi extension installed in your pi session. Install it now to enable indexing, search, and chat."
     });
-    const command = `${this.options.piBinaryPath} install npm:pi-vault-mind`;
+    const command = `${this.options.piBinaryPath} install npm:pi-vault-mind -l`;
     const commandRow = contentEl.createEl("div", {
       cls: "vault-mind-install-command-row"
     });
@@ -466,7 +609,10 @@ var InstallVaultMindExtensionModal = class extends import_obsidian.Modal {
     this.setButtonsDisabled(true);
     this.setStatus("Installing pi-vault-mind\u2026");
     try {
-      const { stdout, stderr } = await execAsync(command, { timeout: 12e4 });
+      const { stdout, stderr } = await execAsync(command, {
+        timeout: 12e4,
+        shell: loginShell()
+      });
       const output = `${stdout}
 ${stderr}`.trim();
       if (output) {
@@ -474,7 +620,7 @@ ${stderr}`.trim();
       }
       const installed = await checkVaultMindInstalled(this.options.piBinaryPath);
       if (installed) {
-        new import_obsidian.Notice("Vault Mind: pi-vault-mind installed");
+        new import_obsidian2.Notice("Vault Mind: pi-vault-mind installed");
         this.close();
       } else {
         this.setStatus(
@@ -491,195 +637,10 @@ ${stderr}`.trim();
   async copyCommand(command) {
     try {
       await navigator.clipboard.writeText(command);
-      new import_obsidian.Notice("Vault Mind: command copied to clipboard");
-    } catch {
-      new import_obsidian.Notice("Vault Mind: failed to copy command");
-    }
-  }
-};
-
-// src/modals/libsecret.ts
-var import_obsidian2 = require("obsidian");
-var INSECURE_CONFIRMATION2 = "INSECURE";
-var PLATFORMS = [
-  {
-    label: "macOS",
-    notes: ["Keychain is the OS keychain. No setup needed."],
-    commands: []
-  },
-  {
-    label: "Windows",
-    notes: ["DPAPI is the OS keychain. No setup needed."],
-    commands: []
-  },
-  {
-    label: "Debian / Ubuntu (including WSL)",
-    notes: ["Restart Obsidian after installing."],
-    commands: ["sudo apt install libsecret-1-0 gnome-keyring"]
-  },
-  {
-    label: "Fedora / RHEL",
-    notes: ["Restart Obsidian after installing."],
-    commands: ["sudo dnf install libsecret gnome-keyring"]
-  },
-  {
-    label: "Arch / Manjaro",
-    notes: ["Restart Obsidian after installing."],
-    commands: ["sudo pacman -S libsecret gnome-keyring"]
-  },
-  {
-    label: "Alpine",
-    notes: ["Restart Obsidian after installing."],
-    commands: ["sudo apk add libsecret gnome-keyring"]
-  },
-  {
-    label: "Gentoo / Funtoo",
-    notes: [
-      "Install with the libsecret USE flag. kwallet is not supported by Electron's safeStorage on Linux.",
-      "Start gnome-keyring-daemon on the session bus, then verify the D-Bus service is reachable.",
-      "Launch Obsidian from the same shell so DBUS_SESSION_BUS_ADDRESS is inherited."
-    ],
-    commands: [
-      "emerge --ask gnome-base/libsecret gnome-base/gnome-keyring",
-      'eval "$(keychain --eval --agents ssh,gpg)"',
-      "dbus-send --session --dest=org.freedesktop.secrets --type=method_call /org/freedesktop/secrets org.freedesktop.DBus.Introspectable.Introspect"
-    ]
-  },
-  {
-    label: "NixOS",
-    notes: ["Add the service to configuration.nix, then restart Obsidian."],
-    commands: ["services.gnome-keyring.enable = true;"]
-  },
-  {
-    label: "Void / Solus",
-    notes: [
-      "See the upstream wiki for your distro. The requirement is libsecret plus a running gnome-keyring-daemon exposing org.freedesktop.secrets on the session bus."
-    ],
-    commands: []
-  }
-];
-var KEYCHAIN_NOTE = "Note: keychain 2.8.5 (Funtoo) reuses an existing keyring across shells; it does not start one. In a headless WSL session the gnome-keyring-daemon may not auto-start, which is why the Funtoo/WSL instructions call out the explicit keychain --eval step.";
-var InstallLibsecretModal = class extends import_obsidian2.Modal {
-  options;
-  confirmationEl = null;
-  constructor(app, options) {
-    super(app);
-    this.options = options;
-  }
-  onOpen() {
-    const { contentEl } = this;
-    this.setTitle("Install libsecret / configure keyring");
-    contentEl.empty();
-    contentEl.createEl("p", {
-      text: "Electron safeStorage needs an OS keychain to encrypt the Vault Mind API token. Choose your platform and run the command, then restart Obsidian."
-    });
-    for (const platform of PLATFORMS) {
-      const isRelevant = this.isRelevantPlatform(platform.label);
-      const section = contentEl.createEl("div", {
-        cls: `vault-mind-libsecret-section${isRelevant ? " vault-mind-libsecret-relevant" : ""}`
-      });
-      section.createEl("h3", { text: platform.label });
-      for (const note of platform.notes) {
-        section.createEl("p", { text: note });
-      }
-      if (platform.commands.length > 0) {
-        const list = section.createEl("div", { cls: "vault-mind-libsecret-commands" });
-        for (const command of platform.commands) {
-          const row = list.createEl("div", { cls: "vault-mind-libsecret-command-row" });
-          const code = row.createEl("code", {
-            cls: "vault-mind-libsecret-command",
-            text: command
-          });
-          const copyBtn = row.createEl("button", {
-            cls: "vault-mind-libsecret-copy",
-            text: "Copy"
-          });
-          copyBtn.addEventListener("click", () => this.copyCommand(command, copyBtn));
-        }
-      }
-    }
-    contentEl.createEl("p", {
-      cls: "vault-mind-libsecret-note",
-      text: KEYCHAIN_NOTE
-    });
-    const divider = contentEl.createEl("hr", { cls: "vault-mind-libsecret-divider" });
-    divider.style.margin = "var(--size-4-4) 0";
-    const insecureContainer = contentEl.createEl("div", { cls: "vault-mind-libsecret-insecure" });
-    insecureContainer.createEl("p", {
-      cls: "vault-mind-warning",
-      text: "If you cannot install libsecret, you can continue without encrypting the token. This stores the token in plaintext and is not recommended."
-    });
-    const revealBtn = insecureContainer.createEl("button", {
-      cls: "mod-warning",
-      text: "Continue without encryption (INSECURE)"
-    });
-    revealBtn.addEventListener("click", () => this.showConfirmation(insecureContainer, revealBtn));
-    this.confirmationEl = insecureContainer.createEl("div", {
-      cls: "vault-mind-libsecret-confirmation"
-    });
-    this.confirmationEl.style.display = "none";
-  }
-  onClose() {
-    this.contentEl.empty();
-  }
-  isRelevantPlatform(label) {
-    if (import_obsidian2.Platform.isMacOS && label.startsWith("macOS")) return true;
-    if (import_obsidian2.Platform.isWin && label.startsWith("Windows")) return true;
-    if (import_obsidian2.Platform.isLinux && !import_obsidian2.Platform.isMacOS && !import_obsidian2.Platform.isWin) {
-      return !label.startsWith("macOS") && !label.startsWith("Windows");
-    }
-    return false;
-  }
-  async copyCommand(command, button) {
-    try {
-      await navigator.clipboard.writeText(command);
-      const original = button.textContent ?? "Copy";
-      button.textContent = "Copied";
-      activeWindow.setTimeout(() => {
-        button.textContent = original;
-      }, 1500);
+      new import_obsidian2.Notice("Vault Mind: command copied to clipboard");
     } catch {
       new import_obsidian2.Notice("Vault Mind: failed to copy command");
     }
-  }
-  showConfirmation(container, revealBtn) {
-    revealBtn.disabled = true;
-    if (!this.confirmationEl) return;
-    this.confirmationEl.style.display = "block";
-    this.confirmationEl.empty();
-    this.confirmationEl.createEl("p", {
-      text: `Type "${INSECURE_CONFIRMATION2}" to confirm you want to store the token without encryption.`
-    });
-    const input = this.confirmationEl.createEl("input", {
-      type: "text",
-      placeholder: INSECURE_CONFIRMATION2
-    });
-    input.style.width = "100%";
-    input.style.marginBottom = "var(--size-4-2)";
-    const confirmBtn = this.confirmationEl.createEl("button", {
-      cls: "mod-warning",
-      text: "I understand \u2014 store token in plaintext"
-    });
-    confirmBtn.disabled = true;
-    input.addEventListener("input", () => {
-      confirmBtn.disabled = input.value !== INSECURE_CONFIRMATION2;
-    });
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && input.value === INSECURE_CONFIRMATION2) {
-        void this.confirmInsecure();
-      }
-    });
-    confirmBtn.addEventListener("click", () => void this.confirmInsecure());
-  }
-  async confirmInsecure() {
-    const ok = await this.options.tokenStore.optInToInsecure(INSECURE_CONFIRMATION2);
-    if (!ok) {
-      new import_obsidian2.Notice("Vault Mind: confirmation did not match. Token will not be stored in plaintext.");
-      return;
-    }
-    new import_obsidian2.Notice("Vault Mind: plaintext opt-in enabled. Import or paste a token to continue.");
-    this.options.onOptIn?.();
-    this.close();
   }
 };
 
@@ -773,7 +734,7 @@ function registerVaultMindProtocolHandlers(plugin) {
 }
 
 // src/views/chat.ts
-var import_node_child_process2 = require("node:child_process");
+var import_node_child_process3 = require("node:child_process");
 var import_node_fs3 = require("node:fs");
 var import_node_path3 = __toESM(require("node:path"), 1);
 var import_node_readline = require("node:readline");
@@ -1130,7 +1091,7 @@ ${text}`;
       (0, import_node_fs3.mkdirSync)(piConfigDir, { recursive: true });
     } catch {
     }
-    this.process = (0, import_node_child_process2.spawn)(this.deps.piBinaryPath, ["--mode", "rpc", "--no-session"], {
+    this.process = (0, import_node_child_process3.spawn)(this.deps.piBinaryPath, ["--mode", "rpc", "--no-session"], {
       shell: true,
       cwd,
       stdio: ["pipe", "pipe", "pipe"],
@@ -2052,15 +2013,202 @@ var SetupView = class extends import_obsidian6.ItemView {
 };
 
 // src/views/status.ts
-var import_node_child_process3 = require("node:child_process");
+var import_node_child_process4 = require("node:child_process");
+var import_obsidian8 = require("obsidian");
+
+// src/modals/libsecret.ts
 var import_obsidian7 = require("obsidian");
+var INSECURE_CONFIRMATION = "INSECURE";
+var PLATFORMS = [
+  {
+    label: "macOS",
+    notes: ["Keychain is the OS keychain. No setup needed."],
+    commands: []
+  },
+  {
+    label: "Windows",
+    notes: ["DPAPI is the OS keychain. No setup needed."],
+    commands: []
+  },
+  {
+    label: "Debian / Ubuntu (including WSL)",
+    notes: ["Restart Obsidian after installing."],
+    commands: ["sudo apt install libsecret-1-0 gnome-keyring"]
+  },
+  {
+    label: "Fedora / RHEL",
+    notes: ["Restart Obsidian after installing."],
+    commands: ["sudo dnf install libsecret gnome-keyring"]
+  },
+  {
+    label: "Arch / Manjaro",
+    notes: ["Restart Obsidian after installing."],
+    commands: ["sudo pacman -S libsecret gnome-keyring"]
+  },
+  {
+    label: "Alpine",
+    notes: ["Restart Obsidian after installing."],
+    commands: ["sudo apk add libsecret gnome-keyring"]
+  },
+  {
+    label: "Gentoo / Funtoo",
+    notes: [
+      "Install with the libsecret USE flag. kwallet is not supported by Electron's safeStorage on Linux.",
+      "Start gnome-keyring-daemon on the session bus, then verify the D-Bus service is reachable.",
+      "Launch Obsidian from the same shell so DBUS_SESSION_BUS_ADDRESS is inherited."
+    ],
+    commands: [
+      "emerge --ask gnome-base/libsecret gnome-base/gnome-keyring",
+      'eval "$(keychain --eval --agents ssh,gpg)"',
+      "dbus-send --session --dest=org.freedesktop.secrets --type=method_call /org/freedesktop/secrets org.freedesktop.DBus.Introspectable.Introspect"
+    ]
+  },
+  {
+    label: "NixOS",
+    notes: ["Add the service to configuration.nix, then restart Obsidian."],
+    commands: ["services.gnome-keyring.enable = true;"]
+  },
+  {
+    label: "Void / Solus",
+    notes: [
+      "See the upstream wiki for your distro. The requirement is libsecret plus a running gnome-keyring-daemon exposing org.freedesktop.secrets on the session bus."
+    ],
+    commands: []
+  }
+];
+var KEYCHAIN_NOTE = "Note: keychain 2.8.5 (Funtoo) reuses an existing keyring across shells; it does not start one. In a headless WSL session the gnome-keyring-daemon may not auto-start, which is why the Funtoo/WSL instructions call out the explicit keychain --eval step.";
+var InstallLibsecretModal = class extends import_obsidian7.Modal {
+  options;
+  confirmationEl = null;
+  constructor(app, options) {
+    super(app);
+    this.options = options;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    this.setTitle("Install libsecret / configure keyring");
+    contentEl.empty();
+    contentEl.createEl("p", {
+      text: "Electron safeStorage needs an OS keychain to encrypt the Vault Mind API token. Choose your platform and run the command, then restart Obsidian."
+    });
+    for (const platform of PLATFORMS) {
+      const isRelevant = this.isRelevantPlatform(platform.label);
+      const section = contentEl.createEl("div", {
+        cls: `vault-mind-libsecret-section${isRelevant ? " vault-mind-libsecret-relevant" : ""}`
+      });
+      section.createEl("h3", { text: platform.label });
+      for (const note of platform.notes) {
+        section.createEl("p", { text: note });
+      }
+      if (platform.commands.length > 0) {
+        const list = section.createEl("div", { cls: "vault-mind-libsecret-commands" });
+        for (const command of platform.commands) {
+          const row = list.createEl("div", { cls: "vault-mind-libsecret-command-row" });
+          const code = row.createEl("code", {
+            cls: "vault-mind-libsecret-command",
+            text: command
+          });
+          const copyBtn = row.createEl("button", {
+            cls: "vault-mind-libsecret-copy",
+            text: "Copy"
+          });
+          copyBtn.addEventListener("click", () => this.copyCommand(command, copyBtn));
+        }
+      }
+    }
+    contentEl.createEl("p", {
+      cls: "vault-mind-libsecret-note",
+      text: KEYCHAIN_NOTE
+    });
+    const divider = contentEl.createEl("hr", { cls: "vault-mind-libsecret-divider" });
+    divider.style.margin = "var(--size-4-4) 0";
+    const insecureContainer = contentEl.createEl("div", { cls: "vault-mind-libsecret-insecure" });
+    insecureContainer.createEl("p", {
+      cls: "vault-mind-warning",
+      text: "If you cannot install libsecret, you can continue without encrypting the token. This stores the token in plaintext and is not recommended."
+    });
+    const revealBtn = insecureContainer.createEl("button", {
+      cls: "mod-warning",
+      text: "Continue without encryption (INSECURE)"
+    });
+    revealBtn.addEventListener("click", () => this.showConfirmation(insecureContainer, revealBtn));
+    this.confirmationEl = insecureContainer.createEl("div", {
+      cls: "vault-mind-libsecret-confirmation"
+    });
+    this.confirmationEl.style.display = "none";
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+  isRelevantPlatform(label) {
+    if (import_obsidian7.Platform.isMacOS && label.startsWith("macOS")) return true;
+    if (import_obsidian7.Platform.isWin && label.startsWith("Windows")) return true;
+    if (import_obsidian7.Platform.isLinux && !import_obsidian7.Platform.isMacOS && !import_obsidian7.Platform.isWin) {
+      return !label.startsWith("macOS") && !label.startsWith("Windows");
+    }
+    return false;
+  }
+  async copyCommand(command, button) {
+    try {
+      await navigator.clipboard.writeText(command);
+      const original = button.textContent ?? "Copy";
+      button.textContent = "Copied";
+      activeWindow.setTimeout(() => {
+        button.textContent = original;
+      }, 1500);
+    } catch {
+      new import_obsidian7.Notice("Vault Mind: failed to copy command");
+    }
+  }
+  showConfirmation(container, revealBtn) {
+    revealBtn.disabled = true;
+    if (!this.confirmationEl) return;
+    this.confirmationEl.style.display = "block";
+    this.confirmationEl.empty();
+    this.confirmationEl.createEl("p", {
+      text: `Type "${INSECURE_CONFIRMATION}" to confirm you want to store the token without encryption.`
+    });
+    const input = this.confirmationEl.createEl("input", {
+      type: "text",
+      placeholder: INSECURE_CONFIRMATION
+    });
+    input.style.width = "100%";
+    input.style.marginBottom = "var(--size-4-2)";
+    const confirmBtn = this.confirmationEl.createEl("button", {
+      cls: "mod-warning",
+      text: "I understand \u2014 store token in plaintext"
+    });
+    confirmBtn.disabled = true;
+    input.addEventListener("input", () => {
+      confirmBtn.disabled = input.value !== INSECURE_CONFIRMATION;
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && input.value === INSECURE_CONFIRMATION) {
+        void this.confirmInsecure();
+      }
+    });
+    confirmBtn.addEventListener("click", () => void this.confirmInsecure());
+  }
+  async confirmInsecure() {
+    const ok = await this.options.tokenStore.optInToInsecure(INSECURE_CONFIRMATION);
+    if (!ok) {
+      new import_obsidian7.Notice("Vault Mind: confirmation did not match. Token will not be stored in plaintext.");
+      return;
+    }
+    new import_obsidian7.Notice("Vault Mind: plaintext opt-in enabled. Import or paste a token to continue.");
+    this.options.onOptIn?.();
+    this.close();
+  }
+};
+
+// src/views/status.ts
 function shellQuote(value) {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
 function winQuote(value) {
   return `"${value.replace(/"/g, '""')}"`;
 }
-var StatusView = class extends import_obsidian7.ItemView {
+var StatusView = class extends import_obsidian8.ItemView {
   deps;
   client = null;
   root = null;
@@ -2137,7 +2285,7 @@ var StatusView = class extends import_obsidian7.ItemView {
     });
     this.watcherBtn.addEventListener("click", () => this.toggleWatcher());
     const launchBtn = this.root.createEl("button", {
-      text: import_obsidian7.Platform.isMacOS ? "Open in Terminal" : "Open in Console",
+      text: import_obsidian8.Platform.isMacOS ? "Open in Terminal" : "Open in Console",
       attr: { "aria-label": "Open pi TUI in external terminal" }
     });
     launchBtn.addEventListener("click", () => this.launchPiTui());
@@ -2151,7 +2299,7 @@ var StatusView = class extends import_obsidian7.ItemView {
       title: "Search",
       attr: { "aria-label": "Search vault" }
     });
-    (0, import_obsidian7.setIcon)(searchBtn, "search");
+    (0, import_obsidian8.setIcon)(searchBtn, "search");
     searchBtn.addEventListener("click", () => this.runSearch(input.value));
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") this.runSearch(input.value);
@@ -2214,22 +2362,22 @@ var StatusView = class extends import_obsidian7.ItemView {
   handleEvent(event) {
     switch (event.type) {
       case "vault-edit-proposed": {
-        new import_obsidian7.Notice(`Vault Mind: proposed edit for ${event.path}`);
+        new import_obsidian8.Notice(`Vault Mind: proposed edit for ${event.path}`);
         const file = this.app.vault.getAbstractFileByPath(event.path);
         if (file) {
           new DiffModal(
             this.app,
             { path: event.path, old: event.oldContent, new: event.newContent },
             async () => {
-              if (!(file instanceof import_obsidian7.TFile)) {
-                new import_obsidian7.Notice(`Vault Mind: file not found: ${event.path}`);
+              if (!(file instanceof import_obsidian8.TFile)) {
+                new import_obsidian8.Notice(`Vault Mind: file not found: ${event.path}`);
                 return;
               }
               try {
                 await this.app.vault.modify(file, event.newContent);
-                new import_obsidian7.Notice(`Vault Mind: accepted changes to ${event.path}`);
+                new import_obsidian8.Notice(`Vault Mind: accepted changes to ${event.path}`);
               } catch (err) {
-                new import_obsidian7.Notice(`Vault Mind: failed to write ${event.path}: ${err.message}`);
+                new import_obsidian8.Notice(`Vault Mind: failed to write ${event.path}: ${err.message}`);
               }
             }
           ).open();
@@ -2237,7 +2385,7 @@ var StatusView = class extends import_obsidian7.ItemView {
         break;
       }
       case "job-notification":
-        new import_obsidian7.Notice(`Vault Mind job ${event.jobId}: ${event.status} \u2014 ${event.message}`);
+        new import_obsidian8.Notice(`Vault Mind job ${event.jobId}: ${event.status} \u2014 ${event.message}`);
         break;
       case "context-request":
         break;
@@ -2266,7 +2414,7 @@ var StatusView = class extends import_obsidian7.ItemView {
   setError(message) {
     this.resultsBox?.empty();
     this.resultsBox?.createEl("p", { cls: "vault-mind-empty", text: message });
-    new import_obsidian7.Notice(`Vault Mind: ${message}`);
+    new import_obsidian8.Notice(`Vault Mind: ${message}`);
   }
   async runSearch(query) {
     if (!this.client || !query.trim()) return;
@@ -2292,14 +2440,14 @@ var StatusView = class extends import_obsidian7.ItemView {
       const display = (fact || source).replace(/\|/g, "\\|").replace(/\]\]/g, "");
       const markdown = source ? `[[${source}|${display}]]` : display || JSON.stringify(hit);
       const li = list.createEl("li");
-      await import_obsidian7.MarkdownRenderer.render(this.app, markdown, li, "", this);
+      await import_obsidian8.MarkdownRenderer.render(this.app, markdown, li, "", this);
     }
   }
   async toggleWatcher() {
     if (!this.client) return;
     try {
       const res = await this.client.toggleWatcher();
-      new import_obsidian7.Notice(`Vault Mind: watcher ${res.watcher ? "started" : "stopped"}`);
+      new import_obsidian8.Notice(`Vault Mind: watcher ${res.watcher ? "started" : "stopped"}`);
       await this.refreshStatus();
     } catch (err) {
       this.setError(`Watcher toggle failed: ${err.message}`);
@@ -2308,20 +2456,20 @@ var StatusView = class extends import_obsidian7.ItemView {
   async importToken() {
     const ok = await this.deps.tokenStore.importFromDotenv();
     if (!ok) {
-      new import_obsidian7.Notice("Vault Mind: token not found in ~/.pi/agent/vault-mind.env");
+      new import_obsidian8.Notice("Vault Mind: token not found in ~/.pi/agent/vault-mind.env");
       return;
     }
-    new import_obsidian7.Notice("Vault Mind: token imported");
+    new import_obsidian8.Notice("Vault Mind: token imported");
     await this.connect();
   }
   async forgetToken() {
     await this.deps.tokenStore.forgetToken();
-    new import_obsidian7.Notice("Vault Mind: token forgotten");
+    new import_obsidian8.Notice("Vault Mind: token forgotten");
     this.disconnect();
   }
   launchPiTui() {
-    if (!import_obsidian7.Platform.isDesktop) {
-      new import_obsidian7.Notice("Vault Mind: TUI launcher is only available on desktop");
+    if (!import_obsidian8.Platform.isDesktop) {
+      new import_obsidian8.Notice("Vault Mind: TUI launcher is only available on desktop");
       return;
     }
     const cwd = this.deps.vaultPath;
@@ -2329,21 +2477,21 @@ var StatusView = class extends import_obsidian7.ItemView {
     const piBinary = this.deps.piBinaryPath;
     const env = { ...process.env, PI_CODING_AGENT_DIR: piConfigDir };
     try {
-      if (import_obsidian7.Platform.isMacOS) {
+      if (import_obsidian8.Platform.isMacOS) {
         const script = `cd ${shellQuote(cwd)} && export PI_CODING_AGENT_DIR=${shellQuote(piConfigDir)} && ${piBinary} --cwd ${shellQuote(cwd)}`;
         const appleScript = `tell application "Terminal" to do script "${script.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-        (0, import_node_child_process3.spawn)("osascript", ["-e", appleScript]);
-      } else if (import_obsidian7.Platform.isLinux) {
+        (0, import_node_child_process4.spawn)("osascript", ["-e", appleScript]);
+      } else if (import_obsidian8.Platform.isLinux) {
         const cmd = `cd ${shellQuote(cwd)} && export PI_CODING_AGENT_DIR=${shellQuote(piConfigDir)} && ${piBinary} --cwd ${shellQuote(cwd)}`;
-        (0, import_node_child_process3.spawn)("x-terminal-emulator", ["-e", "bash", "-c", cmd], { env });
-      } else if (import_obsidian7.Platform.isWin) {
+        (0, import_node_child_process4.spawn)("x-terminal-emulator", ["-e", "bash", "-c", cmd], { env });
+      } else if (import_obsidian8.Platform.isWin) {
         const cmd = `cd /d ${winQuote(cwd)} && set PI_CODING_AGENT_DIR=${winQuote(piConfigDir)} && ${piBinary} --cwd ${winQuote(cwd)}`;
-        (0, import_node_child_process3.spawn)("cmd", ["/c", "start", "cmd", "/k", cmd], { env, shell: false });
+        (0, import_node_child_process4.spawn)("cmd", ["/c", "start", "cmd", "/k", cmd], { env, shell: false });
       } else {
-        new import_obsidian7.Notice("Vault Mind: unsupported platform for TUI launcher");
+        new import_obsidian8.Notice("Vault Mind: unsupported platform for TUI launcher");
       }
     } catch (err) {
-      new import_obsidian7.Notice(`Vault Mind: failed to launch pi TUI: ${err.message}`);
+      new import_obsidian8.Notice(`Vault Mind: failed to launch pi TUI: ${err.message}`);
     }
   }
 };
@@ -2362,7 +2510,7 @@ var DEFAULT_SETTINGS = {
   includeFilePicker: true,
   includeSlashCommands: true
 };
-var VaultMindSettingTab = class extends import_obsidian8.PluginSettingTab {
+var VaultMindSettingTab = class extends import_obsidian9.PluginSettingTab {
   plugin;
   constructor(app, plugin) {
     super(app, plugin);
@@ -2371,100 +2519,110 @@ var VaultMindSettingTab = class extends import_obsidian8.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    new import_obsidian8.Setting(containerEl).setName("Connection").setHeading();
-    new import_obsidian8.Setting(containerEl).setName("Host").setDesc("HTTP server host").addText(
+    new import_obsidian9.Setting(containerEl).setName("Connection").setHeading();
+    new import_obsidian9.Setting(containerEl).setName("Host").setDesc("HTTP server host").addText(
       (text) => text.setPlaceholder("127.0.0.1").setValue(this.plugin.settings.host).onChange(async (value) => {
         this.plugin.settings.host = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian8.Setting(containerEl).setName("Port").setDesc("HTTP server port").addText(
+    new import_obsidian9.Setting(containerEl).setName("Port").setDesc("HTTP server port").addText(
       (text) => text.setPlaceholder("11435").setValue(String(this.plugin.settings.port)).onChange(async (value) => {
         const n = Number.parseInt(value, 10);
         this.plugin.settings.port = Number.isNaN(n) ? 11435 : n;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian8.Setting(containerEl).setName("Pi binary path").setDesc("Path to the pi executable for the chat view").addText(
+    new import_obsidian9.Setting(containerEl).setName("Pi binary path").setDesc("Path to the pi executable for the chat view").addText(
       (text) => text.setPlaceholder("pi").setValue(this.plugin.settings.piBinaryPath).onChange(async (value) => {
         this.plugin.settings.piBinaryPath = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian8.Setting(containerEl).setName("Check extension on startup").setDesc("Detect whether pi-vault-mind is installed in your pi session when Obsidian starts").addToggle(
+    new import_obsidian9.Setting(containerEl).setName("Check extension on startup").setDesc("Detect whether pi-vault-mind is installed in your pi session when Obsidian starts").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.checkExtensionOnStartup).onChange(async (value) => {
         this.plugin.settings.checkExtensionOnStartup = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian8.Setting(containerEl).setName("Include editor context").setDesc("Send the active note path and selection with chat messages").addToggle(
+    new import_obsidian9.Setting(containerEl).setName("Include editor context").setDesc("Send the active note path and selection with chat messages").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.includeEditorContext).onChange(async (value) => {
         this.plugin.settings.includeEditorContext = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian8.Setting(containerEl).setName("Include file picker").setDesc("Allow @ references in the chat input to attach vault files as context").addToggle(
+    new import_obsidian9.Setting(containerEl).setName("Include file picker").setDesc("Allow @ references in the chat input to attach vault files as context").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.includeFilePicker).onChange(async (value) => {
         this.plugin.settings.includeFilePicker = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian8.Setting(containerEl).setName("Include slash commands").setDesc("Allow / references in the chat input to run Pi commands").addToggle(
+    new import_obsidian9.Setting(containerEl).setName("Include slash commands").setDesc("Allow / references in the chat input to run Pi commands").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.includeSlashCommands).onChange(async (value) => {
         this.plugin.settings.includeSlashCommands = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian8.Setting(containerEl).setName("Folder layout").setHeading();
-    new import_obsidian8.Setting(containerEl).setName("Inbox").setDesc("Agent input folder (default: Agent/Inbox)").addText(
+    new import_obsidian9.Setting(containerEl).setName("Folder layout").setHeading();
+    new import_obsidian9.Setting(containerEl).setName("Inbox").setDesc("Agent input folder (default: Agent/Inbox)").addText(
       (text) => text.setPlaceholder("Agent/Inbox").onChange(async (value) => {
         await this.saveFolderSetting("inbox", value);
       })
     );
-    new import_obsidian8.Setting(containerEl).setName("Library").setDesc("Knowledge output folder (default: Agent/Library)").addText(
+    new import_obsidian9.Setting(containerEl).setName("Library").setDesc("Knowledge output folder (default: Agent/Library)").addText(
       (text) => text.setPlaceholder("Agent/Library").onChange(async (value) => {
         await this.saveFolderSetting("library", value);
       })
     );
-    new import_obsidian8.Setting(containerEl).setName("Presentations").setDesc("Broadcaster output folder (default: Agent/Presentations)").addText(
+    new import_obsidian9.Setting(containerEl).setName("Presentations").setDesc("Broadcaster output folder (default: Agent/Presentations)").addText(
       (text) => text.setPlaceholder("Agent/Presentations").onChange(async (value) => {
         await this.saveFolderSetting("presentations", value);
       })
     );
-    new import_obsidian8.Setting(containerEl).setName("Journal").setDesc("Audit/checkpoint trail folder (default: Agent/Journal)").addText(
+    new import_obsidian9.Setting(containerEl).setName("Journal").setDesc("Audit/checkpoint trail folder (default: Agent/Journal)").addText(
       (text) => text.setPlaceholder("Agent/Journal").onChange(async (value) => {
         await this.saveFolderSetting("journal", value);
       })
     );
     const token = this.plugin.tokenStore;
-    new import_obsidian8.Setting(containerEl).setName("API token").setDesc(`Storage: ${token.getMode()}`).addButton(
+    const backends = token.availableBackends();
+    const currentMode = token.getMode();
+    new import_obsidian9.Setting(containerEl).setName("Token storage").setHeading();
+    new import_obsidian9.Setting(containerEl).setName("Backend").setDesc(`Current: ${currentMode === "none" ? "not configured" : currentMode}`).addDropdown((dropdown) => {
+      for (const b of backends) {
+        dropdown.addOption(
+          b,
+          b === "keychain" ? "macOS Keychain" : b === "1password" ? "1Password" : ".env file (vault-local)"
+        );
+      }
+      dropdown.setValue(currentMode === "none" ? backends[0] : currentMode);
+      dropdown.onChange(async (value) => {
+        const existing = await token.getToken();
+        if (existing) {
+          await token.setToken(existing, value);
+          new import_obsidian9.Notice(`Vault Mind: token moved to ${value}`);
+        }
+        this.display();
+      });
+    });
+    new import_obsidian9.Setting(containerEl).setName("Import token").setDesc("Load from ~/.pi/agent/vault-mind.env into the selected backend.").addButton(
       (btn) => btn.setButtonText("Import from dotenv").onClick(async () => {
         const ok = await token.importFromDotenv();
-        new import_obsidian8.Notice(ok ? "Vault Mind: token imported" : "Vault Mind: no token found in dotenv");
+        new import_obsidian9.Notice(ok ? "Vault Mind: token imported" : "Vault Mind: no token found in dotenv");
         this.display();
       })
     ).addButton(
       (btn) => btn.setButtonText("Forget").onClick(async () => {
         await token.forgetToken();
-        new import_obsidian8.Notice("Vault Mind: token forgotten");
+        new import_obsidian9.Notice("Vault Mind: token forgotten");
         this.display();
       })
     );
-    if (!token.isKeychainAvailable()) {
-      new import_obsidian8.Setting(containerEl).setName("OS keychain unavailable").setDesc("Electron safeStorage cannot encrypt the token without libsecret / gnome-keyring.").addButton(
-        (btn) => btn.setButtonText("Install libsecret").setTooltip("Show platform-specific install commands").onClick(() => {
-          new InstallLibsecretModal(this.app, {
-            tokenStore: token,
-            onOptIn: () => this.display()
-          }).open();
-        })
-      );
-    }
   }
   async saveFolderSetting(key, value) {
     const token = await this.plugin.tokenStore.getToken();
     if (!token) {
-      new import_obsidian8.Notice("Vault Mind: no API token configured");
+      new import_obsidian9.Notice("Vault Mind: no API token configured");
       return;
     }
     const client = new VaultMindClient({
@@ -2476,13 +2634,13 @@ var VaultMindSettingTab = class extends import_obsidian8.PluginSettingTab {
       await client.setup({
         folders: { [key]: value || void 0 }
       });
-      new import_obsidian8.Notice(`Vault Mind: ${key} folder saved`);
+      new import_obsidian9.Notice(`Vault Mind: ${key} folder saved`);
     } catch (err) {
-      new import_obsidian8.Notice(`Vault Mind: failed to save ${key} folder \u2014 ${err.message}`);
+      new import_obsidian9.Notice(`Vault Mind: failed to save ${key} folder \u2014 ${err.message}`);
     }
   }
 };
-var VaultMindPlugin = class extends import_obsidian8.Plugin {
+var VaultMindPlugin = class extends import_obsidian9.Plugin {
   editorContext = { filePath: null, cursor: null, selection: null };
   connectionState = { connected: false, error: false };
   statusBarItem = null;
@@ -2495,14 +2653,12 @@ var VaultMindPlugin = class extends import_obsidian8.Plugin {
       async (data) => {
         const existing = await this.loadData() ?? {};
         await this.saveData({ ...existing, token: data });
-      },
-      // @ts-expect-error Electron safeStorage is injected by Obsidian
-      window.electron?.safeStorage
+      }
     );
     this.registerEditorExtension(
       import_view.EditorView.updateListener.of((update) => {
         if (!update.selectionSet) return;
-        const info = update.state.field(import_obsidian8.editorInfoField, false);
+        const info = update.state.field(import_obsidian9.editorInfoField, false);
         const activeFile = this.app.workspace.getActiveFile();
         if (!info?.file || activeFile?.path !== info.file.path) {
           return;
@@ -2516,7 +2672,7 @@ var VaultMindPlugin = class extends import_obsidian8.Plugin {
     );
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
-        const active = this.app.workspace.getActiveViewOfType(import_obsidian8.MarkdownView);
+        const active = this.app.workspace.getActiveViewOfType(import_obsidian9.MarkdownView);
         if (!active?.file) {
           this.editorContext.filePath = null;
           this.editorContext.cursor = null;
@@ -2533,8 +2689,9 @@ var VaultMindPlugin = class extends import_obsidian8.Plugin {
     );
     const vaultPath = this.app.vault.adapter.getBasePath?.() || this.app.vault.getName();
     this.vaultPath = vaultPath;
-    const piConfigDir = (0, import_obsidian8.normalizePath)(`${vaultPath}/.pi/agent`);
-    const systemMdPath = (0, import_obsidian8.normalizePath)(`${piConfigDir}/system.md`);
+    this.tokenStore.setVaultPath(vaultPath);
+    const piConfigDir = (0, import_obsidian9.normalizePath)(`${vaultPath}/.pi/agent`);
+    const systemMdPath = (0, import_obsidian9.normalizePath)(`${piConfigDir}/system.md`);
     const viewDeps = {
       settings: this.settings,
       tokenStore: this.tokenStore,
@@ -2588,7 +2745,7 @@ var VaultMindPlugin = class extends import_obsidian8.Plugin {
         void this.openView(VIEW_TYPE_QUEUE);
       }
     });
-    (0, import_obsidian8.setIcon)(ribbonIconEl, "zap");
+    (0, import_obsidian9.setIcon)(ribbonIconEl, "zap");
     this.addCommand({
       id: "open-queue",
       name: "Open queue",
@@ -2616,7 +2773,7 @@ var VaultMindPlugin = class extends import_obsidian8.Plugin {
     registerVaultMindProtocolHandlers(this);
   }
   async checkExtension() {
-    const installed = await checkVaultMindInstalled(this.settings.piBinaryPath);
+    const installed = await checkVaultMindInstalled(this.settings.piBinaryPath, this.vaultPath);
     if (!installed) {
       new InstallVaultMindExtensionModal(this.app, {
         piBinaryPath: this.settings.piBinaryPath
