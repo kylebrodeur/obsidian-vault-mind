@@ -1894,6 +1894,7 @@ var SetupView = class extends import_obsidian6.ItemView {
   error = null;
   showWizard = false;
   isFreshVault = false;
+  justInitialized = false;
   piBinaryPath = null;
   constructor(leaf, deps) {
     super(leaf);
@@ -1967,6 +1968,10 @@ var SetupView = class extends import_obsidian6.ItemView {
     if (!this.root) return;
     this.root.empty();
     this.root.createEl("h3", { text: "Vault Mind Setup" });
+    if (this.justInitialized) {
+      this.renderPostInit();
+      return;
+    }
     if (!this.status && !this.error && !this.showWizard) {
       this.renderLoading();
       return;
@@ -2006,9 +2011,9 @@ var SetupView = class extends import_obsidian6.ItemView {
           this.addProgressStep(progress, "done", "Vault initialized \u2713");
           new import_obsidian6.Notice("Vault Mind: vault initialized");
           this.isFreshVault = false;
+          this.justInitialized = true;
           await new Promise((r) => activeWindow.setTimeout(r, 800));
           this.render();
-          await this.connect();
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           this.addProgressStep(progress, "error", `Failed: ${message}`);
@@ -2060,6 +2065,57 @@ var SetupView = class extends import_obsidian6.ItemView {
         await navigator.clipboard.writeText(command);
         new import_obsidian6.Notice("Vault Mind: launch command copied");
       });
+    });
+  }
+  renderPostInit() {
+    if (!this.root) return;
+    const card = this.root.createEl("div", { cls: "vault-mind-setup-card" });
+    card.createEl("h3", { text: "\u2713 Vault initialized" });
+    card.createEl("p", {
+      text: "Extensions installed. Next, open a pi session to configure embedding and collections."
+    });
+    const command = `cd ${shellQuote(this.deps.vaultPath)} && PI_CODING_AGENT_DIR=.pi/agent pi`;
+    card.createEl("p", { text: "Run this in your terminal:", cls: "vault-mind-fresh-text" });
+    const codeEl = card.createEl("code", { cls: "vault-mind-install-command", text: command });
+    const copyBtn = card.createEl("button", { text: "Copy command", cls: "mod-cta" });
+    copyBtn.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(command);
+      copyBtn.textContent = "Copied \u2713";
+      activeWindow.setTimeout(() => {
+        copyBtn.textContent = "Copy command";
+      }, 1500);
+    });
+    card.createEl("p", {
+      text: "Then inside pi, run:  /vm setup",
+      cls: "vault-mind-fresh-text"
+    });
+    const tokenSection = this.root.createEl("div");
+    new import_obsidian6.Setting(tokenSection).setName("Configure token (optional)").setDesc("If you have an API token ready, save it now").addButton((btn) => {
+      btn.setButtonText("Configure token").setIcon("key").onClick(() => {
+        tokenInput.style.display = "flex";
+        tokenInput.querySelector("input")?.focus();
+      });
+    });
+    const tokenInput = tokenSection.createEl("div", {
+      cls: "vault-mind-token-setup",
+      attr: { style: "display:none; gap: var(--size-4-2); margin-top: var(--size-4-2);" }
+    });
+    const input = tokenInput.createEl("input", { type: "text", placeholder: "Paste token" });
+    input.style.flex = "1";
+    const saveBtn = tokenInput.createEl("button", { text: "Save", cls: "mod-cta" });
+    saveBtn.addEventListener("click", async () => {
+      const token = input.value.trim();
+      if (!token) {
+        new import_obsidian6.Notice("Vault Mind: enter a token");
+        return;
+      }
+      const ok = await this.deps.tokenStore.setToken(token);
+      if (ok) {
+        new import_obsidian6.Notice("Vault Mind: token saved");
+        tokenInput.style.display = "none";
+      } else {
+        new import_obsidian6.Notice("Vault Mind: failed to save token");
+      }
     });
   }
   addProgressStep(container, status, text) {
