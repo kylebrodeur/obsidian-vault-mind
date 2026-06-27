@@ -7,8 +7,6 @@
 	--vault-mind-status-dot-size: 8px;
 
 	padding: var(--size-4-2);
-	height: 100%;
-	overflow-y: auto;
 }
 
 .vault-mind-chat {
