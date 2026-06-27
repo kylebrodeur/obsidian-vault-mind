@@ -33,8 +33,8 @@ __export(main_exports, {
 });
 module.exports = __toCommonJS(main_exports);
 var import_node_child_process6 = require("node:child_process");
-var import_node_fs4 = require("node:fs");
-var import_node_path4 = __toESM(require("node:path"), 1);
+var import_node_fs5 = require("node:fs");
+var import_node_path5 = __toESM(require("node:path"), 1);
 var import_node_util2 = require("node:util");
 var import_view = require("@codemirror/view");
 var import_obsidian9 = require("obsidian");
@@ -394,8 +394,8 @@ var VaultMindClient = class {
     }, this.reconnectDelay);
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, 3e4);
   }
-  async httpJson(method, path7, body) {
-    const res = await fetch(`${this.baseUrl}${path7}`, {
+  async httpJson(method, path8, body) {
+    const res = await fetch(`${this.baseUrl}${path8}`, {
       method,
       headers: this.authHeaders,
       body: body ? JSON.stringify(body) : void 0
@@ -536,44 +536,94 @@ var import_node_child_process2 = require("node:child_process");
 var fs2 = __toESM(require("node:fs"), 1);
 var os2 = __toESM(require("node:os"), 1);
 var path3 = __toESM(require("node:path"), 1);
-function resolveNodeBinDir() {
-  const home = os2.homedir();
-  const systemBins = ["/usr/local/bin", "/opt/homebrew/bin"];
-  for (const dir of systemBins) {
-    if (fs2.existsSync(path3.join(dir, "node"))) {
-      return dir;
-    }
-  }
-  const fnmBin = path3.join(home, ".local", "share", "fnm", "aliases", "default", "bin");
-  if (fs2.existsSync(path3.join(fnmBin, "node"))) {
-    return fnmBin;
-  }
-  const nvmDir = process.env.NVM_DIR || path3.join(home, ".nvm");
+function resolvePnpmHome() {
+  if (process.env.PNPM_HOME) return process.env.PNPM_HOME;
+  if (process.platform === "darwin") return path3.join(os2.homedir(), "Library", "pnpm");
+  return path3.join(os2.homedir(), ".local", "share", "pnpm");
+}
+function detectFnm() {
+  const fnmRoot = path3.join(os2.homedir(), ".local", "share", "fnm");
+  if (!fs2.existsSync(fnmRoot)) return null;
+  const binDir = path3.join(fnmRoot, "aliases", "default", "bin");
+  const node = path3.join(binDir, "node");
+  if (!fs2.existsSync(node)) return null;
+  return {
+    node,
+    pnpm: fs2.existsSync(path3.join(binDir, "pnpm")) ? path3.join(binDir, "pnpm") : null,
+    binDir,
+    source: "fnm",
+    pnpmHome: resolvePnpmHome()
+  };
+}
+function detectNvm() {
+  const nvmDir = process.env.NVM_DIR || path3.join(os2.homedir(), ".nvm");
   const aliasFile = path3.join(nvmDir, "alias", "default");
+  let version;
   try {
-    let version = fs2.readFileSync(aliasFile, "utf-8").trim();
-    if (!version.startsWith("v") && /^\d/.test(version)) {
-      version = `v${version}`;
-    }
-    if (version.startsWith("v")) {
-      const nvmBin = path3.join(nvmDir, "versions", "node", version, "bin");
-      if (fs2.existsSync(path3.join(nvmBin, "node"))) {
-        return nvmBin;
-      }
-    }
+    version = fs2.readFileSync(aliasFile, "utf-8").trim();
   } catch {
+    return null;
   }
-  const pnpmHome = process.env.PNPM_HOME || (process.platform === "darwin" ? path3.join(home, "Library", "pnpm") : path3.join(home, ".local", "share", "pnpm"));
-  if (fs2.existsSync(path3.join(pnpmHome, "node")) || fs2.existsSync(path3.join(pnpmHome, "pnpm"))) {
-    return pnpmHome;
+  if (!version.startsWith("v") && /^\d/.test(version)) version = `v${version}`;
+  if (!version.startsWith("v")) return null;
+  const binDir = path3.join(nvmDir, "versions", "node", version, "bin");
+  if (!fs2.existsSync(path3.join(binDir, "node"))) return null;
+  return {
+    node: path3.join(binDir, "node"),
+    pnpm: fs2.existsSync(path3.join(binDir, "pnpm")) ? path3.join(binDir, "pnpm") : null,
+    binDir,
+    source: `nvm (${version})`,
+    pnpmHome: resolvePnpmHome(),
+    nvmDir,
+    nvmBin: binDir
+  };
+}
+function detectFallback() {
+  const pnpmHome = resolvePnpmHome();
+  if (fs2.existsSync(path3.join(pnpmHome, "pnpm")) || fs2.existsSync(path3.join(pnpmHome, "pi"))) {
+    return {
+      pnpm: path3.join(pnpmHome, "pnpm"),
+      node: null,
+      binDir: pnpmHome,
+      source: "PNPM_HOME",
+      pnpmHome
+    };
   }
   return null;
 }
+function detectRuntime() {
+  return detectFnm() || detectNvm() || detectFallback();
+}
 function buildExecPath() {
-  const binDir = resolveNodeBinDir();
-  const base = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
-  if (!binDir) return process.env.PATH || base;
-  return `${binDir}:${process.env.PATH || base}`;
+  const dirs = [];
+  const runtime = detectRuntime();
+  if (runtime) {
+    dirs.push(runtime.binDir);
+    if (runtime.pnpmHome && runtime.pnpmHome !== runtime.binDir) {
+      dirs.push(runtime.pnpmHome);
+    }
+  }
+  const pnpmHome = resolvePnpmHome();
+  if (!dirs.includes(pnpmHome)) dirs.push(pnpmHome);
+  dirs.push("/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin");
+  const existing = (process.env.PATH || "").split(":");
+  for (const p of existing) {
+    if (p && !dirs.includes(p)) dirs.push(p);
+  }
+  return dirs.join(":");
+}
+function buildExecEnv() {
+  const env = { ...process.env, PATH: buildExecPath() };
+  const runtime = detectRuntime();
+  if (runtime) {
+    env.PNPM_HOME = runtime.pnpmHome;
+    if (runtime.nvmDir) env.NVM_DIR = runtime.nvmDir;
+    if (runtime.nvmBin) env.NVM_BIN = runtime.nvmBin;
+  }
+  return env;
+}
+function resolveNodeBinDir() {
+  return detectRuntime()?.binDir ?? null;
 }
 function detectPiBinary(configured, vaultPath) {
   if (path3.isAbsolute(configured) && fs2.existsSync(configured)) {
@@ -653,7 +703,7 @@ async function checkVaultMindInstalled(piBinaryPath, cwd) {
     const { stdout, stderr } = await execAsync(`${resolvedPi} list`, {
       shell: loginShell(),
       timeout: 1e4,
-      env: { ...process.env, PATH: buildExecPath() }
+      env: buildExecEnv()
     });
     const output = `${stdout}
 ${stderr}`;
@@ -769,9 +819,9 @@ var DiffModal = class extends import_obsidian3.Modal {
   oldContent;
   newContent;
   onAccept;
-  constructor(app, { path: path7, old, new: newContent }, onAccept) {
+  constructor(app, { path: path8, old, new: newContent }, onAccept) {
     super(app);
-    this.path = path7;
+    this.path = path8;
     this.oldContent = old;
     this.newContent = newContent;
     this.onAccept = onAccept;
@@ -800,32 +850,32 @@ var DiffModal = class extends import_obsidian3.Modal {
 };
 function registerVaultMindProtocolHandlers(plugin) {
   plugin.registerObsidianProtocolHandler("vault-mind/open-file", (params) => {
-    const path7 = params?.path;
-    if (!isString(path7)) {
+    const path8 = params?.path;
+    if (!isString(path8)) {
       new import_obsidian3.Notice("Vault Mind: missing path parameter");
       return;
     }
-    plugin.app.workspace.openLinkText(path7, "", true);
+    plugin.app.workspace.openLinkText(path8, "", true);
   });
   plugin.registerObsidianProtocolHandler("vault-mind/show-diff", (params) => {
-    const path7 = params?.path;
+    const path8 = params?.path;
     const oldContent = params?.old;
     const newContent = params?.new;
-    if (!isString(path7) || !isString(oldContent) || !isString(newContent)) {
+    if (!isString(path8) || !isString(oldContent) || !isString(newContent)) {
       new import_obsidian3.Notice("Vault Mind: missing path, old, or new parameter");
       return;
     }
-    new DiffModal(plugin.app, { path: path7, old: oldContent, new: newContent }, async () => {
-      const file = plugin.app.vault.getAbstractFileByPath(path7);
+    new DiffModal(plugin.app, { path: path8, old: oldContent, new: newContent }, async () => {
+      const file = plugin.app.vault.getAbstractFileByPath(path8);
       if (!(file instanceof import_obsidian3.TFile)) {
-        new import_obsidian3.Notice(`Vault Mind: file not found: ${path7}`);
+        new import_obsidian3.Notice(`Vault Mind: file not found: ${path8}`);
         return;
       }
       try {
         await plugin.app.vault.modify(file, newContent);
-        new import_obsidian3.Notice(`Vault Mind: accepted changes to ${path7}`);
+        new import_obsidian3.Notice(`Vault Mind: accepted changes to ${path8}`);
       } catch (err) {
-        new import_obsidian3.Notice(`Vault Mind: failed to write ${path7}: ${err.message}`);
+        new import_obsidian3.Notice(`Vault Mind: failed to write ${path8}: ${err.message}`);
       }
     }).open();
   });
@@ -1225,8 +1275,7 @@ ${text}`;
       cwd,
       stdio: ["pipe", "pipe", "pipe"],
       env: {
-        ...process.env,
-        PATH: buildExecPath(),
+        ...buildExecEnv(),
         PI_CODING_AGENT_DIR: piConfigDir,
         HOME: process.env.HOME || process.env.USERPROFILE || ""
       }
@@ -1562,6 +1611,8 @@ ${text}`;
 };
 
 // src/views/panel.ts
+var import_node_fs4 = require("node:fs");
+var import_node_path4 = __toESM(require("node:path"), 1);
 var import_obsidian8 = require("obsidian");
 
 // src/views/queue.ts
@@ -2397,6 +2448,13 @@ var VaultMindPanel = class extends import_obsidian8.ItemView {
     const content = this.containerEl.children[1];
     content.empty();
     content.addClass("vault-mind-panel");
+    const hasExtensions = (0, import_node_fs4.existsSync)(
+      import_node_path4.default.join(this.deps.vaultPath, ".pi", "agent", "npm", "node_modules", "pi-vault-mind")
+    );
+    if (!hasExtensions) {
+      this.renderSetupPrompt(content);
+      return;
+    }
     const tabBar = content.createEl("div", { cls: "vault-mind-tab-bar" });
     for (const cfg of TAB_CONFIG) {
       const container = content.createEl("div", { cls: "vault-mind-tab-content" });
@@ -2426,6 +2484,19 @@ var VaultMindPanel = class extends import_obsidian8.ItemView {
       });
     }
     await this.switchTab(this.activeTab);
+  }
+  renderSetupPrompt(content) {
+    const prompt = content.createEl("div", { cls: "vault-mind-setup-prompt" });
+    prompt.createEl("h3", { text: "Vault Mind" });
+    prompt.createEl("p", {
+      text: "This vault hasn't been initialized yet. Open Settings to set up pi-vault-mind."
+    });
+    const btn = prompt.createEl("button", { text: "Open Settings", cls: "mod-cta" });
+    btn.addEventListener("click", () => {
+      const setting = this.app.setting;
+      setting.open();
+      setting.openTabById(this.deps.plugin.manifest.id);
+    });
   }
   async onClose() {
     for (const tab of this.tabs) {
@@ -2512,9 +2583,9 @@ var VaultMindSettingTab = class extends import_obsidian9.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    const piDir = import_node_path4.default.join(this.plugin.vaultPath, ".pi");
-    const hasExtensions = (0, import_node_fs4.existsSync)(
-      import_node_path4.default.join(piDir, "agent", "npm", "node_modules", "pi-vault-mind")
+    const piDir = import_node_path5.default.join(this.plugin.vaultPath, ".pi");
+    const hasExtensions = (0, import_node_fs5.existsSync)(
+      import_node_path5.default.join(piDir, "agent", "npm", "node_modules", "pi-vault-mind")
     );
     if (!hasExtensions) {
       this.renderInitSection(containerEl);
@@ -2678,12 +2749,12 @@ var VaultMindSettingTab = class extends import_obsidian9.PluginSettingTab {
   }
   async runInit(piBinary, progress) {
     const vaultPath = this.plugin.vaultPath;
-    const agentDir = import_node_path4.default.join(vaultPath, ".pi", "agent");
+    const agentDir = import_node_path5.default.join(vaultPath, ".pi", "agent");
     const shell = process.env.SHELL || (process.platform === "darwin" ? "/bin/zsh" : "/bin/bash");
     const options = {
       shell,
       timeout: 12e4,
-      env: { ...process.env, PATH: buildExecPath() }
+      env: buildExecEnv()
     };
     const step1 = this.addStep(progress, "active", "Creating .pi/agent...");
     await execAsync2(`mkdir -p '${agentDir.replace(/'/g, "'\\''")}'`, options);
@@ -2709,9 +2780,9 @@ var VaultMindSettingTab = class extends import_obsidian9.PluginSettingTab {
     this.markDone(step5);
   }
   scaffoldConfig(vaultPath) {
-    const configPath = import_node_path4.default.join(vaultPath, "pi-vault-mind.config.json");
-    const collectionsDir = import_node_path4.default.join(vaultPath, "collections");
-    if (!(0, import_node_fs4.existsSync)(configPath)) {
+    const configPath = import_node_path5.default.join(vaultPath, "pi-vault-mind.config.json");
+    const collectionsDir = import_node_path5.default.join(vaultPath, "collections");
+    if (!(0, import_node_fs5.existsSync)(configPath)) {
       const config = {
         version: 2,
         collections: {
@@ -2728,27 +2799,27 @@ var VaultMindSettingTab = class extends import_obsidian9.PluginSettingTab {
           graph: { enabled: true, canvasSync: true }
         }
       };
-      (0, import_node_fs4.writeFileSync)(configPath, `${JSON.stringify(config, null, 2)}
+      (0, import_node_fs5.writeFileSync)(configPath, `${JSON.stringify(config, null, 2)}
 `, "utf-8");
     }
-    if (!(0, import_node_fs4.existsSync)(collectionsDir)) (0, import_node_fs4.mkdirSync)(collectionsDir, { recursive: true });
-    const mainJsonl = import_node_path4.default.join(collectionsDir, "main.jsonl");
-    if (!(0, import_node_fs4.existsSync)(mainJsonl)) (0, import_node_fs4.writeFileSync)(mainJsonl, "", "utf-8");
+    if (!(0, import_node_fs5.existsSync)(collectionsDir)) (0, import_node_fs5.mkdirSync)(collectionsDir, { recursive: true });
+    const mainJsonl = import_node_path5.default.join(collectionsDir, "main.jsonl");
+    if (!(0, import_node_fs5.existsSync)(mainJsonl)) (0, import_node_fs5.writeFileSync)(mainJsonl, "", "utf-8");
   }
   seedPiConfig(vaultPath, agentDir) {
     const vaultName = this.app.vault.getName();
-    const systemMdPath = import_node_path4.default.join(agentDir, "system.md");
-    (0, import_node_fs4.mkdirSync)(agentDir, { recursive: true });
-    if (!(0, import_node_fs4.existsSync)(systemMdPath)) {
-      (0, import_node_fs4.writeFileSync)(
+    const systemMdPath = import_node_path5.default.join(agentDir, "system.md");
+    (0, import_node_fs5.mkdirSync)(agentDir, { recursive: true });
+    if (!(0, import_node_fs5.existsSync)(systemMdPath)) {
+      (0, import_node_fs5.writeFileSync)(
         systemMdPath,
         `You are an AI assistant working inside the ${vaultName} Obsidian vault. Use search and context tools to ground your answers in vault content whenever relevant.`,
         "utf-8"
       );
     }
-    const configYamlPath = import_node_path4.default.join(agentDir, "config.yaml");
-    if (!(0, import_node_fs4.existsSync)(configYamlPath)) {
-      (0, import_node_fs4.writeFileSync)(
+    const configYamlPath = import_node_path5.default.join(agentDir, "config.yaml");
+    if (!(0, import_node_fs5.existsSync)(configYamlPath)) {
+      (0, import_node_fs5.writeFileSync)(
         configYamlPath,
         `# pi configuration for the ${vaultName} vault
 # Generated by the Vault Mind Obsidian plugin.
@@ -2913,9 +2984,6 @@ var VaultMindPlugin = class extends import_obsidian9.Plugin {
       callback: () => this.openPanel("chat")
     });
     this.addSettingTab(new VaultMindSettingTab(this.app, this));
-    if (this.settings.checkExtensionOnStartup && (0, import_node_fs4.existsSync)((0, import_obsidian9.normalizePath)(`${vaultPath}/.pi`))) {
-      void this.checkExtension();
-    }
     registerVaultMindProtocolHandlers(this);
   }
   async checkExtension() {
