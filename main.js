@@ -4527,13 +4527,21 @@ var ChatTab = class {
     };
     this.view = new PiChatView(deps.leaf, pluginRef);
     await this.view.onOpen(container);
-    if (deps.initialCommand && this.view) {
+    if (deps.initialCommand && this.connection) {
       const cmd = deps.initialCommand;
-      activeWindow.setTimeout(() => {
-        if (this.view) {
-          void this.view.sendMessage(cmd, []);
+      const conn = this.connection;
+      const view = this.view;
+      const waitAndSend = async () => {
+        try {
+          await conn.send({ type: "get_state" });
+          activeWindow.setTimeout(() => {
+            if (view) void view.sendMessage(cmd, []);
+          }, 3e3);
+        } catch {
+          activeWindow.setTimeout(() => void waitAndSend(), 2e3);
         }
-      }, 2e3);
+      };
+      activeWindow.setTimeout(() => void waitAndSend(), 3e3);
     }
   }
   destroy() {
