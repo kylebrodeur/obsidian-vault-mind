@@ -918,7 +918,6 @@ var PiConnection = class {
       env.PI_CODING_AGENT_DIR = this.piConfigDir;
     }
     this.process = spawn(this.piBinaryPath, ["--mode", "rpc", ...this.extraArgs], {
-      shell: true,
       cwd: this.cwd,
       stdio: ["pipe", "pipe", "pipe"],
       env
@@ -4528,6 +4527,14 @@ var ChatTab = class {
     };
     this.view = new PiChatView(deps.leaf, pluginRef);
     await this.view.onOpen(container);
+    if (deps.initialCommand && this.view) {
+      const cmd = deps.initialCommand;
+      activeWindow.setTimeout(() => {
+        if (this.view) {
+          void this.view.sendMessage(cmd, []);
+        }
+      }, 2e3);
+    }
   }
   destroy() {
     if (this.view) {
@@ -5605,7 +5612,9 @@ var VaultMindPanel = class extends import_obsidian17.ItemView {
   createTab(id) {
     const { deps } = this;
     switch (id) {
-      case "chat":
+      case "chat": {
+        const initialCommand = deps.plugin.pendingChatMessage;
+        deps.plugin.pendingChatMessage = null;
         return new ChatTab({
           app: this.app,
           leaf: this.leaf,
@@ -5614,8 +5623,10 @@ var VaultMindPanel = class extends import_obsidian17.ItemView {
           tokenStore: deps.tokenStore,
           settings: deps.chatSettings,
           messageStore: deps.messageStore,
-          onStoreFlush: () => deps.plugin.flushMessageStore()
+          onStoreFlush: () => deps.plugin.flushMessageStore(),
+          initialCommand: initialCommand ?? void 0
         });
+      }
       case "queue":
         return new QueueTab({
           settings: deps.settings,
@@ -5849,6 +5860,7 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
         this.addStep(progress, "done", "Vault initialized \u2713 \u2014 opening chat...");
         new import_obsidian18.Notice("Vault Mind: vault initialized \u2014 launching pi");
         await new Promise((r) => activeWindow.setTimeout(r, 1e3));
+        this.plugin.pendingChatMessage = "/vm setup";
         this.app.setting?.close();
         await this.plugin.openPanel("chat");
       } catch (err) {
@@ -5907,6 +5919,12 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
       options
     );
     this.markDone(step3);
+    const step3b = this.addStep(progress, "active", "Installing model discovery...");
+    await execAsync(
+      `PI_CODING_AGENT_DIR=${q(agentDir)} ${q(piBinary)} install npm:@kylebrodeur/pi-model-discovery`,
+      options
+    );
+    this.markDone(step3b);
     const step4 = this.addStep(progress, "active", "Scaffolding config...");
     this.scaffoldConfig(vaultPath);
     this.markDone(step4);
@@ -5983,6 +6001,8 @@ var VaultMindPlugin = class extends import_obsidian18.Plugin {
   editorContext = { filePath: null, cursor: null, selection: null };
   connectionState = { connected: false, error: false };
   statusBarItem = null;
+  /** Message to auto-send in chat after next panel open (set by init flow) */
+  pendingChatMessage = null;
   contextPushTimer = null;
   async onload() {
     (0, import_obsidian18.addIcon)("vault-mind", VAULT_MIND_ICON);
@@ -6032,8 +6052,8 @@ var VaultMindPlugin = class extends import_obsidian18.Plugin {
     const vaultPath = this.app.vault.adapter.getBasePath?.() || this.app.vault.getName();
     this.vaultPath = vaultPath;
     this.tokenStore.setVaultPath(vaultPath);
-    const piConfigDir = (0, import_obsidian18.normalizePath)(`${vaultPath}/.pi/agent`);
-    const systemMdPath = (0, import_obsidian18.normalizePath)(`${piConfigDir}/system.md`);
+    const piConfigDir = import_node_path3.default.join(vaultPath, ".pi", "agent");
+    const systemMdPath = import_node_path3.default.join(piConfigDir, "system.md");
     const panelDeps = {
       vaultPath,
       piConfigDir,
