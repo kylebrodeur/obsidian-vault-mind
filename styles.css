@@ -7,6 +7,10 @@
 	--vault-mind-status-dot-size: 8px;
 
 	padding: var(--size-4-2);
+	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
 }
 
 .vault-mind-chat {
@@ -589,6 +593,9 @@
 
 .vault-mind-tab-content {
 	flex: 1;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
 	overflow-y: auto;
 }
 

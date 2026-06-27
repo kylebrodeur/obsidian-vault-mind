@@ -524,18 +524,119 @@ function readServerPort(vaultPath) {
 }
 
 // src/modals/install-extension.ts
-var import_node_child_process2 = require("node:child_process");
+var import_node_child_process3 = require("node:child_process");
 var import_node_fs2 = __toESM(require("node:fs"), 1);
 var import_node_os2 = __toESM(require("node:os"), 1);
 var import_node_path2 = __toESM(require("node:path"), 1);
 var import_node_util = require("node:util");
 var import_obsidian2 = require("obsidian");
-var execAsync = (0, import_node_util.promisify)(import_node_child_process2.exec);
+
+// src/pi-detect.ts
+var import_node_child_process2 = require("node:child_process");
+var fs2 = __toESM(require("node:fs"), 1);
+var os2 = __toESM(require("node:os"), 1);
+var path3 = __toESM(require("node:path"), 1);
+function resolveNodeBinDir() {
+  const home = os2.homedir();
+  const systemBins = ["/usr/local/bin", "/opt/homebrew/bin"];
+  for (const dir of systemBins) {
+    if (fs2.existsSync(path3.join(dir, "node"))) {
+      return dir;
+    }
+  }
+  const fnmBin = path3.join(home, ".local", "share", "fnm", "aliases", "default", "bin");
+  if (fs2.existsSync(path3.join(fnmBin, "node"))) {
+    return fnmBin;
+  }
+  const nvmDir = process.env.NVM_DIR || path3.join(home, ".nvm");
+  const aliasFile = path3.join(nvmDir, "alias", "default");
+  try {
+    let version = fs2.readFileSync(aliasFile, "utf-8").trim();
+    if (!version.startsWith("v") && /^\d/.test(version)) {
+      version = `v${version}`;
+    }
+    if (version.startsWith("v")) {
+      const nvmBin = path3.join(nvmDir, "versions", "node", version, "bin");
+      if (fs2.existsSync(path3.join(nvmBin, "node"))) {
+        return nvmBin;
+      }
+    }
+  } catch {
+  }
+  const pnpmHome = process.env.PNPM_HOME || (process.platform === "darwin" ? path3.join(home, "Library", "pnpm") : path3.join(home, ".local", "share", "pnpm"));
+  if (fs2.existsSync(path3.join(pnpmHome, "node")) || fs2.existsSync(path3.join(pnpmHome, "pnpm"))) {
+    return pnpmHome;
+  }
+  return null;
+}
+function buildExecPath() {
+  const binDir = resolveNodeBinDir();
+  const base = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+  if (!binDir) return process.env.PATH || base;
+  return `${binDir}:${process.env.PATH || base}`;
+}
+function detectPiBinary(configured, vaultPath) {
+  if (path3.isAbsolute(configured) && fs2.existsSync(configured)) {
+    return configured;
+  }
+  const shellPath = whichPi(configured);
+  if (shellPath) return shellPath;
+  const home = os2.homedir();
+  const pnpmHome = process.env.PNPM_HOME || (process.platform === "darwin" ? path3.join(home, "Library", "pnpm") : path3.join(home, ".local", "share", "pnpm"));
+  const candidates = [
+    // System npm global installs (base case — no version manager)
+    "/usr/local/bin/pi",
+    "/opt/homebrew/bin/pi",
+    path3.join(home, ".npm-global", "bin", "pi"),
+    path3.join(home, ".local", "bin", "pi"),
+    // pnpm global (PNPM_HOME)
+    path3.join(pnpmHome, "pi")
+  ];
+  const nodeBin = resolveNodeBinDir();
+  if (nodeBin && nodeBin !== "/usr/local/bin" && nodeBin !== "/opt/homebrew/bin") {
+    candidates.push(path3.join(nodeBin, "pi"));
+  }
+  candidates.push(
+    // Less common locations
+    path3.join(home, ".pi", "bin", "pi")
+  );
+  if (vaultPath) {
+    candidates.unshift(path3.join(vaultPath, "node_modules", ".bin", "pi"));
+  }
+  for (const candidate of candidates) {
+    if (fs2.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+function whichPi(name) {
+  const shell = process.env.SHELL || (process.platform === "darwin" ? "/bin/zsh" : "/bin/bash");
+  const cmd = process.platform === "win32" ? `where ${name}` : `which ${name}`;
+  try {
+    const result = (0, import_node_child_process2.execSync)(cmd, {
+      encoding: "utf-8",
+      shell,
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 5e3,
+      env: { ...process.env }
+    });
+    const resolved = result.trim().split("\n")[0];
+    if (resolved && fs2.existsSync(resolved)) {
+      return resolved;
+    }
+  } catch {
+  }
+  return null;
+}
+
+// src/modals/install-extension.ts
+var execAsync = (0, import_node_util.promisify)(import_node_child_process3.exec);
 function getGlobalPackageJsonPath() {
   return import_node_path2.default.join(import_node_os2.default.homedir(), ".pi/agent/npm/node_modules/pi-vault-mind/package.json");
 }
 function getLocalPackageJsonPath(cwd) {
-  return import_node_path2.default.join(cwd, ".pi/npm/node_modules/pi-vault-mind/package.json");
+  return import_node_path2.default.join(cwd, ".pi/agent/npm/node_modules/pi-vault-mind/package.json");
 }
 function loginShell() {
   return process.env.SHELL || (process.platform === "darwin" ? "/bin/zsh" : "/bin/bash");
@@ -547,10 +648,12 @@ async function checkVaultMindInstalled(piBinaryPath, cwd) {
   if (import_node_fs2.default.existsSync(getGlobalPackageJsonPath())) {
     return true;
   }
+  const resolvedPi = detectPiBinary(piBinaryPath, cwd) ?? piBinaryPath;
   try {
-    const { stdout, stderr } = await execAsync(`${piBinaryPath} list`, {
+    const { stdout, stderr } = await execAsync(`${resolvedPi} list`, {
       shell: loginShell(),
-      env: { ...process.env, PATH: process.env.PATH }
+      timeout: 1e4,
+      env: { ...process.env, PATH: buildExecPath() }
     });
     const output = `${stdout}
 ${stderr}`;
@@ -657,105 +760,6 @@ ${stderr}`.trim();
     }
   }
 };
-
-// src/pi-detect.ts
-var import_node_child_process3 = require("node:child_process");
-var fs3 = __toESM(require("node:fs"), 1);
-var os3 = __toESM(require("node:os"), 1);
-var path4 = __toESM(require("node:path"), 1);
-function resolveNodeBinDir() {
-  const home = os3.homedir();
-  const systemBins = ["/usr/local/bin", "/opt/homebrew/bin"];
-  for (const dir of systemBins) {
-    if (fs3.existsSync(path4.join(dir, "node"))) {
-      return dir;
-    }
-  }
-  const fnmBin = path4.join(home, ".local", "share", "fnm", "aliases", "default", "bin");
-  if (fs3.existsSync(path4.join(fnmBin, "node"))) {
-    return fnmBin;
-  }
-  const nvmDir = process.env.NVM_DIR || path4.join(home, ".nvm");
-  const aliasFile = path4.join(nvmDir, "alias", "default");
-  try {
-    let version = fs3.readFileSync(aliasFile, "utf-8").trim();
-    if (!version.startsWith("v") && /^\d/.test(version)) {
-      version = `v${version}`;
-    }
-    if (version.startsWith("v")) {
-      const nvmBin = path4.join(nvmDir, "versions", "node", version, "bin");
-      if (fs3.existsSync(path4.join(nvmBin, "node"))) {
-        return nvmBin;
-      }
-    }
-  } catch {
-  }
-  const pnpmHome = process.env.PNPM_HOME || (process.platform === "darwin" ? path4.join(home, "Library", "pnpm") : path4.join(home, ".local", "share", "pnpm"));
-  if (fs3.existsSync(path4.join(pnpmHome, "node")) || fs3.existsSync(path4.join(pnpmHome, "pnpm"))) {
-    return pnpmHome;
-  }
-  return null;
-}
-function buildExecPath() {
-  const binDir = resolveNodeBinDir();
-  const base = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
-  if (!binDir) return process.env.PATH || base;
-  return `${binDir}:${process.env.PATH || base}`;
-}
-function detectPiBinary(configured, vaultPath) {
-  if (path4.isAbsolute(configured) && fs3.existsSync(configured)) {
-    return configured;
-  }
-  const shellPath = whichPi(configured);
-  if (shellPath) return shellPath;
-  const home = os3.homedir();
-  const pnpmHome = process.env.PNPM_HOME || (process.platform === "darwin" ? path4.join(home, "Library", "pnpm") : path4.join(home, ".local", "share", "pnpm"));
-  const candidates = [
-    // System npm global installs (base case — no version manager)
-    "/usr/local/bin/pi",
-    "/opt/homebrew/bin/pi",
-    path4.join(home, ".npm-global", "bin", "pi"),
-    path4.join(home, ".local", "bin", "pi"),
-    // pnpm global (PNPM_HOME)
-    path4.join(pnpmHome, "pi")
-  ];
-  const nodeBin = resolveNodeBinDir();
-  if (nodeBin && nodeBin !== "/usr/local/bin" && nodeBin !== "/opt/homebrew/bin") {
-    candidates.push(path4.join(nodeBin, "pi"));
-  }
-  candidates.push(
-    // Less common locations
-    path4.join(home, ".pi", "bin", "pi")
-  );
-  if (vaultPath) {
-    candidates.unshift(path4.join(vaultPath, "node_modules", ".bin", "pi"));
-  }
-  for (const candidate of candidates) {
-    if (fs3.existsSync(candidate)) {
-      return candidate;
-    }
-  }
-  return null;
-}
-function whichPi(name) {
-  const shell = process.env.SHELL || (process.platform === "darwin" ? "/bin/zsh" : "/bin/bash");
-  const cmd = process.platform === "win32" ? `where ${name}` : `which ${name}`;
-  try {
-    const result = (0, import_node_child_process3.execSync)(cmd, {
-      encoding: "utf-8",
-      shell,
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 5e3,
-      env: { ...process.env }
-    });
-    const resolved = result.trim().split("\n")[0];
-    if (resolved && fs3.existsSync(resolved)) {
-      return resolved;
-    }
-  } catch {
-  }
-  return null;
-}
 
 // src/protocol.ts
 var import_obsidian3 = require("obsidian");
@@ -1073,6 +1077,7 @@ var ChatView = class extends import_obsidian4.ItemView {
   async mount(container) {
     this.root = container.createEl("div", { cls: "vault-mind-container vault-mind-chat" });
     this.render();
+    this.connect();
   }
   /** Tear down connections. Used by VaultMindPanel on tab/panel close. */
   unmount() {
@@ -1221,6 +1226,7 @@ ${text}`;
       stdio: ["pipe", "pipe", "pipe"],
       env: {
         ...process.env,
+        PATH: buildExecPath(),
         PI_CODING_AGENT_DIR: piConfigDir,
         HOME: process.env.HOME || process.env.USERPROFILE || ""
       }
