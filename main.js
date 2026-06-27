@@ -1995,20 +1995,25 @@ var SetupView = class extends import_obsidian6.ItemView {
         text: buildInitializeCommand(this.deps.vaultPath, "pi")
       });
     }
-    new import_obsidian6.Setting(this.root).setName("Initialize vault").setDesc("Create the .pi directory and install the Vault Mind extensions").addButton((btn) => {
+    const initSection = this.root.createEl("div", { cls: "vault-mind-init-section" });
+    new import_obsidian6.Setting(initSection).setName("Initialize vault").setDesc("Create the .pi directory and install the Vault Mind extensions").addButton((btn) => {
       btn.setButtonText("Initialize vault").setIcon("plus-circle").setCta().onClick(async () => {
         btn.setButtonText("Initializing...");
         btn.setDisabled(true);
+        const progress = initSection.createEl("div", { cls: "vault-mind-init-progress" });
         try {
-          await this.runInitialize();
+          await this.runInitialize(progress);
+          this.addProgressStep(progress, "done", "Vault initialized \u2713");
           new import_obsidian6.Notice("Vault Mind: vault initialized");
           this.isFreshVault = false;
+          await new Promise((r) => activeWindow.setTimeout(r, 800));
           this.render();
           await this.connect();
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
+          this.addProgressStep(progress, "error", `Failed: ${message}`);
           new import_obsidian6.Notice(`Vault Mind: ${message}`);
-          btn.setButtonText("Initialize vault");
+          btn.setButtonText("Retry");
           btn.setDisabled(false);
         }
       });
@@ -2057,11 +2062,21 @@ var SetupView = class extends import_obsidian6.ItemView {
       });
     });
   }
-  async runInitialize() {
+  addProgressStep(container, status, text) {
+    const step = container.createEl("div", {
+      cls: `vault-mind-init-step vault-mind-init-step-${status}`
+    });
+    const icon = status === "done" ? "check" : status === "error" ? "x" : "loader";
+    const iconEl = step.createEl("span", { cls: "vault-mind-init-step-icon" });
+    (0, import_obsidian6.setIcon)(iconEl, icon);
+    step.createEl("span", { text });
+    return step;
+  }
+  async runInitialize(progress) {
     const piBinary = this.piBinaryPath ?? detectPiBinary("pi", this.deps.vaultPath);
     if (!piBinary) {
       this.piBinaryPath = null;
-      throw new Error("pi binary not found. Copy the manual install command below.");
+      throw new Error("pi binary not found. Install pi first.");
     }
     this.piBinaryPath = piBinary;
     const agentDir = import_node_path4.default.join(this.deps.vaultPath, ".pi", "agent");
@@ -2070,15 +2085,24 @@ var SetupView = class extends import_obsidian6.ItemView {
       timeout: 12e4,
       env: { ...process.env, PATH: buildExecPath() }
     };
+    const step1 = this.addProgressStep(progress, "active", "Creating .pi/agent...");
     await execAsync2(`mkdir -p ${shellQuote(agentDir)}`, options);
+    step1.classList.replace("vault-mind-init-step-active", "vault-mind-init-step-done");
+    (0, import_obsidian6.setIcon)(step1.querySelector(".vault-mind-init-step-icon"), "check");
+    const step2 = this.addProgressStep(progress, "active", "Installing pi-vault-mind...");
     await execAsync2(
       `PI_CODING_AGENT_DIR=${shellQuote(agentDir)} ${shellQuote(piBinary)} install npm:pi-vault-mind`,
       options
     );
+    step2.classList.replace("vault-mind-init-step-active", "vault-mind-init-step-done");
+    (0, import_obsidian6.setIcon)(step2.querySelector(".vault-mind-init-step-icon"), "check");
+    const step3 = this.addProgressStep(progress, "active", "Installing pi-context...");
     await execAsync2(
       `PI_CODING_AGENT_DIR=${shellQuote(agentDir)} ${shellQuote(piBinary)} install npm:pi-context`,
       options
     );
+    step3.classList.replace("vault-mind-init-step-active", "vault-mind-init-step-done");
+    (0, import_obsidian6.setIcon)(step3.querySelector(".vault-mind-init-step-icon"), "check");
   }
   renderLoading() {
     this.root?.createEl("p", { cls: "vault-mind-empty", text: "Connecting to pi-vault-mind..." });
