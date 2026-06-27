@@ -5778,7 +5778,7 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
         const existing = await token.getToken();
         if (existing) {
           await token.setToken(existing, value);
-          new import_obsidian18.Notice(`Vault Mind: token moved to ${value}`);
+          this.plugin.showNotice(`token moved to ${value}`);
         }
         this.display();
       });
@@ -5786,13 +5786,13 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
     new import_obsidian18.Setting(containerEl).setName("Import token").setDesc("Load from ~/.pi/agent/vault-mind.env into the selected backend.").addButton(
       (btn) => btn.setButtonText("Import from dotenv").onClick(async () => {
         const ok = await token.importFromDotenv();
-        new import_obsidian18.Notice(ok ? "Vault Mind: token imported" : "Vault Mind: no token found in dotenv");
+        this.plugin.showNotice(ok ? "token imported" : "no token found in dotenv");
         this.display();
       })
     ).addButton(
       (btn) => btn.setButtonText("Forget").onClick(async () => {
         await token.forgetToken();
-        new import_obsidian18.Notice("Vault Mind: token forgotten");
+        this.plugin.showNotice("token forgotten");
         this.display();
       })
     );
@@ -5800,7 +5800,7 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
   async saveFolderSetting(key, value) {
     const token = await this.plugin.tokenStore.getToken();
     if (!token) {
-      new import_obsidian18.Notice("Vault Mind: no API token configured");
+      this.plugin.showNotice("no API token configured");
       return;
     }
     const client = new VaultMindClient({
@@ -5812,9 +5812,9 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
       await client.setup({
         folders: { [key]: value || void 0 }
       });
-      new import_obsidian18.Notice(`Vault Mind: ${key} folder saved`);
+      this.plugin.showNotice(`${key} folder saved`);
     } catch (err) {
-      new import_obsidian18.Notice(`Vault Mind: failed to save ${key} folder \u2014 ${err.message}`);
+      this.plugin.showNotice(`failed to save ${key} folder \u2014 ${err.message}`);
     }
   }
   getInstalledExtensionVersion() {
@@ -5858,7 +5858,7 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
           "error",
           "Could not find the pi binary. Install pi first, then reopen settings."
         );
-        new import_obsidian18.Notice("Vault Mind: could not find the pi binary");
+        this.plugin.showNotice("could not find the pi binary");
         btn.setButtonText(configured ? "Reinitialize" : "Retry");
         btn.setDisabled(false);
         return;
@@ -5866,7 +5866,7 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
       try {
         await this.runInit(piBinary, progress);
         this.addStep(progress, "done", "Vault initialized \u2713 \u2014 opening chat...");
-        new import_obsidian18.Notice("Vault Mind: vault initialized \u2014 launching pi");
+        this.plugin.showNotice("vault initialized \u2014 launching pi");
         await new Promise((r) => activeWindow.setTimeout(r, 1e3));
         this.plugin.pendingChatMessage = "/vm setup";
         this.app.setting?.close();
@@ -5874,7 +5874,7 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         this.addStep(progress, "error", `Failed: ${message}`);
-        new import_obsidian18.Notice(`Vault Mind: ${message}`);
+        this.plugin.showNotice(`${message}`);
         btn.setButtonText(configured ? "Reinitialize" : "Retry");
         btn.setDisabled(false);
       }
@@ -6011,9 +6011,26 @@ var VaultMindPlugin = class extends import_obsidian18.Plugin {
   statusBarItem = null;
   /** Message to auto-send in chat after next panel open (set by init flow) */
   pendingChatMessage = null;
+  activeNotices = [];
   contextPushTimer = null;
   async onload() {
     (0, import_obsidian18.addIcon)("vault-mind", VAULT_MIND_ICON);
+    for (const staleType of [
+      "pi-chat-view",
+      "vault-mind-chat",
+      "vault-mind-queue",
+      "vault-mind-status",
+      "vault-mind-setup"
+    ]) {
+      this.app.workspace.detachLeavesOfType(staleType);
+    }
+    const existingPanels = this.app.workspace.getLeavesOfType("vault-mind-panel");
+    for (let i = 1; i < existingPanels.length; i++) {
+      existingPanels[i].detach();
+    }
+    for (const el of activeDocument.querySelectorAll(".notice")) {
+      if (el.textContent?.includes("Vault Mind")) el.remove();
+    }
     await this.loadSettings();
     const savedData = await this.loadData() ?? {};
     this.tokenStore = new TokenStore(
@@ -6137,6 +6154,14 @@ var VaultMindPlugin = class extends import_obsidian18.Plugin {
   }
   onunload() {
     void this.flushMessageStore();
+    for (const notice of this.activeNotices) notice.hide();
+    this.activeNotices = [];
+  }
+  /** Create a Notice tracked for cleanup. Use instead of `new Notice()` directly. */
+  showNotice(message, timeout) {
+    const notice = new import_obsidian18.Notice(`Vault Mind: ${message}`, timeout);
+    this.activeNotices.push(notice);
+    return notice;
   }
   scheduleContextPush() {
     if (this.contextPushTimer) {
