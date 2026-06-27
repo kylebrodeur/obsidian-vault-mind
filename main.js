@@ -34,7 +34,7 @@ __export(main_exports, {
 module.exports = __toCommonJS(main_exports);
 var import_node_fs5 = require("node:fs");
 var import_view = require("@codemirror/view");
-var import_obsidian9 = require("obsidian");
+var import_obsidian10 = require("obsidian");
 
 // src/auth.ts
 var import_node_child_process = require("node:child_process");
@@ -232,6 +232,16 @@ var TokenStore = class {
     this.data = {};
     await this.saveData(this.data);
   }
+  /**
+   * Opt in to storing the token in plaintext (envfile backend) after user confirms.
+   * Returns true if confirmation matches and the backend was switched.
+   */
+  async optInToInsecure(confirmation) {
+    if (confirmation !== "INSECURE") return false;
+    this.data = { backend: "envfile" };
+    await this.saveData(this.data);
+    return true;
+  }
   defaultBackend() {
     if (import_obsidian.Platform.isMacOS) return "keychain";
     return "envfile";
@@ -381,8 +391,8 @@ var VaultMindClient = class {
     }, this.reconnectDelay);
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, 3e4);
   }
-  async httpJson(method, path6, body) {
-    const res = await fetch(`${this.baseUrl}${path6}`, {
+  async httpJson(method, path7, body) {
+    const res = await fetch(`${this.baseUrl}${path7}`, {
       method,
       headers: this.authHeaders,
       body: body ? JSON.stringify(body) : void 0
@@ -704,9 +714,9 @@ var DiffModal = class extends import_obsidian3.Modal {
   oldContent;
   newContent;
   onAccept;
-  constructor(app, { path: path6, old, new: newContent }, onAccept) {
+  constructor(app, { path: path7, old, new: newContent }, onAccept) {
     super(app);
-    this.path = path6;
+    this.path = path7;
     this.oldContent = old;
     this.newContent = newContent;
     this.onAccept = onAccept;
@@ -735,32 +745,32 @@ var DiffModal = class extends import_obsidian3.Modal {
 };
 function registerVaultMindProtocolHandlers(plugin) {
   plugin.registerObsidianProtocolHandler("vault-mind/open-file", (params) => {
-    const path6 = params?.path;
-    if (!isString(path6)) {
+    const path7 = params?.path;
+    if (!isString(path7)) {
       new import_obsidian3.Notice("Vault Mind: missing path parameter");
       return;
     }
-    plugin.app.workspace.openLinkText(path6, "", true);
+    plugin.app.workspace.openLinkText(path7, "", true);
   });
   plugin.registerObsidianProtocolHandler("vault-mind/show-diff", (params) => {
-    const path6 = params?.path;
+    const path7 = params?.path;
     const oldContent = params?.old;
     const newContent = params?.new;
-    if (!isString(path6) || !isString(oldContent) || !isString(newContent)) {
+    if (!isString(path7) || !isString(oldContent) || !isString(newContent)) {
       new import_obsidian3.Notice("Vault Mind: missing path, old, or new parameter");
       return;
     }
-    new DiffModal(plugin.app, { path: path6, old: oldContent, new: newContent }, async () => {
-      const file = plugin.app.vault.getAbstractFileByPath(path6);
+    new DiffModal(plugin.app, { path: path7, old: oldContent, new: newContent }, async () => {
+      const file = plugin.app.vault.getAbstractFileByPath(path7);
       if (!(file instanceof import_obsidian3.TFile)) {
-        new import_obsidian3.Notice(`Vault Mind: file not found: ${path6}`);
+        new import_obsidian3.Notice(`Vault Mind: file not found: ${path7}`);
         return;
       }
       try {
         await plugin.app.vault.modify(file, newContent);
-        new import_obsidian3.Notice(`Vault Mind: accepted changes to ${path6}`);
+        new import_obsidian3.Notice(`Vault Mind: accepted changes to ${path7}`);
       } catch (err) {
-        new import_obsidian3.Notice(`Vault Mind: failed to write ${path6}: ${err.message}`);
+        new import_obsidian3.Notice(`Vault Mind: failed to write ${path7}: ${err.message}`);
       }
     }).open();
   });
@@ -785,12 +795,1256 @@ function registerVaultMindProtocolHandlers(plugin) {
   });
 }
 
-// src/views/chat.ts
+// src/views/panel.ts
+var import_obsidian9 = require("obsidian");
+
+// src/views/queue.ts
+var import_obsidian4 = require("obsidian");
+var QueueView = class extends import_obsidian4.ItemView {
+  deps;
+  client = null;
+  root = null;
+  chips = null;
+  list = null;
+  jobs = [];
+  unsubState = null;
+  unsubEvents = null;
+  connectionState = { connected: false };
+  explicitError = null;
+  constructor(leaf, deps) {
+    super(leaf);
+    this.deps = deps;
+  }
+  getViewType() {
+    return "vault-mind-queue";
+  }
+  getDisplayText() {
+    return "Vault Mind Queue";
+  }
+  getIcon() {
+    return "vault-mind";
+  }
+  async onOpen() {
+    const container = this.containerEl.children[1];
+    container.empty();
+    await this.mount(container);
+  }
+  async onClose() {
+    this.unmount();
+  }
+  /** Mount view content into the given container. Used by VaultMindPanel for tabbed embedding. */
+  async mount(container) {
+    this.root = container.createEl("div", { cls: "vault-mind-container" });
+    this.render();
+    await this.connect();
+  }
+  /** Tear down connections. Used by VaultMindPanel on tab/panel close. */
+  unmount() {
+    this.disconnect();
+  }
+  render() {
+    if (!this.root) return;
+    this.root.empty();
+    const header = this.root.createEl("div", { cls: "vault-mind-status-bar" });
+    header.createEl("span", { cls: "vault-mind-status-dot" });
+    header.createEl("span", { text: "Queue" });
+    const refresh = header.createEl("button", { title: "Refresh" });
+    (0, import_obsidian4.setIcon)(refresh, "refresh-cw");
+    refresh.addEventListener("click", () => this.refresh());
+    this.chips = this.root.createEl("div", { cls: "vault-mind-count-chips" });
+    this.list = this.root.createEl("ul", { cls: "vault-mind-queue-list" });
+  }
+  async connect() {
+    this.disconnect();
+    const token = await this.deps.tokenStore.getToken();
+    if (!token) {
+      this.setError("No token configured.");
+      return;
+    }
+    this.client = new VaultMindClient({
+      host: this.deps.settings.host,
+      port: readServerPort(this.deps.vaultPath) ?? this.deps.settings.port,
+      token
+    });
+    this.unsubState = this.client.subscribeState((state) => this.updateState(state));
+    this.unsubEvents = this.client.subscribeEvents((event) => this.handleEvent(event));
+    this.client.connect();
+    await this.refresh();
+  }
+  disconnect() {
+    if (this.unsubState) {
+      this.unsubState();
+      this.unsubState = null;
+    }
+    if (this.unsubEvents) {
+      this.unsubEvents();
+      this.unsubEvents = null;
+    }
+    if (this.client) {
+      this.client.disconnect();
+      this.client = null;
+    }
+  }
+  updateState(state) {
+    this.connectionState = state;
+    if (state.connected || state.reconnecting) {
+      this.explicitError = null;
+    }
+    const dot = this.root?.querySelector(".vault-mind-status-dot");
+    if (dot) {
+      dot.classList.remove("connected", "error", "reconnecting");
+      if (state.connected) dot.classList.add("connected");
+      else if (state.reconnecting) dot.classList.add("reconnecting");
+      else if (state.error) dot.classList.add("error");
+    }
+    this.updateRootStateClasses();
+    this.renderList();
+  }
+  updateRootStateClasses() {
+    if (!this.root) return;
+    this.root.classList.remove(
+      "vault-mind-queue-empty",
+      "vault-mind-queue-error",
+      "vault-mind-queue-reconnecting"
+    );
+    if (this.connectionState.reconnecting) {
+      this.root.classList.add("vault-mind-queue-reconnecting");
+    } else if (this.connectionState.error && !this.connectionState.connected) {
+      this.root.classList.add("vault-mind-queue-error");
+    } else if (this.connectionState.connected && this.jobs.length === 0) {
+      this.root.classList.add("vault-mind-queue-empty");
+    }
+  }
+  handleEvent(event) {
+    switch (event.type) {
+      case "queue/snapshot":
+        this.jobs = event.jobs;
+        break;
+      case "job-created":
+        this.jobs.unshift(event.job);
+        break;
+      case "job-updated": {
+        const idx = this.jobs.findIndex((j) => j.id === event.job.id);
+        if (idx >= 0) this.jobs[idx] = event.job;
+        break;
+      }
+      case "job-completed": {
+        const idx = this.jobs.findIndex((j) => j.id === event.job.id);
+        if (idx >= 0) this.jobs[idx] = event.job;
+        break;
+      }
+      case "job-notification":
+        new import_obsidian4.Notice(`Vault Mind job ${event.jobId}: ${event.status} \u2014 ${event.message}`);
+        break;
+      case "vault-edit-proposed":
+        break;
+      case "context-request":
+        break;
+    }
+    this.renderList();
+  }
+  async refresh() {
+    if (!this.client) return;
+    try {
+      this.jobs = await this.client.listQueue();
+      this.renderList();
+    } catch (err) {
+      this.setError(`Refresh failed: ${err.message}`);
+    }
+  }
+  renderList() {
+    if (!this.list) return;
+    this.list.empty();
+    this.renderChips();
+    this.updateRootStateClasses();
+    if (this.explicitError || this.connectionState.error && !this.connectionState.connected && !this.connectionState.reconnecting) {
+      const message = this.explicitError || "Connection lost. Retrying...";
+      const li = this.list.createEl("li", {
+        cls: "vault-mind-empty vault-mind-queue-error-state"
+      });
+      li.createEl("span", { text: message });
+      if (!this.explicitError) {
+        const retryBtn = li.createEl("button", {
+          title: "Retry now",
+          attr: { "aria-label": "Retry connection" }
+        });
+        (0, import_obsidian4.setIcon)(retryBtn, "refresh-cw");
+        retryBtn.addEventListener("click", () => this.connect());
+      }
+      return;
+    }
+    if (this.connectionState.reconnecting) {
+      const li = this.list.createEl("li", {
+        cls: "vault-mind-empty vault-mind-queue-reconnecting-state"
+      });
+      const spinner = li.createEl("span", { cls: "vault-mind-spinner" });
+      (0, import_obsidian4.setIcon)(spinner, "loader");
+      li.createEl("span", { text: "Reconnecting..." });
+      return;
+    }
+    if (!this.connectionState.connected) {
+      this.list.createEl("li", { cls: "vault-mind-empty", text: "Connecting..." });
+      return;
+    }
+    if (this.jobs.length === 0) {
+      this.list.createEl("li", {
+        cls: "vault-mind-empty",
+        text: "No jobs queued. Add @agent markers to your notes to create jobs."
+      });
+      return;
+    }
+    for (const job of this.jobs) {
+      const li = this.list.createEl("li", { cls: `vault-mind-job-row status-${job.status}` });
+      li.setAttribute("tabindex", "0");
+      li.setAttribute("role", "button");
+      li.setAttribute("aria-label", `${job.role} job, ${job.status}: ${job.filePath}`);
+      const header = li.createEl("div", { cls: "vault-mind-job-header" });
+      header.createEl("span", { cls: "vault-mind-job-role", text: job.role });
+      header.createEl("span", { cls: "vault-mind-job-status", text: job.status });
+      header.createEl("span", { cls: "vault-mind-job-attempts", text: `${job.attempts}x` });
+      li.createEl("div", { cls: "vault-mind-job-path", text: job.filePath });
+      li.createEl("div", {
+        cls: "vault-mind-job-instruction",
+        text: this.truncate(job.instruction, 80)
+      });
+      const detail = li.createEl("div", { cls: "vault-mind-job-detail" });
+      detail.createEl("div", { cls: "vault-mind-job-detail-section", text: job.instruction });
+      if (job.lastError) {
+        detail.createEl("div", { cls: "vault-mind-job-error", text: job.lastError });
+      }
+      detail.createEl("div", { cls: "vault-mind-job-meta-line", text: `File: ${job.filePath}` });
+      detail.createEl("div", {
+        cls: "vault-mind-job-meta-line",
+        text: `Created: ${job.createdAt}`
+      });
+      if (job.dispatchedAt) {
+        detail.createEl("div", {
+          cls: "vault-mind-job-meta-line",
+          text: `Dispatched: ${job.dispatchedAt}`
+        });
+      }
+      if (job.completedAt) {
+        detail.createEl("div", {
+          cls: "vault-mind-job-meta-line",
+          text: `Completed: ${job.completedAt}`
+        });
+      }
+      li.addEventListener("click", () => {
+        li.classList.toggle("vault-mind-job-expanded");
+      });
+      li.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          li.classList.toggle("vault-mind-job-expanded");
+        }
+      });
+      li.addEventListener("contextmenu", (evt) => {
+        evt.preventDefault();
+        this.showContextMenu(evt, job);
+      });
+    }
+  }
+  renderChips() {
+    if (!this.chips) return;
+    this.chips.empty();
+    const counts = this.countByStatus();
+    const statuses = ["pending", "running", "done", "failed", "cancelled"];
+    for (const status of statuses) {
+      const chip = this.chips.createEl("span", { cls: `vault-mind-count-chip status-${status}` });
+      chip.createEl("span", { cls: "vault-mind-count-chip-label", text: status });
+      chip.createEl("span", {
+        cls: "vault-mind-count-chip-value",
+        text: String(counts[status] ?? 0)
+      });
+    }
+  }
+  countByStatus() {
+    const counts = {
+      pending: 0,
+      running: 0,
+      done: 0,
+      failed: 0,
+      cancelled: 0
+    };
+    for (const job of this.jobs) {
+      counts[job.status] = (counts[job.status] ?? 0) + 1;
+    }
+    return counts;
+  }
+  truncate(text, max) {
+    if (text.length <= max) return text;
+    return `${text.slice(0, max).trim()}\u2026`;
+  }
+  showContextMenu(evt, job) {
+    const menu = new import_obsidian4.Menu();
+    menu.addItem(
+      (item) => item.setTitle("Retry").setIcon("rotate-cw").onClick(async () => {
+        try {
+          await this.client?.retryJob(job.id);
+        } catch (err) {
+          new import_obsidian4.Notice(`Vault Mind: ${err.message}`);
+        }
+      })
+    );
+    menu.addItem(
+      (item) => item.setTitle("Cancel").setIcon("x").onClick(async () => {
+        try {
+          await this.client?.cancelJob(job.id);
+        } catch (err) {
+          new import_obsidian4.Notice(`Vault Mind: ${err.message}`);
+        }
+      })
+    );
+    menu.showAtMouseEvent(evt);
+  }
+  setError(message) {
+    this.explicitError = message;
+    this.connectionState = { connected: false, error: message };
+    this.chips?.empty();
+    if (!this.list) return;
+    this.list.empty();
+    this.renderList();
+    new import_obsidian4.Notice(`Vault Mind: ${message}`);
+  }
+};
+
+// src/views/status.ts
 var import_node_child_process4 = require("node:child_process");
+var import_obsidian6 = require("obsidian");
+
+// src/modals/libsecret.ts
+var import_obsidian5 = require("obsidian");
+var INSECURE_CONFIRMATION = "INSECURE";
+var PLATFORMS = [
+  {
+    label: "macOS",
+    notes: ["Keychain is the OS keychain. No setup needed."],
+    commands: []
+  },
+  {
+    label: "Windows",
+    notes: ["DPAPI is the OS keychain. No setup needed."],
+    commands: []
+  },
+  {
+    label: "Debian / Ubuntu (including WSL)",
+    notes: ["Restart Obsidian after installing."],
+    commands: ["sudo apt install libsecret-1-0 gnome-keyring"]
+  },
+  {
+    label: "Fedora / RHEL",
+    notes: ["Restart Obsidian after installing."],
+    commands: ["sudo dnf install libsecret gnome-keyring"]
+  },
+  {
+    label: "Arch / Manjaro",
+    notes: ["Restart Obsidian after installing."],
+    commands: ["sudo pacman -S libsecret gnome-keyring"]
+  },
+  {
+    label: "Alpine",
+    notes: ["Restart Obsidian after installing."],
+    commands: ["sudo apk add libsecret gnome-keyring"]
+  },
+  {
+    label: "Gentoo / Funtoo",
+    notes: [
+      "Install with the libsecret USE flag. kwallet is not supported by Electron's safeStorage on Linux.",
+      "Start gnome-keyring-daemon on the session bus, then verify the D-Bus service is reachable.",
+      "Launch Obsidian from the same shell so DBUS_SESSION_BUS_ADDRESS is inherited."
+    ],
+    commands: [
+      "emerge --ask gnome-base/libsecret gnome-base/gnome-keyring",
+      'eval "$(keychain --eval --agents ssh,gpg)"',
+      "dbus-send --session --dest=org.freedesktop.secrets --type=method_call /org/freedesktop/secrets org.freedesktop.DBus.Introspectable.Introspect"
+    ]
+  },
+  {
+    label: "NixOS",
+    notes: ["Add the service to configuration.nix, then restart Obsidian."],
+    commands: ["services.gnome-keyring.enable = true;"]
+  },
+  {
+    label: "Void / Solus",
+    notes: [
+      "See the upstream wiki for your distro. The requirement is libsecret plus a running gnome-keyring-daemon exposing org.freedesktop.secrets on the session bus."
+    ],
+    commands: []
+  }
+];
+var KEYCHAIN_NOTE = "Note: keychain 2.8.5 (Funtoo) reuses an existing keyring across shells; it does not start one. In a headless WSL session the gnome-keyring-daemon may not auto-start, which is why the Funtoo/WSL instructions call out the explicit keychain --eval step.";
+var InstallLibsecretModal = class extends import_obsidian5.Modal {
+  options;
+  confirmationEl = null;
+  constructor(app, options) {
+    super(app);
+    this.options = options;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    this.setTitle("Install libsecret / configure keyring");
+    contentEl.empty();
+    contentEl.createEl("p", {
+      text: "Electron safeStorage needs an OS keychain to encrypt the Vault Mind API token. Choose your platform and run the command, then restart Obsidian."
+    });
+    for (const platform of PLATFORMS) {
+      const isRelevant = this.isRelevantPlatform(platform.label);
+      const section = contentEl.createEl("div", {
+        cls: `vault-mind-libsecret-section${isRelevant ? " vault-mind-libsecret-relevant" : ""}`
+      });
+      section.createEl("h3", { text: platform.label });
+      for (const note of platform.notes) {
+        section.createEl("p", { text: note });
+      }
+      if (platform.commands.length > 0) {
+        const list = section.createEl("div", { cls: "vault-mind-libsecret-commands" });
+        for (const command of platform.commands) {
+          const row = list.createEl("div", { cls: "vault-mind-libsecret-command-row" });
+          const code = row.createEl("code", {
+            cls: "vault-mind-libsecret-command",
+            text: command
+          });
+          const copyBtn = row.createEl("button", {
+            cls: "vault-mind-libsecret-copy",
+            text: "Copy"
+          });
+          copyBtn.addEventListener("click", () => this.copyCommand(command, copyBtn));
+        }
+      }
+    }
+    contentEl.createEl("p", {
+      cls: "vault-mind-libsecret-note",
+      text: KEYCHAIN_NOTE
+    });
+    const divider = contentEl.createEl("hr", { cls: "vault-mind-libsecret-divider" });
+    divider.style.margin = "var(--size-4-4) 0";
+    const insecureContainer = contentEl.createEl("div", { cls: "vault-mind-libsecret-insecure" });
+    insecureContainer.createEl("p", {
+      cls: "vault-mind-warning",
+      text: "If you cannot install libsecret, you can continue without encrypting the token. This stores the token in plaintext and is not recommended."
+    });
+    const revealBtn = insecureContainer.createEl("button", {
+      cls: "mod-warning",
+      text: "Continue without encryption (INSECURE)"
+    });
+    revealBtn.addEventListener("click", () => this.showConfirmation(insecureContainer, revealBtn));
+    this.confirmationEl = insecureContainer.createEl("div", {
+      cls: "vault-mind-libsecret-confirmation"
+    });
+    this.confirmationEl.style.display = "none";
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+  isRelevantPlatform(label) {
+    if (import_obsidian5.Platform.isMacOS && label.startsWith("macOS")) return true;
+    if (import_obsidian5.Platform.isWin && label.startsWith("Windows")) return true;
+    if (import_obsidian5.Platform.isLinux && !import_obsidian5.Platform.isMacOS && !import_obsidian5.Platform.isWin) {
+      return !label.startsWith("macOS") && !label.startsWith("Windows");
+    }
+    return false;
+  }
+  async copyCommand(command, button) {
+    try {
+      await navigator.clipboard.writeText(command);
+      const original = button.textContent ?? "Copy";
+      button.textContent = "Copied";
+      activeWindow.setTimeout(() => {
+        button.textContent = original;
+      }, 1500);
+    } catch {
+      new import_obsidian5.Notice("Vault Mind: failed to copy command");
+    }
+  }
+  showConfirmation(container, revealBtn) {
+    revealBtn.disabled = true;
+    if (!this.confirmationEl) return;
+    this.confirmationEl.style.display = "block";
+    this.confirmationEl.empty();
+    this.confirmationEl.createEl("p", {
+      text: `Type "${INSECURE_CONFIRMATION}" to confirm you want to store the token without encryption.`
+    });
+    const input = this.confirmationEl.createEl("input", {
+      type: "text",
+      placeholder: INSECURE_CONFIRMATION
+    });
+    input.style.width = "100%";
+    input.style.marginBottom = "var(--size-4-2)";
+    const confirmBtn = this.confirmationEl.createEl("button", {
+      cls: "mod-warning",
+      text: "I understand \u2014 store token in plaintext"
+    });
+    confirmBtn.disabled = true;
+    input.addEventListener("input", () => {
+      confirmBtn.disabled = input.value !== INSECURE_CONFIRMATION;
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && input.value === INSECURE_CONFIRMATION) {
+        void this.confirmInsecure();
+      }
+    });
+    confirmBtn.addEventListener("click", () => void this.confirmInsecure());
+  }
+  async confirmInsecure() {
+    const ok = await this.options.tokenStore.optInToInsecure(INSECURE_CONFIRMATION);
+    if (!ok) {
+      new import_obsidian5.Notice("Vault Mind: confirmation did not match. Token will not be stored in plaintext.");
+      return;
+    }
+    new import_obsidian5.Notice("Vault Mind: plaintext opt-in enabled. Import or paste a token to continue.");
+    this.options.onOptIn?.();
+    this.close();
+  }
+};
+
+// src/views/status.ts
+function shellQuote(value) {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+function winQuote(value) {
+  return `"${value.replace(/"/g, '""')}"`;
+}
+var StatusView = class extends import_obsidian6.ItemView {
+  deps;
+  client = null;
+  root = null;
+  statusBar = null;
+  providerEl = null;
+  modelEl = null;
+  watcherBtn = null;
+  resultsBox = null;
+  unsubState = null;
+  unsubEvents = null;
+  discoveredConfig = null;
+  constructor(leaf, deps) {
+    super(leaf);
+    this.deps = deps;
+  }
+  getViewType() {
+    return "vault-mind-status";
+  }
+  getDisplayText() {
+    return "Vault Mind Status";
+  }
+  getIcon() {
+    return "vault-mind";
+  }
+  async onOpen() {
+    const container = this.containerEl.children[1];
+    container.empty();
+    await this.mount(container);
+  }
+  async onClose() {
+    this.unmount();
+  }
+  /** Mount view content into the given container. Used by VaultMindPanel for tabbed embedding. */
+  async mount(container) {
+    this.root = container.createEl("div", { cls: "vault-mind-container" });
+    this.render();
+    await this.connect();
+  }
+  /** Tear down connections. Used by VaultMindPanel on tab/panel close. */
+  unmount() {
+    this.disconnect();
+  }
+  render() {
+    if (!this.root) return;
+    this.root.empty();
+    this.statusBar = this.root.createEl("div", { cls: "vault-mind-status-bar" });
+    this.statusBar.createEl("span", { cls: "vault-mind-status-dot" });
+    this.statusBar.createEl("span", { text: "Vault Mind" });
+    this.statusBar.createEl("span", { cls: "vault-mind-version", text: "" });
+    const tokenBar = this.root.createEl("div", { cls: "vault-mind-status-bar" });
+    const mode = this.deps.tokenStore.getMode();
+    tokenBar.createEl("span", { text: `Token: ${this.formatMode(mode)}` });
+    if (!this.deps.tokenStore.isKeychainAvailable()) {
+      const installBtn = tokenBar.createEl("button", {
+        text: "Install libsecret",
+        attr: { "aria-label": "Install libsecret for secure token storage" }
+      });
+      installBtn.addEventListener(
+        "click",
+        () => new InstallLibsecretModal(this.app, {
+          tokenStore: this.deps.tokenStore,
+          onOptIn: () => this.render()
+        }).open()
+      );
+    }
+    const importBtn = tokenBar.createEl("button", {
+      text: "Import from dotenv",
+      attr: { "aria-label": "Import API token from dotenv file" }
+    });
+    importBtn.addEventListener("click", () => this.importToken());
+    const forgetBtn = tokenBar.createEl("button", {
+      text: "Forget",
+      attr: { "aria-label": "Forget stored API token" }
+    });
+    forgetBtn.addEventListener("click", () => this.forgetToken());
+    const detailsBar = this.root.createEl("div", { cls: "vault-mind-status-bar" });
+    this.providerEl = detailsBar.createEl("span", {
+      cls: "vault-mind-provider",
+      text: "Provider: \u2014"
+    });
+    this.modelEl = detailsBar.createEl("span", { cls: "vault-mind-model", text: "Model: \u2014" });
+    this.watcherBtn = detailsBar.createEl("button", {
+      text: "Start watcher",
+      attr: { "aria-label": "Toggle file watcher" }
+    });
+    this.watcherBtn.addEventListener("click", () => this.toggleWatcher());
+    const launchBtn = this.root.createEl("button", {
+      text: import_obsidian6.Platform.isMacOS ? "Open in Terminal" : "Open in Console",
+      attr: { "aria-label": "Open pi TUI in external terminal" }
+    });
+    launchBtn.addEventListener("click", () => this.launchPiTui());
+    const searchBox = this.root.createEl("div", { cls: "vault-mind-search-box" });
+    const input = searchBox.createEl("input", {
+      type: "text",
+      placeholder: "Search vault...",
+      attr: { "aria-label": "Search vault" }
+    });
+    const searchBtn = searchBox.createEl("button", {
+      title: "Search",
+      attr: { "aria-label": "Search vault" }
+    });
+    (0, import_obsidian6.setIcon)(searchBtn, "search");
+    searchBtn.addEventListener("click", () => this.runSearch(input.value));
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") this.runSearch(input.value);
+    });
+    this.resultsBox = this.root.createEl("div");
+  }
+  formatMode(mode) {
+    switch (mode) {
+      case "keychain":
+        return "Keychain";
+      case "1password":
+        return "1Password";
+      case "envfile":
+        return "env file";
+      default:
+        return "none";
+    }
+  }
+  async connect() {
+    this.disconnect();
+    this.discoveredConfig = readExtensionConfig(this.deps.vaultPath);
+    const token = await this.deps.tokenStore.getToken();
+    if (!token) {
+      this.setError("No token configured. Import from ~/.pi/agent/vault-mind.env or paste one.");
+      return;
+    }
+    this.client = new VaultMindClient({
+      host: this.deps.settings.host,
+      port: readServerPort(this.deps.vaultPath) ?? this.deps.settings.port,
+      token
+    });
+    this.unsubState = this.client.subscribeState((state) => this.updateConnectionState(state));
+    this.unsubEvents = this.client.subscribeEvents((event) => this.handleEvent(event));
+    this.client.connect();
+    await this.refreshStatus();
+  }
+  disconnect() {
+    if (this.unsubState) {
+      this.unsubState();
+      this.unsubState = null;
+    }
+    if (this.unsubEvents) {
+      this.unsubEvents();
+      this.unsubEvents = null;
+    }
+    if (this.client) {
+      this.client.disconnect();
+      this.client = null;
+    }
+  }
+  updateConnectionState(state) {
+    const dot = this.statusBar?.querySelector(".vault-mind-status-dot");
+    if (dot) {
+      dot.classList.remove("connected", "error");
+      if (state.connected) dot.classList.add("connected");
+      else if (state.error) dot.classList.add("error");
+    }
+    this.deps.plugin.updateStatusBar(state.connected, Boolean(state.error));
+  }
+  handleEvent(event) {
+    switch (event.type) {
+      case "vault-edit-proposed": {
+        new import_obsidian6.Notice(`Vault Mind: proposed edit for ${event.path}`);
+        const file = this.app.vault.getAbstractFileByPath(event.path);
+        if (file) {
+          new DiffModal(
+            this.app,
+            { path: event.path, old: event.oldContent, new: event.newContent },
+            async () => {
+              if (!(file instanceof import_obsidian6.TFile)) {
+                new import_obsidian6.Notice(`Vault Mind: file not found: ${event.path}`);
+                return;
+              }
+              try {
+                await this.app.vault.modify(file, event.newContent);
+                new import_obsidian6.Notice(`Vault Mind: accepted changes to ${event.path}`);
+              } catch (err) {
+                new import_obsidian6.Notice(`Vault Mind: failed to write ${event.path}: ${err.message}`);
+              }
+            }
+          ).open();
+        }
+        break;
+      }
+      case "job-notification":
+        new import_obsidian6.Notice(`Vault Mind job ${event.jobId}: ${event.status} \u2014 ${event.message}`);
+        break;
+      case "context-request":
+        break;
+    }
+  }
+  async refreshStatus() {
+    if (!this.client) return;
+    try {
+      const status = await this.client.status();
+      this.renderStatus(status);
+    } catch (err) {
+      this.setError(`Status refresh failed: ${err.message}`);
+    }
+  }
+  renderStatus(status) {
+    const versionEl = this.statusBar?.querySelector(".vault-mind-version");
+    if (versionEl) versionEl.textContent = `v${status.version}`;
+    const model = this.discoveredConfig?.model ?? status.embedding?.model ?? "\u2014";
+    if (this.providerEl) this.providerEl.textContent = `Model: ${model}`;
+    if (this.modelEl) this.modelEl.textContent = `Dim: ${status.embedding?.dim ?? "\u2014"}`;
+    if (this.watcherBtn) {
+      this.watcherBtn.textContent = status.watcher ? "Stop watcher" : "Start watcher";
+      this.watcherBtn.classList.toggle("connected", status.watcher);
+    }
+  }
+  setError(message) {
+    this.resultsBox?.empty();
+    this.resultsBox?.createEl("p", { cls: "vault-mind-empty", text: message });
+    new import_obsidian6.Notice(`Vault Mind: ${message}`);
+  }
+  async runSearch(query) {
+    if (!this.client || !query.trim()) return;
+    this.resultsBox?.empty();
+    try {
+      const res = await this.client.search(query.trim());
+      await this.renderSearchResults(res);
+    } catch (err) {
+      this.setError(`Search failed: ${err.message}`);
+    }
+  }
+  async renderSearchResults(res) {
+    this.resultsBox?.empty();
+    if (res.hits.length === 0) {
+      this.resultsBox?.createEl("p", { cls: "vault-mind-empty", text: "No results." });
+      return;
+    }
+    const list = this.resultsBox?.createEl("ul");
+    if (!list) return;
+    for (const hit of res.hits) {
+      const source = String(hit.source || "");
+      const fact = String(hit.fact || "");
+      const display = (fact || source).replace(/\|/g, "\\|").replace(/\]\]/g, "");
+      const markdown = source ? `[[${source}|${display}]]` : display || JSON.stringify(hit);
+      const li = list.createEl("li");
+      await import_obsidian6.MarkdownRenderer.render(this.app, markdown, li, "", this);
+    }
+  }
+  async toggleWatcher() {
+    if (!this.client) return;
+    try {
+      const res = await this.client.toggleWatcher();
+      new import_obsidian6.Notice(`Vault Mind: watcher ${res.watcher ? "started" : "stopped"}`);
+      await this.refreshStatus();
+    } catch (err) {
+      this.setError(`Watcher toggle failed: ${err.message}`);
+    }
+  }
+  async importToken() {
+    const ok = await this.deps.tokenStore.importFromDotenv();
+    if (!ok) {
+      new import_obsidian6.Notice("Vault Mind: token not found in ~/.pi/agent/vault-mind.env");
+      return;
+    }
+    new import_obsidian6.Notice("Vault Mind: token imported");
+    await this.connect();
+  }
+  async forgetToken() {
+    await this.deps.tokenStore.forgetToken();
+    new import_obsidian6.Notice("Vault Mind: token forgotten");
+    this.disconnect();
+  }
+  launchPiTui() {
+    if (!import_obsidian6.Platform.isDesktop) {
+      new import_obsidian6.Notice("Vault Mind: TUI launcher is only available on desktop");
+      return;
+    }
+    const cwd = this.deps.vaultPath;
+    const piConfigDir = this.deps.piConfigDir;
+    const piBinary = this.deps.piBinaryPath;
+    const env = { ...process.env, PI_CODING_AGENT_DIR: piConfigDir };
+    try {
+      if (import_obsidian6.Platform.isMacOS) {
+        const script = `cd ${shellQuote(cwd)} && export PI_CODING_AGENT_DIR=${shellQuote(piConfigDir)} && ${piBinary} --cwd ${shellQuote(cwd)}`;
+        const appleScript = `tell application "Terminal" to do script "${script.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+        (0, import_node_child_process4.spawn)("osascript", ["-e", appleScript]);
+      } else if (import_obsidian6.Platform.isLinux) {
+        const cmd = `cd ${shellQuote(cwd)} && export PI_CODING_AGENT_DIR=${shellQuote(piConfigDir)} && ${piBinary} --cwd ${shellQuote(cwd)}`;
+        (0, import_node_child_process4.spawn)("x-terminal-emulator", ["-e", "bash", "-c", cmd], { env });
+      } else if (import_obsidian6.Platform.isWin) {
+        const cmd = `cd /d ${winQuote(cwd)} && set PI_CODING_AGENT_DIR=${winQuote(piConfigDir)} && ${piBinary} --cwd ${winQuote(cwd)}`;
+        (0, import_node_child_process4.spawn)("cmd", ["/c", "start", "cmd", "/k", cmd], { env, shell: false });
+      } else {
+        new import_obsidian6.Notice("Vault Mind: unsupported platform for TUI launcher");
+      }
+    } catch (err) {
+      new import_obsidian6.Notice(`Vault Mind: failed to launch pi TUI: ${err.message}`);
+    }
+  }
+};
+
+// src/views/setup.ts
+var import_node_child_process5 = require("node:child_process");
 var import_node_fs3 = require("node:fs");
 var import_node_path3 = __toESM(require("node:path"), 1);
+var import_node_util2 = require("node:util");
+var import_obsidian7 = require("obsidian");
+var execAsync2 = (0, import_node_util2.promisify)(import_node_child_process5.exec);
+function loginShell2() {
+  return process.env.SHELL || (process.platform === "darwin" ? "/bin/zsh" : "/bin/bash");
+}
+function shellQuote2(value) {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+function buildInitializeCommand(vaultPath, piBinary) {
+  const agentDir = import_node_path3.default.join(vaultPath, ".pi", "agent");
+  return [
+    `mkdir -p ${shellQuote2(agentDir)}`,
+    `PI_CODING_AGENT_DIR=${shellQuote2(agentDir)} ${shellQuote2(piBinary)} install npm:pi-vault-mind`,
+    `PI_CODING_AGENT_DIR=${shellQuote2(agentDir)} ${shellQuote2(piBinary)} install npm:pi-context`
+  ].join(" && ");
+}
+var SetupView = class extends import_obsidian7.ItemView {
+  deps;
+  client = null;
+  root = null;
+  status = null;
+  error = null;
+  showWizard = false;
+  isFreshVault = false;
+  piBinaryPath = null;
+  constructor(leaf, deps) {
+    super(leaf);
+    this.deps = deps;
+  }
+  getViewType() {
+    return "vault-mind-setup";
+  }
+  getDisplayText() {
+    return "Vault Mind Setup";
+  }
+  getIcon() {
+    return "vault-mind";
+  }
+  async onOpen() {
+    const container = this.containerEl.children[1];
+    container.empty();
+    await this.mount(container);
+  }
+  async onClose() {
+    this.unmount();
+  }
+  /** Mount view content into the given container. Used by VaultMindPanel for tabbed embedding. */
+  async mount(container) {
+    this.root = container.createEl("div", { cls: "vault-mind-container" });
+    this.isFreshVault = !(0, import_node_fs3.existsSync)(import_node_path3.default.join(this.deps.vaultPath, ".pi"));
+    this.piBinaryPath = detectPiBinary("pi", this.deps.vaultPath);
+    if (this.isFreshVault) {
+      this.renderFreshVault();
+      return;
+    }
+    this.render();
+    await this.connect();
+  }
+  /** Tear down connections. Used by VaultMindPanel on tab/panel close. */
+  unmount() {
+    this.client?.disconnect();
+  }
+  async connect() {
+    const token = await this.deps.tokenStore.getToken();
+    if (!token) {
+      this.error = null;
+      this.showWizard = true;
+      this.render();
+      return;
+    }
+    this.client = new VaultMindClient({
+      host: this.deps.settings.host,
+      port: readServerPort(this.deps.vaultPath) ?? this.deps.settings.port,
+      token
+    });
+    this.client.connect();
+    await this.refresh();
+  }
+  async refresh() {
+    if (!this.client) return;
+    try {
+      const timeout = new Promise(
+        (_, reject) => activeWindow.setTimeout(() => reject(new Error("Connection timed out")), 5e3)
+      );
+      this.status = await Promise.race([this.client.status(), timeout]);
+      this.error = null;
+    } catch (err) {
+      this.status = null;
+      this.error = err.message;
+      this.showWizard = true;
+    }
+    this.render();
+  }
+  render() {
+    if (!this.root) return;
+    this.root.empty();
+    this.root.createEl("h3", { text: "Vault Mind Setup" });
+    if (!this.status && !this.error && !this.showWizard) {
+      this.renderLoading();
+      return;
+    }
+    if (this.status?.configured && !this.showWizard) {
+      this.renderSummary(this.status);
+    } else {
+      this.renderWizard(this.status);
+    }
+  }
+  renderFreshVault() {
+    if (!this.root) return;
+    this.root.empty();
+    this.root.createEl("h2", { text: "Welcome to Vault Mind" });
+    this.root.createEl("p", {
+      text: "This vault is not configured yet. Choose an action to finish setting up pi-vault-mind.",
+      cls: "vault-mind-fresh-text"
+    });
+    if (!this.piBinaryPath) {
+      this.root.createEl("p", {
+        cls: "vault-mind-empty",
+        text: "Vault Mind could not find the pi binary. Install pi, then use Initialize vault again or copy the manual command below."
+      });
+      this.root.createEl("code", {
+        cls: "vault-mind-install-command",
+        text: buildInitializeCommand(this.deps.vaultPath, "pi")
+      });
+    }
+    new import_obsidian7.Setting(this.root).setName("Initialize vault").setDesc("Create the .pi directory and install the Vault Mind extensions").addButton((btn) => {
+      btn.setButtonText("Initialize vault").setIcon("plus-circle").setCta().onClick(async () => {
+        btn.setButtonText("Initializing...");
+        btn.setDisabled(true);
+        try {
+          await this.runInitialize();
+          new import_obsidian7.Notice("Vault Mind: vault initialized");
+          this.isFreshVault = false;
+          this.render();
+          await this.connect();
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          new import_obsidian7.Notice(`Vault Mind: ${message}`);
+          btn.setButtonText("Initialize vault");
+          btn.setDisabled(false);
+        }
+      });
+    });
+    const tokenAction = this.root.createEl("div");
+    new import_obsidian7.Setting(tokenAction).setName("Configure token").setDesc("Save the token used to authenticate with pi-vault-mind").addButton((btn) => {
+      btn.setButtonText("Configure token").setIcon("key").onClick(() => {
+        tokenContainer.empty();
+        tokenContainer.show();
+        tokenContainer.createEl("h4", { text: "Configure token" });
+        const tokenInput = tokenContainer.createEl("input", {
+          type: "text",
+          placeholder: "Paste token"
+        });
+        tokenInput.ariaLabel = "Vault Mind token";
+        const saveBtn = tokenContainer.createEl("button", { text: "Save", cls: "mod-cta" });
+        saveBtn.addEventListener("click", async () => {
+          const token = tokenInput.value.trim();
+          if (!token) {
+            new import_obsidian7.Notice("Vault Mind: enter a token");
+            return;
+          }
+          const saved = await this.deps.tokenStore.setToken(token);
+          if (!saved) {
+            new import_obsidian7.Notice("Vault Mind: failed to save token");
+            return;
+          }
+          new import_obsidian7.Notice("Vault Mind: token saved");
+          tokenContainer.empty();
+          tokenContainer.hide();
+        });
+        tokenInput.focus();
+      });
+    });
+    const tokenContainer = tokenAction.createEl("div", { cls: "vault-mind-token-setup" });
+    tokenContainer.hide();
+    new import_obsidian7.Setting(this.root).setName("Launch pi").setDesc("Copy the command that starts pi in this vault").addButton((btn) => {
+      btn.setButtonText("Launch pi").setIcon("terminal").onClick(async () => {
+        const command = `cd ${shellQuote2(this.deps.vaultPath)} && PI_CODING_AGENT_DIR=.pi/agent pi`;
+        if (!import_obsidian7.Platform.isDesktop) {
+          new import_obsidian7.Notice(`Vault Mind: copy this command on desktop: ${command}`);
+          return;
+        }
+        await navigator.clipboard.writeText(command);
+        new import_obsidian7.Notice("Vault Mind: launch command copied");
+      });
+    });
+  }
+  async runInitialize() {
+    const piBinary = this.piBinaryPath ?? detectPiBinary("pi", this.deps.vaultPath);
+    if (!piBinary) {
+      this.piBinaryPath = null;
+      throw new Error("pi binary not found. Copy the manual install command below.");
+    }
+    this.piBinaryPath = piBinary;
+    const agentDir = import_node_path3.default.join(this.deps.vaultPath, ".pi", "agent");
+    const options = { shell: loginShell2(), timeout: 12e4 };
+    await execAsync2(`mkdir -p ${shellQuote2(agentDir)}`, options);
+    await execAsync2(
+      `PI_CODING_AGENT_DIR=${shellQuote2(agentDir)} ${shellQuote2(piBinary)} install npm:pi-vault-mind`,
+      options
+    );
+    await execAsync2(
+      `PI_CODING_AGENT_DIR=${shellQuote2(agentDir)} ${shellQuote2(piBinary)} install npm:pi-context`,
+      options
+    );
+  }
+  renderLoading() {
+    this.root?.createEl("p", { cls: "vault-mind-empty", text: "Connecting to pi-vault-mind..." });
+  }
+  renderError(message) {
+    this.root?.createEl("p", { cls: "vault-mind-empty", text: `Error: ${message}` });
+    const retryBtn = this.root?.createEl("button", { title: "Retry" });
+    if (retryBtn) (0, import_obsidian7.setIcon)(retryBtn, "refresh-cw");
+    retryBtn?.addEventListener("click", () => {
+      this.error = null;
+      this.render();
+      this.refresh().catch(() => void 0);
+    });
+  }
+  renderSummary(status) {
+    const card = this.root?.createEl("div", { cls: "vault-mind-setup-card" });
+    if (!card) return;
+    card.createEl("h3", { text: "Extension is configured" });
+    const list = card.createEl("ul");
+    list.createEl("li", { text: `Model: ${status.embedding?.model ?? "\u2014"}` });
+    list.createEl("li", { text: `Dim: ${status.embedding?.dim ?? "\u2014"}` });
+    list.createEl("li", { text: `Vault: ${this.app.vault.getName()}` });
+    list.createEl("li", {
+      text: status.server.running ? `Server running on port ${status.server.port}` : "Server not running"
+    });
+    const reconfigureBtn = this.root?.createEl("button", { title: "Reconfigure" });
+    if (reconfigureBtn) (0, import_obsidian7.setIcon)(reconfigureBtn, "settings");
+    reconfigureBtn?.addEventListener("click", () => {
+      this.showWizard = true;
+      this.render();
+    });
+    const seedBtn = this.root?.createEl("button", { title: "Seed pi config" });
+    if (seedBtn) (0, import_obsidian7.setIcon)(seedBtn, "download");
+    seedBtn?.addEventListener("click", () => this.seedPiConfig());
+    const personalizeBtn = this.root?.createEl("button", { title: "Personalize" });
+    if (personalizeBtn) (0, import_obsidian7.setIcon)(personalizeBtn, "user");
+    personalizeBtn?.addEventListener("click", () => {
+      new import_obsidian7.Notice("Run /vm personalize in pi to tune the agent personality for this vault");
+    });
+  }
+  seedPiConfig() {
+    const vaultName = this.app.vault.getName();
+    const { piConfigDir, systemMdPath } = this.deps;
+    try {
+      (0, import_node_fs3.mkdirSync)(piConfigDir, { recursive: true });
+      if (!(0, import_node_fs3.existsSync)(systemMdPath)) {
+        const systemPrompt = `You are an AI assistant working inside the ${vaultName} Obsidian vault. You have access to the vault's knowledge base via pi-vault-mind tools. Use search and context tools to ground your answers in vault content whenever relevant.`;
+        (0, import_node_fs3.writeFileSync)(systemMdPath, systemPrompt, "utf-8");
+      }
+      const configYamlPath = `${piConfigDir}/config.yaml`;
+      if (!(0, import_node_fs3.existsSync)(configYamlPath)) {
+        const configYaml = `# pi configuration for the ${vaultName} vault
+# Generated by the Vault Mind Obsidian plugin.
+`;
+        (0, import_node_fs3.writeFileSync)(configYamlPath, configYaml, "utf-8");
+      }
+      new import_obsidian7.Notice("Vault Mind: pi config seeded");
+    } catch (err) {
+      new import_obsidian7.Notice(`Vault Mind: failed to seed pi config: ${err.message}`);
+    }
+  }
+  renderWizard(status) {
+    if (!this.root) return;
+    const discovered = readExtensionConfig(this.deps.vaultPath);
+    if (this.error) {
+      this.root.createEl("p", {
+        cls: "vault-mind-empty",
+        text: `Could not reach the extension: ${this.error}`
+      });
+      const retryBtn = this.root.createEl("button", { text: "Retry", cls: "mod-cta" });
+      retryBtn.addEventListener("click", () => {
+        this.error = null;
+        this.showWizard = false;
+        this.render();
+        void this.connect();
+      });
+    } else if (!status) {
+      this.root.createEl("p", {
+        text: "Welcome! This vault isn't configured yet. Start pi from this vault directory with:"
+      });
+      this.root.createEl("code", {
+        cls: "vault-mind-install-command",
+        text: `cd ${this.deps.vaultPath} && PI_CODING_AGENT_DIR=.pi/agent pi`
+      });
+      this.root.createEl("p", {
+        text: "Then run: /vm setup"
+      });
+    }
+    const configured = status?.configured ?? false;
+    const running = status?.server.running ?? false;
+    const statusBar = this.root.createEl("div", { cls: "vault-mind-status-bar" });
+    statusBar.createEl("span", { text: configured ? "Configured" : "Not configured" });
+    statusBar.createEl("span", { text: running ? "Server running" : "Server stopped" });
+    if (configured) {
+      const backBtn = this.root.createEl("button", { title: "Back to summary" });
+      (0, import_obsidian7.setIcon)(backBtn, "arrow-left");
+      backBtn.addEventListener("click", () => {
+        this.showWizard = false;
+        this.render();
+      });
+    }
+    if (!configured) {
+      const initBtn = this.root.createEl("button", { title: "Initialize vault" });
+      (0, import_obsidian7.setIcon)(initBtn, "plus");
+      initBtn.addEventListener("click", () => this.initVault());
+    }
+    const setupGroup = this.root.createEl("div");
+    let remoteUrl = discovered?.remoteUrl ?? "";
+    let localUrl = discovered?.localUrl ?? "";
+    let model = discovered?.model ?? status?.embedding?.model ?? "";
+    let workspace = discovered?.workspace ?? "";
+    let useTransformers = discovered?.useTransformers ?? true;
+    let vault = this.app.vault.getName();
+    let inbox = "";
+    let library = "";
+    let presentations = "";
+    let journal = "";
+    new import_obsidian7.Setting(setupGroup).setName("Remote URL").addText(
+      (t) => t.setPlaceholder("https://my-modal-app.modal.run/v1").setValue(remoteUrl).onChange((v) => {
+        remoteUrl = v;
+      })
+    );
+    new import_obsidian7.Setting(setupGroup).setName("Local URL").addText(
+      (t) => t.setPlaceholder("http://127.0.0.1:11434/v1").setValue(localUrl).onChange((v) => {
+        localUrl = v;
+      })
+    );
+    new import_obsidian7.Setting(setupGroup).setName("Model").addText(
+      (t) => t.setPlaceholder("embeddinggemma").setValue(model).onChange((v) => {
+        model = v;
+      })
+    );
+    new import_obsidian7.Setting(setupGroup).setName("Use Transformers").addToggle(
+      (t) => t.setValue(useTransformers).onChange((v) => {
+        useTransformers = v;
+      })
+    );
+    new import_obsidian7.Setting(setupGroup).setName("Modal workspace").addText(
+      (t) => t.setPlaceholder("my-workspace").setValue(workspace).onChange((v) => {
+        workspace = v;
+      })
+    );
+    new import_obsidian7.Setting(setupGroup).setName("Vault name").addText(
+      (t) => t.setValue(vault).onChange((v) => {
+        vault = v;
+      })
+    );
+    new import_obsidian7.Setting(setupGroup).setName("Folder layout").setHeading();
+    new import_obsidian7.Setting(setupGroup).setName("Inbox").setDesc("Agent input folder").addText(
+      (t) => t.setPlaceholder("Agent/Inbox").setValue(inbox).onChange((v) => {
+        inbox = v;
+      })
+    );
+    new import_obsidian7.Setting(setupGroup).setName("Library").setDesc("Knowledge output folder").addText(
+      (t) => t.setPlaceholder("Agent/Library").setValue(library).onChange((v) => {
+        library = v;
+      })
+    );
+    new import_obsidian7.Setting(setupGroup).setName("Presentations").setDesc("Broadcaster output folder").addText(
+      (t) => t.setPlaceholder("Agent/Presentations").setValue(presentations).onChange((v) => {
+        presentations = v;
+      })
+    );
+    new import_obsidian7.Setting(setupGroup).setName("Journal").setDesc("Audit/checkpoint trail folder").addText(
+      (t) => t.setPlaceholder("Agent/Journal").setValue(journal).onChange((v) => {
+        journal = v;
+      })
+    );
+    const applyBtn = this.root.createEl("button", { title: "Apply setup" });
+    (0, import_obsidian7.setIcon)(applyBtn, "check");
+    applyBtn.addEventListener(
+      "click",
+      () => this.applySetup({
+        vault,
+        remoteUrl: remoteUrl || void 0,
+        localUrl: localUrl || void 0,
+        model: model || void 0,
+        workspace: workspace || void 0,
+        useTransformers,
+        folders: {
+          inbox: inbox || void 0,
+          library: library || void 0,
+          presentations: presentations || void 0,
+          journal: journal || void 0
+        }
+      })
+    );
+    const serverBtn = this.root.createEl("button", {
+      title: running ? "Stop server (cli only)" : "Start server"
+    });
+    (0, import_obsidian7.setIcon)(serverBtn, running ? "square" : "play");
+    serverBtn.disabled = running;
+    serverBtn.addEventListener("click", () => this.startServer());
+  }
+  async initVault() {
+    if (!this.client) return;
+    try {
+      await this.client.init();
+      new import_obsidian7.Notice("Vault Mind: vault initialized");
+      await this.refresh();
+    } catch (err) {
+      new import_obsidian7.Notice(`Vault Mind: ${err.message}`);
+    }
+  }
+  async applySetup(body) {
+    if (!this.client) return;
+    try {
+      await this.client.setup(body);
+      new import_obsidian7.Notice("Vault Mind: setup applied");
+      await this.refresh();
+    } catch (err) {
+      new import_obsidian7.Notice(`Vault Mind: ${err.message}`);
+    }
+  }
+  async startServer() {
+    if (!this.client) return;
+    try {
+      await this.client.startServer();
+      new import_obsidian7.Notice("Vault Mind: server started");
+      await this.refresh();
+    } catch (err) {
+      new import_obsidian7.Notice(`Vault Mind: ${err.message}`);
+    }
+  }
+};
+
+// src/views/chat.ts
+var import_node_child_process6 = require("node:child_process");
+var import_node_fs4 = require("node:fs");
+var import_node_path4 = __toESM(require("node:path"), 1);
 var import_node_readline = require("node:readline");
-var import_obsidian4 = require("obsidian");
+var import_obsidian8 = require("obsidian");
 var nextId = 1;
 function errorMessage(err) {
   return err instanceof Error ? err.message : String(err);
@@ -803,7 +2057,7 @@ function getRpcString(event, key) {
   const value = event[key];
   return typeof value === "string" ? value : "";
 }
-var FileSuggestModal = class extends import_obsidian4.FuzzySuggestModal {
+var FileSuggestModal = class extends import_obsidian8.FuzzySuggestModal {
   files;
   onSelect;
   constructor(app, files, onSelect) {
@@ -891,7 +2145,7 @@ var AttachmentPicker = class _AttachmentPicker {
         const stat = await this.app.vault.adapter.stat(file.path);
         if (stat && stat.size > _AttachmentPicker.MAX_FILE_SIZE) {
           const sizeMB = (stat.size / (1024 * 1024)).toFixed(1);
-          new import_obsidian4.Notice(`File too large (${sizeMB}MB). Max 1MB.`);
+          new import_obsidian8.Notice(`File too large (${sizeMB}MB). Max 1MB.`);
           return;
         }
         const content = await this.app.vault.cachedRead(file);
@@ -902,13 +2156,13 @@ var AttachmentPicker = class _AttachmentPicker {
           size: stat?.size
         });
       } catch (err) {
-        new import_obsidian4.Notice(`Failed to read file: ${err.message}`);
+        new import_obsidian8.Notice(`Failed to read file: ${err.message}`);
       }
     });
     modal.open();
   }
 };
-var CommandSuggestModal = class extends import_obsidian4.FuzzySuggestModal {
+var CommandSuggestModal = class extends import_obsidian8.FuzzySuggestModal {
   commands;
   onSelect;
   constructor(app, commands, onSelect) {
@@ -965,7 +2219,7 @@ var CommandSuggest = class {
     ];
   }
 };
-var ChatView = class extends import_obsidian4.ItemView {
+var ChatView = class extends import_obsidian8.ItemView {
   deps;
   root = null;
   messages = null;
@@ -1003,10 +2257,18 @@ var ChatView = class extends import_obsidian4.ItemView {
   async onOpen() {
     const container = this.containerEl.children[1];
     container.empty();
+    await this.mount(container);
+  }
+  async onClose() {
+    this.unmount();
+  }
+  /** Mount view content into the given container. Used by VaultMindPanel for tabbed embedding. */
+  async mount(container) {
     this.root = container.createEl("div", { cls: "vault-mind-container vault-mind-chat" });
     this.render();
   }
-  async onClose() {
+  /** Tear down connections. Used by VaultMindPanel on tab/panel close. */
+  unmount() {
     this.disconnect();
   }
   render() {
@@ -1030,7 +2292,7 @@ var ChatView = class extends import_obsidian4.ItemView {
       cls: "vault-mind-empty",
       text: `Desktop only. Requires pi installed at "${this.deps.piBinaryPath}".`
     });
-    if (!import_obsidian4.Platform.isDesktop) {
+    if (!import_obsidian8.Platform.isDesktop) {
       note.textContent = "Chat is only available on Obsidian desktop.";
     }
   }
@@ -1128,7 +2390,7 @@ ${text}`;
       this.connect();
     }
     if (!this.process?.stdin?.writable) {
-      new import_obsidian4.Notice("Vault Mind: pi RPC not connected");
+      new import_obsidian8.Notice("Vault Mind: pi RPC not connected");
       return;
     }
     this.process.stdin.write(
@@ -1138,15 +2400,15 @@ ${text}`;
     this.setStreaming(true);
   }
   connect() {
-    if (!import_obsidian4.Platform.isDesktop) return;
+    if (!import_obsidian8.Platform.isDesktop) return;
     this.disconnect();
     const cwd = this.deps.vaultPath || ".";
-    const piConfigDir = import_node_path3.default.join(cwd, ".pi", "agent");
+    const piConfigDir = import_node_path4.default.join(cwd, ".pi", "agent");
     try {
-      (0, import_node_fs3.mkdirSync)(piConfigDir, { recursive: true });
+      (0, import_node_fs4.mkdirSync)(piConfigDir, { recursive: true });
     } catch {
     }
-    this.process = (0, import_node_child_process4.spawn)(this.deps.piBinaryPath, ["--mode", "rpc", "--no-session"], {
+    this.process = (0, import_node_child_process6.spawn)(this.deps.piBinaryPath, ["--mode", "rpc", "--no-session"], {
       shell: true,
       cwd,
       stdio: ["pipe", "pipe", "pipe"],
@@ -1165,7 +2427,7 @@ ${text}`;
     this.process.stderr?.on("data", () => {
     });
     this.process.on("error", (err) => {
-      new import_obsidian4.Notice(`Vault Mind chat: ${errorMessage(err)}`);
+      new import_obsidian8.Notice(`Vault Mind chat: ${errorMessage(err)}`);
       this.setStreaming(false);
     });
     this.process.on("close", () => {
@@ -1340,7 +2602,7 @@ ${text}`;
         break;
       }
       case "error": {
-        new import_obsidian4.Notice(`Vault Mind chat: ${event.error ?? "unknown error"}`);
+        new import_obsidian8.Notice(`Vault Mind chat: ${event.error ?? "unknown error"}`);
         this.setStreaming(false);
         break;
       }
@@ -1363,7 +2625,7 @@ ${text}`;
     const contentEl = el.querySelector(".vault-mind-message-content");
     if (contentEl) {
       contentEl.empty();
-      void import_obsidian4.MarkdownRenderer.render(
+      void import_obsidian8.MarkdownRenderer.render(
         this.app,
         msg.content || (msg.isStreaming ? "_Thinking\u2026_" : "_Empty_"),
         contentEl,
@@ -1426,7 +2688,7 @@ ${text}`;
     if (!state.result) return;
     if (final && this.looksLikeMarkdown(state.result)) {
       try {
-        void import_obsidian4.MarkdownRenderer.render(this.app, state.result, contentEl, "", this);
+        void import_obsidian8.MarkdownRenderer.render(this.app, state.result, contentEl, "", this);
       } catch {
         const pre = contentEl.createEl("pre");
         pre.createEl("code", { text: state.result });
@@ -1486,1076 +2748,130 @@ ${text}`;
   }
 };
 
-// src/views/queue.ts
-var import_obsidian5 = require("obsidian");
-var QueueView = class extends import_obsidian5.ItemView {
-  deps;
-  client = null;
-  root = null;
-  chips = null;
-  list = null;
-  jobs = [];
-  unsubState = null;
-  unsubEvents = null;
-  connectionState = { connected: false };
-  explicitError = null;
-  constructor(leaf, deps) {
-    super(leaf);
-    this.deps = deps;
-  }
-  getViewType() {
-    return "vault-mind-queue";
-  }
-  getDisplayText() {
-    return "Vault Mind Queue";
-  }
-  getIcon() {
-    return "vault-mind";
-  }
-  async onOpen() {
-    const container = this.containerEl.children[1];
-    container.empty();
-    this.root = container.createEl("div", { cls: "vault-mind-container" });
-    this.render();
-    await this.connect();
-  }
-  async onClose() {
-    this.disconnect();
-  }
-  render() {
-    if (!this.root) return;
-    this.root.empty();
-    const header = this.root.createEl("div", { cls: "vault-mind-status-bar" });
-    header.createEl("span", { cls: "vault-mind-status-dot" });
-    header.createEl("span", { text: "Queue" });
-    const refresh = header.createEl("button", { title: "Refresh" });
-    (0, import_obsidian5.setIcon)(refresh, "refresh-cw");
-    refresh.addEventListener("click", () => this.refresh());
-    this.chips = this.root.createEl("div", { cls: "vault-mind-count-chips" });
-    this.list = this.root.createEl("ul", { cls: "vault-mind-queue-list" });
-  }
-  async connect() {
-    this.disconnect();
-    const token = await this.deps.tokenStore.getToken();
-    if (!token) {
-      this.setError("No token configured.");
-      return;
-    }
-    this.client = new VaultMindClient({
-      host: this.deps.settings.host,
-      port: readServerPort(this.deps.vaultPath) ?? this.deps.settings.port,
-      token
-    });
-    this.unsubState = this.client.subscribeState((state) => this.updateState(state));
-    this.unsubEvents = this.client.subscribeEvents((event) => this.handleEvent(event));
-    this.client.connect();
-    await this.refresh();
-  }
-  disconnect() {
-    if (this.unsubState) {
-      this.unsubState();
-      this.unsubState = null;
-    }
-    if (this.unsubEvents) {
-      this.unsubEvents();
-      this.unsubEvents = null;
-    }
-    if (this.client) {
-      this.client.disconnect();
-      this.client = null;
-    }
-  }
-  updateState(state) {
-    this.connectionState = state;
-    if (state.connected || state.reconnecting) {
-      this.explicitError = null;
-    }
-    const dot = this.root?.querySelector(".vault-mind-status-dot");
-    if (dot) {
-      dot.classList.remove("connected", "error", "reconnecting");
-      if (state.connected) dot.classList.add("connected");
-      else if (state.reconnecting) dot.classList.add("reconnecting");
-      else if (state.error) dot.classList.add("error");
-    }
-    this.updateRootStateClasses();
-    this.renderList();
-  }
-  updateRootStateClasses() {
-    if (!this.root) return;
-    this.root.classList.remove(
-      "vault-mind-queue-empty",
-      "vault-mind-queue-error",
-      "vault-mind-queue-reconnecting"
-    );
-    if (this.connectionState.reconnecting) {
-      this.root.classList.add("vault-mind-queue-reconnecting");
-    } else if (this.connectionState.error && !this.connectionState.connected) {
-      this.root.classList.add("vault-mind-queue-error");
-    } else if (this.connectionState.connected && this.jobs.length === 0) {
-      this.root.classList.add("vault-mind-queue-empty");
-    }
-  }
-  handleEvent(event) {
-    switch (event.type) {
-      case "queue/snapshot":
-        this.jobs = event.jobs;
-        break;
-      case "job-created":
-        this.jobs.unshift(event.job);
-        break;
-      case "job-updated": {
-        const idx = this.jobs.findIndex((j) => j.id === event.job.id);
-        if (idx >= 0) this.jobs[idx] = event.job;
-        break;
-      }
-      case "job-completed": {
-        const idx = this.jobs.findIndex((j) => j.id === event.job.id);
-        if (idx >= 0) this.jobs[idx] = event.job;
-        break;
-      }
-      case "job-notification":
-        new import_obsidian5.Notice(`Vault Mind job ${event.jobId}: ${event.status} \u2014 ${event.message}`);
-        break;
-      case "vault-edit-proposed":
-        break;
-      case "context-request":
-        break;
-    }
-    this.renderList();
-  }
-  async refresh() {
-    if (!this.client) return;
-    try {
-      this.jobs = await this.client.listQueue();
-      this.renderList();
-    } catch (err) {
-      this.setError(`Refresh failed: ${err.message}`);
-    }
-  }
-  renderList() {
-    if (!this.list) return;
-    this.list.empty();
-    this.renderChips();
-    this.updateRootStateClasses();
-    if (this.explicitError || this.connectionState.error && !this.connectionState.connected && !this.connectionState.reconnecting) {
-      const message = this.explicitError || "Connection lost. Retrying...";
-      const li = this.list.createEl("li", {
-        cls: "vault-mind-empty vault-mind-queue-error-state"
-      });
-      li.createEl("span", { text: message });
-      if (!this.explicitError) {
-        const retryBtn = li.createEl("button", {
-          title: "Retry now",
-          attr: { "aria-label": "Retry connection" }
-        });
-        (0, import_obsidian5.setIcon)(retryBtn, "refresh-cw");
-        retryBtn.addEventListener("click", () => this.connect());
-      }
-      return;
-    }
-    if (this.connectionState.reconnecting) {
-      const li = this.list.createEl("li", {
-        cls: "vault-mind-empty vault-mind-queue-reconnecting-state"
-      });
-      const spinner = li.createEl("span", { cls: "vault-mind-spinner" });
-      (0, import_obsidian5.setIcon)(spinner, "loader");
-      li.createEl("span", { text: "Reconnecting..." });
-      return;
-    }
-    if (!this.connectionState.connected) {
-      this.list.createEl("li", { cls: "vault-mind-empty", text: "Connecting..." });
-      return;
-    }
-    if (this.jobs.length === 0) {
-      this.list.createEl("li", {
-        cls: "vault-mind-empty",
-        text: "No jobs queued. Add @agent markers to your notes to create jobs."
-      });
-      return;
-    }
-    for (const job of this.jobs) {
-      const li = this.list.createEl("li", { cls: `vault-mind-job-row status-${job.status}` });
-      li.setAttribute("tabindex", "0");
-      li.setAttribute("role", "button");
-      li.setAttribute("aria-label", `${job.role} job, ${job.status}: ${job.filePath}`);
-      const header = li.createEl("div", { cls: "vault-mind-job-header" });
-      header.createEl("span", { cls: "vault-mind-job-role", text: job.role });
-      header.createEl("span", { cls: "vault-mind-job-status", text: job.status });
-      header.createEl("span", { cls: "vault-mind-job-attempts", text: `${job.attempts}x` });
-      li.createEl("div", { cls: "vault-mind-job-path", text: job.filePath });
-      li.createEl("div", {
-        cls: "vault-mind-job-instruction",
-        text: this.truncate(job.instruction, 80)
-      });
-      const detail = li.createEl("div", { cls: "vault-mind-job-detail" });
-      detail.createEl("div", { cls: "vault-mind-job-detail-section", text: job.instruction });
-      if (job.lastError) {
-        detail.createEl("div", { cls: "vault-mind-job-error", text: job.lastError });
-      }
-      detail.createEl("div", { cls: "vault-mind-job-meta-line", text: `File: ${job.filePath}` });
-      detail.createEl("div", {
-        cls: "vault-mind-job-meta-line",
-        text: `Created: ${job.createdAt}`
-      });
-      if (job.dispatchedAt) {
-        detail.createEl("div", {
-          cls: "vault-mind-job-meta-line",
-          text: `Dispatched: ${job.dispatchedAt}`
-        });
-      }
-      if (job.completedAt) {
-        detail.createEl("div", {
-          cls: "vault-mind-job-meta-line",
-          text: `Completed: ${job.completedAt}`
-        });
-      }
-      li.addEventListener("click", () => {
-        li.classList.toggle("vault-mind-job-expanded");
-      });
-      li.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          li.classList.toggle("vault-mind-job-expanded");
-        }
-      });
-      li.addEventListener("contextmenu", (evt) => {
-        evt.preventDefault();
-        this.showContextMenu(evt, job);
-      });
-    }
-  }
-  renderChips() {
-    if (!this.chips) return;
-    this.chips.empty();
-    const counts = this.countByStatus();
-    const statuses = ["pending", "running", "done", "failed", "cancelled"];
-    for (const status of statuses) {
-      const chip = this.chips.createEl("span", { cls: `vault-mind-count-chip status-${status}` });
-      chip.createEl("span", { cls: "vault-mind-count-chip-label", text: status });
-      chip.createEl("span", {
-        cls: "vault-mind-count-chip-value",
-        text: String(counts[status] ?? 0)
-      });
-    }
-  }
-  countByStatus() {
-    const counts = {
-      pending: 0,
-      running: 0,
-      done: 0,
-      failed: 0,
-      cancelled: 0
-    };
-    for (const job of this.jobs) {
-      counts[job.status] = (counts[job.status] ?? 0) + 1;
-    }
-    return counts;
-  }
-  truncate(text, max) {
-    if (text.length <= max) return text;
-    return `${text.slice(0, max).trim()}\u2026`;
-  }
-  showContextMenu(evt, job) {
-    const menu = new import_obsidian5.Menu();
-    menu.addItem(
-      (item) => item.setTitle("Retry").setIcon("rotate-cw").onClick(async () => {
-        try {
-          await this.client?.retryJob(job.id);
-        } catch (err) {
-          new import_obsidian5.Notice(`Vault Mind: ${err.message}`);
-        }
-      })
-    );
-    menu.addItem(
-      (item) => item.setTitle("Cancel").setIcon("x").onClick(async () => {
-        try {
-          await this.client?.cancelJob(job.id);
-        } catch (err) {
-          new import_obsidian5.Notice(`Vault Mind: ${err.message}`);
-        }
-      })
-    );
-    menu.showAtMouseEvent(evt);
-  }
-  setError(message) {
-    this.explicitError = message;
-    this.connectionState = { connected: false, error: message };
-    this.chips?.empty();
-    if (!this.list) return;
-    this.list.empty();
-    this.renderList();
-    new import_obsidian5.Notice(`Vault Mind: ${message}`);
-  }
-};
-
-// src/views/setup.ts
-var import_node_fs4 = require("node:fs");
-var import_obsidian6 = require("obsidian");
-var SetupView = class extends import_obsidian6.ItemView {
-  deps;
-  client = null;
-  root = null;
-  status = null;
-  error = null;
-  showWizard = false;
-  constructor(leaf, deps) {
-    super(leaf);
-    this.deps = deps;
-  }
-  getViewType() {
-    return "vault-mind-setup";
-  }
-  getDisplayText() {
-    return "Vault Mind Setup";
-  }
-  getIcon() {
-    return "vault-mind";
-  }
-  async onOpen() {
-    const container = this.containerEl.children[1];
-    container.empty();
-    this.root = container.createEl("div", { cls: "vault-mind-container" });
-    this.render();
-    await this.connect();
-  }
-  async onClose() {
-    this.client?.disconnect();
-  }
-  async connect() {
-    const token = await this.deps.tokenStore.getToken();
-    if (!token) {
-      this.error = "No token configured.";
-      this.render();
-      return;
-    }
-    this.client = new VaultMindClient({
-      host: this.deps.settings.host,
-      port: readServerPort(this.deps.vaultPath) ?? this.deps.settings.port,
-      token
-    });
-    this.client.connect();
-    await this.refresh();
-  }
-  async refresh() {
-    if (!this.client) return;
-    try {
-      this.status = await this.client.status();
-      this.error = null;
-    } catch (err) {
-      this.status = null;
-      this.error = err.message;
-      this.showWizard = true;
-    }
-    this.render();
-  }
-  render() {
-    if (!this.root) return;
-    this.root.empty();
-    this.root.createEl("h3", { text: "Vault Mind Setup" });
-    if (this.error && !this.showWizard) {
-      this.renderError(this.error);
-      return;
-    }
-    if (!this.status && !this.error) {
-      this.renderLoading();
-      return;
-    }
-    if (this.status?.configured && !this.showWizard) {
-      this.renderSummary(this.status);
-    } else {
-      this.renderWizard(this.status);
-    }
-  }
-  renderLoading() {
-    this.root?.createEl("p", { cls: "vault-mind-empty", text: "Checking extension status..." });
-  }
-  renderError(message) {
-    this.root?.createEl("p", { cls: "vault-mind-empty", text: `Error: ${message}` });
-    const retryBtn = this.root?.createEl("button", { title: "Retry" });
-    if (retryBtn) (0, import_obsidian6.setIcon)(retryBtn, "refresh-cw");
-    retryBtn?.addEventListener("click", () => {
-      this.error = null;
-      this.render();
-      this.refresh().catch(() => void 0);
-    });
-  }
-  renderSummary(status) {
-    const card = this.root?.createEl("div", { cls: "vault-mind-setup-card" });
-    if (!card) return;
-    card.createEl("h3", { text: "Extension is configured" });
-    const list = card.createEl("ul");
-    list.createEl("li", { text: `Model: ${status.embedding?.model ?? "\u2014"}` });
-    list.createEl("li", { text: `Dim: ${status.embedding?.dim ?? "\u2014"}` });
-    list.createEl("li", { text: `Vault: ${this.app.vault.getName()}` });
-    list.createEl("li", {
-      text: status.server.running ? `Server running on port ${status.server.port}` : "Server not running"
-    });
-    const reconfigureBtn = this.root?.createEl("button", { title: "Reconfigure" });
-    if (reconfigureBtn) (0, import_obsidian6.setIcon)(reconfigureBtn, "settings");
-    reconfigureBtn?.addEventListener("click", () => {
-      this.showWizard = true;
-      this.render();
-    });
-    const seedBtn = this.root?.createEl("button", { title: "Seed pi config" });
-    if (seedBtn) (0, import_obsidian6.setIcon)(seedBtn, "download");
-    seedBtn?.addEventListener("click", () => this.seedPiConfig());
-    const personalizeBtn = this.root?.createEl("button", { title: "Personalize" });
-    if (personalizeBtn) (0, import_obsidian6.setIcon)(personalizeBtn, "user");
-    personalizeBtn?.addEventListener("click", () => {
-      new import_obsidian6.Notice("Run /vm personalize in pi to tune the agent personality for this vault");
-    });
-  }
-  seedPiConfig() {
-    const vaultName = this.app.vault.getName();
-    const { piConfigDir, systemMdPath } = this.deps;
-    try {
-      (0, import_node_fs4.mkdirSync)(piConfigDir, { recursive: true });
-      if (!(0, import_node_fs4.existsSync)(systemMdPath)) {
-        const systemPrompt = `You are an AI assistant working inside the ${vaultName} Obsidian vault. You have access to the vault's knowledge base via pi-vault-mind tools. Use search and context tools to ground your answers in vault content whenever relevant.`;
-        (0, import_node_fs4.writeFileSync)(systemMdPath, systemPrompt, "utf-8");
-      }
-      const configYamlPath = `${piConfigDir}/config.yaml`;
-      if (!(0, import_node_fs4.existsSync)(configYamlPath)) {
-        const configYaml = `# pi configuration for the ${vaultName} vault
-# Generated by the Vault Mind Obsidian plugin.
-`;
-        (0, import_node_fs4.writeFileSync)(configYamlPath, configYaml, "utf-8");
-      }
-      new import_obsidian6.Notice("Vault Mind: pi config seeded");
-    } catch (err) {
-      new import_obsidian6.Notice(`Vault Mind: failed to seed pi config: ${err.message}`);
-    }
-  }
-  renderWizard(status) {
-    if (!this.root) return;
-    const discovered = readExtensionConfig(this.deps.vaultPath);
-    if (this.error) {
-      this.root.createEl("p", {
-        cls: "vault-mind-empty",
-        text: `Could not reach the extension: ${this.error}. Showing the setup wizard.`
-      });
-    }
-    const configured = status?.configured ?? false;
-    const running = status?.server.running ?? false;
-    const statusBar = this.root.createEl("div", { cls: "vault-mind-status-bar" });
-    statusBar.createEl("span", { text: configured ? "Configured" : "Not configured" });
-    statusBar.createEl("span", { text: running ? "Server running" : "Server stopped" });
-    if (configured) {
-      const backBtn = this.root.createEl("button", { title: "Back to summary" });
-      (0, import_obsidian6.setIcon)(backBtn, "arrow-left");
-      backBtn.addEventListener("click", () => {
-        this.showWizard = false;
-        this.render();
-      });
-    }
-    if (!configured) {
-      const initBtn = this.root.createEl("button", { title: "Initialize vault" });
-      (0, import_obsidian6.setIcon)(initBtn, "plus");
-      initBtn.addEventListener("click", () => this.initVault());
-    }
-    const setupGroup = this.root.createEl("div");
-    let remoteUrl = discovered?.remoteUrl ?? "";
-    let localUrl = discovered?.localUrl ?? "";
-    let model = discovered?.model ?? status?.embedding?.model ?? "";
-    let workspace = discovered?.workspace ?? "";
-    let useTransformers = discovered?.useTransformers ?? true;
-    let vault = this.app.vault.getName();
-    let inbox = "";
-    let library = "";
-    let presentations = "";
-    let journal = "";
-    new import_obsidian6.Setting(setupGroup).setName("Remote URL").addText(
-      (t) => t.setPlaceholder("https://my-modal-app.modal.run/v1").setValue(remoteUrl).onChange((v) => {
-        remoteUrl = v;
-      })
-    );
-    new import_obsidian6.Setting(setupGroup).setName("Local URL").addText(
-      (t) => t.setPlaceholder("http://127.0.0.1:11434/v1").setValue(localUrl).onChange((v) => {
-        localUrl = v;
-      })
-    );
-    new import_obsidian6.Setting(setupGroup).setName("Model").addText(
-      (t) => t.setPlaceholder("embeddinggemma").setValue(model).onChange((v) => {
-        model = v;
-      })
-    );
-    new import_obsidian6.Setting(setupGroup).setName("Use Transformers").addToggle(
-      (t) => t.setValue(useTransformers).onChange((v) => {
-        useTransformers = v;
-      })
-    );
-    new import_obsidian6.Setting(setupGroup).setName("Modal workspace").addText(
-      (t) => t.setPlaceholder("my-workspace").setValue(workspace).onChange((v) => {
-        workspace = v;
-      })
-    );
-    new import_obsidian6.Setting(setupGroup).setName("Vault name").addText(
-      (t) => t.setValue(vault).onChange((v) => {
-        vault = v;
-      })
-    );
-    new import_obsidian6.Setting(setupGroup).setName("Folder layout").setHeading();
-    new import_obsidian6.Setting(setupGroup).setName("Inbox").setDesc("Agent input folder").addText(
-      (t) => t.setPlaceholder("Agent/Inbox").setValue(inbox).onChange((v) => {
-        inbox = v;
-      })
-    );
-    new import_obsidian6.Setting(setupGroup).setName("Library").setDesc("Knowledge output folder").addText(
-      (t) => t.setPlaceholder("Agent/Library").setValue(library).onChange((v) => {
-        library = v;
-      })
-    );
-    new import_obsidian6.Setting(setupGroup).setName("Presentations").setDesc("Broadcaster output folder").addText(
-      (t) => t.setPlaceholder("Agent/Presentations").setValue(presentations).onChange((v) => {
-        presentations = v;
-      })
-    );
-    new import_obsidian6.Setting(setupGroup).setName("Journal").setDesc("Audit/checkpoint trail folder").addText(
-      (t) => t.setPlaceholder("Agent/Journal").setValue(journal).onChange((v) => {
-        journal = v;
-      })
-    );
-    const applyBtn = this.root.createEl("button", { title: "Apply setup" });
-    (0, import_obsidian6.setIcon)(applyBtn, "check");
-    applyBtn.addEventListener(
-      "click",
-      () => this.applySetup({
-        vault,
-        remoteUrl: remoteUrl || void 0,
-        localUrl: localUrl || void 0,
-        model: model || void 0,
-        workspace: workspace || void 0,
-        useTransformers,
-        folders: {
-          inbox: inbox || void 0,
-          library: library || void 0,
-          presentations: presentations || void 0,
-          journal: journal || void 0
-        }
-      })
-    );
-    const serverBtn = this.root.createEl("button", {
-      title: running ? "Stop server (cli only)" : "Start server"
-    });
-    (0, import_obsidian6.setIcon)(serverBtn, running ? "square" : "play");
-    serverBtn.disabled = running;
-    serverBtn.addEventListener("click", () => this.startServer());
-  }
-  async initVault() {
-    if (!this.client) return;
-    try {
-      await this.client.init();
-      new import_obsidian6.Notice("Vault Mind: vault initialized");
-      await this.refresh();
-    } catch (err) {
-      new import_obsidian6.Notice(`Vault Mind: ${err.message}`);
-    }
-  }
-  async applySetup(body) {
-    if (!this.client) return;
-    try {
-      await this.client.setup(body);
-      new import_obsidian6.Notice("Vault Mind: setup applied");
-      await this.refresh();
-    } catch (err) {
-      new import_obsidian6.Notice(`Vault Mind: ${err.message}`);
-    }
-  }
-  async startServer() {
-    if (!this.client) return;
-    try {
-      await this.client.startServer();
-      new import_obsidian6.Notice("Vault Mind: server started");
-      await this.refresh();
-    } catch (err) {
-      new import_obsidian6.Notice(`Vault Mind: ${err.message}`);
-    }
-  }
-};
-
-// src/views/status.ts
-var import_node_child_process5 = require("node:child_process");
-var import_obsidian8 = require("obsidian");
-
-// src/modals/libsecret.ts
-var import_obsidian7 = require("obsidian");
-var INSECURE_CONFIRMATION = "INSECURE";
-var PLATFORMS = [
-  {
-    label: "macOS",
-    notes: ["Keychain is the OS keychain. No setup needed."],
-    commands: []
-  },
-  {
-    label: "Windows",
-    notes: ["DPAPI is the OS keychain. No setup needed."],
-    commands: []
-  },
-  {
-    label: "Debian / Ubuntu (including WSL)",
-    notes: ["Restart Obsidian after installing."],
-    commands: ["sudo apt install libsecret-1-0 gnome-keyring"]
-  },
-  {
-    label: "Fedora / RHEL",
-    notes: ["Restart Obsidian after installing."],
-    commands: ["sudo dnf install libsecret gnome-keyring"]
-  },
-  {
-    label: "Arch / Manjaro",
-    notes: ["Restart Obsidian after installing."],
-    commands: ["sudo pacman -S libsecret gnome-keyring"]
-  },
-  {
-    label: "Alpine",
-    notes: ["Restart Obsidian after installing."],
-    commands: ["sudo apk add libsecret gnome-keyring"]
-  },
-  {
-    label: "Gentoo / Funtoo",
-    notes: [
-      "Install with the libsecret USE flag. kwallet is not supported by Electron's safeStorage on Linux.",
-      "Start gnome-keyring-daemon on the session bus, then verify the D-Bus service is reachable.",
-      "Launch Obsidian from the same shell so DBUS_SESSION_BUS_ADDRESS is inherited."
-    ],
-    commands: [
-      "emerge --ask gnome-base/libsecret gnome-base/gnome-keyring",
-      'eval "$(keychain --eval --agents ssh,gpg)"',
-      "dbus-send --session --dest=org.freedesktop.secrets --type=method_call /org/freedesktop/secrets org.freedesktop.DBus.Introspectable.Introspect"
-    ]
-  },
-  {
-    label: "NixOS",
-    notes: ["Add the service to configuration.nix, then restart Obsidian."],
-    commands: ["services.gnome-keyring.enable = true;"]
-  },
-  {
-    label: "Void / Solus",
-    notes: [
-      "See the upstream wiki for your distro. The requirement is libsecret plus a running gnome-keyring-daemon exposing org.freedesktop.secrets on the session bus."
-    ],
-    commands: []
-  }
+// src/views/panel.ts
+var VIEW_TYPE_PANEL = "vault-mind-panel";
+var TAB_CONFIG = [
+  { id: "queue", label: "Queue", icon: "list" },
+  { id: "status", label: "Status", icon: "activity" },
+  { id: "setup", label: "Setup", icon: "settings" },
+  { id: "chat", label: "Chat", icon: "message-circle" }
 ];
-var KEYCHAIN_NOTE = "Note: keychain 2.8.5 (Funtoo) reuses an existing keyring across shells; it does not start one. In a headless WSL session the gnome-keyring-daemon may not auto-start, which is why the Funtoo/WSL instructions call out the explicit keychain --eval step.";
-var InstallLibsecretModal = class extends import_obsidian7.Modal {
-  options;
-  confirmationEl = null;
-  constructor(app, options) {
-    super(app);
-    this.options = options;
-  }
-  onOpen() {
-    const { contentEl } = this;
-    this.setTitle("Install libsecret / configure keyring");
-    contentEl.empty();
-    contentEl.createEl("p", {
-      text: "Electron safeStorage needs an OS keychain to encrypt the Vault Mind API token. Choose your platform and run the command, then restart Obsidian."
-    });
-    for (const platform of PLATFORMS) {
-      const isRelevant = this.isRelevantPlatform(platform.label);
-      const section = contentEl.createEl("div", {
-        cls: `vault-mind-libsecret-section${isRelevant ? " vault-mind-libsecret-relevant" : ""}`
-      });
-      section.createEl("h3", { text: platform.label });
-      for (const note of platform.notes) {
-        section.createEl("p", { text: note });
-      }
-      if (platform.commands.length > 0) {
-        const list = section.createEl("div", { cls: "vault-mind-libsecret-commands" });
-        for (const command of platform.commands) {
-          const row = list.createEl("div", { cls: "vault-mind-libsecret-command-row" });
-          const code = row.createEl("code", {
-            cls: "vault-mind-libsecret-command",
-            text: command
-          });
-          const copyBtn = row.createEl("button", {
-            cls: "vault-mind-libsecret-copy",
-            text: "Copy"
-          });
-          copyBtn.addEventListener("click", () => this.copyCommand(command, copyBtn));
-        }
-      }
-    }
-    contentEl.createEl("p", {
-      cls: "vault-mind-libsecret-note",
-      text: KEYCHAIN_NOTE
-    });
-    const divider = contentEl.createEl("hr", { cls: "vault-mind-libsecret-divider" });
-    divider.style.margin = "var(--size-4-4) 0";
-    const insecureContainer = contentEl.createEl("div", { cls: "vault-mind-libsecret-insecure" });
-    insecureContainer.createEl("p", {
-      cls: "vault-mind-warning",
-      text: "If you cannot install libsecret, you can continue without encrypting the token. This stores the token in plaintext and is not recommended."
-    });
-    const revealBtn = insecureContainer.createEl("button", {
-      cls: "mod-warning",
-      text: "Continue without encryption (INSECURE)"
-    });
-    revealBtn.addEventListener("click", () => this.showConfirmation(insecureContainer, revealBtn));
-    this.confirmationEl = insecureContainer.createEl("div", {
-      cls: "vault-mind-libsecret-confirmation"
-    });
-    this.confirmationEl.style.display = "none";
-  }
-  onClose() {
-    this.contentEl.empty();
-  }
-  isRelevantPlatform(label) {
-    if (import_obsidian7.Platform.isMacOS && label.startsWith("macOS")) return true;
-    if (import_obsidian7.Platform.isWin && label.startsWith("Windows")) return true;
-    if (import_obsidian7.Platform.isLinux && !import_obsidian7.Platform.isMacOS && !import_obsidian7.Platform.isWin) {
-      return !label.startsWith("macOS") && !label.startsWith("Windows");
-    }
-    return false;
-  }
-  async copyCommand(command, button) {
-    try {
-      await navigator.clipboard.writeText(command);
-      const original = button.textContent ?? "Copy";
-      button.textContent = "Copied";
-      activeWindow.setTimeout(() => {
-        button.textContent = original;
-      }, 1500);
-    } catch {
-      new import_obsidian7.Notice("Vault Mind: failed to copy command");
-    }
-  }
-  showConfirmation(container, revealBtn) {
-    revealBtn.disabled = true;
-    if (!this.confirmationEl) return;
-    this.confirmationEl.style.display = "block";
-    this.confirmationEl.empty();
-    this.confirmationEl.createEl("p", {
-      text: `Type "${INSECURE_CONFIRMATION}" to confirm you want to store the token without encryption.`
-    });
-    const input = this.confirmationEl.createEl("input", {
-      type: "text",
-      placeholder: INSECURE_CONFIRMATION
-    });
-    input.style.width = "100%";
-    input.style.marginBottom = "var(--size-4-2)";
-    const confirmBtn = this.confirmationEl.createEl("button", {
-      cls: "mod-warning",
-      text: "I understand \u2014 store token in plaintext"
-    });
-    confirmBtn.disabled = true;
-    input.addEventListener("input", () => {
-      confirmBtn.disabled = input.value !== INSECURE_CONFIRMATION;
-    });
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && input.value === INSECURE_CONFIRMATION) {
-        void this.confirmInsecure();
-      }
-    });
-    confirmBtn.addEventListener("click", () => void this.confirmInsecure());
-  }
-  async confirmInsecure() {
-    const ok = await this.options.tokenStore.optInToInsecure(INSECURE_CONFIRMATION);
-    if (!ok) {
-      new import_obsidian7.Notice("Vault Mind: confirmation did not match. Token will not be stored in plaintext.");
-      return;
-    }
-    new import_obsidian7.Notice("Vault Mind: plaintext opt-in enabled. Import or paste a token to continue.");
-    this.options.onOptIn?.();
-    this.close();
-  }
-};
-
-// src/views/status.ts
-function shellQuote(value) {
-  return `'${value.replace(/'/g, "'\\''")}'`;
-}
-function winQuote(value) {
-  return `"${value.replace(/"/g, '""')}"`;
-}
-var StatusView = class extends import_obsidian8.ItemView {
+var VaultMindPanel = class extends import_obsidian9.ItemView {
   deps;
-  client = null;
-  root = null;
-  statusBar = null;
-  providerEl = null;
-  modelEl = null;
-  watcherBtn = null;
-  resultsBox = null;
-  unsubState = null;
-  unsubEvents = null;
-  discoveredConfig = null;
+  tabs = [];
+  activeTab = "queue";
   constructor(leaf, deps) {
     super(leaf);
     this.deps = deps;
   }
   getViewType() {
-    return "vault-mind-status";
+    return VIEW_TYPE_PANEL;
   }
   getDisplayText() {
-    return "Vault Mind Status";
+    return "Vault Mind";
   }
   getIcon() {
     return "vault-mind";
   }
   async onOpen() {
-    const container = this.containerEl.children[1];
-    container.empty();
-    this.root = container.createEl("div", { cls: "vault-mind-container" });
-    this.render();
-    await this.connect();
+    const content = this.containerEl.children[1];
+    content.empty();
+    content.addClass("vault-mind-panel");
+    const tabBar = content.createEl("div", { cls: "vault-mind-tab-bar" });
+    for (const cfg of TAB_CONFIG) {
+      const container = content.createEl("div", { cls: "vault-mind-tab-content" });
+      container.style.display = "none";
+      const button = tabBar.createEl("button", {
+        cls: "vault-mind-tab-button",
+        attr: {
+          "aria-label": cfg.label,
+          "aria-selected": "false",
+          role: "tab"
+        }
+      });
+      (0, import_obsidian9.setIcon)(button, cfg.icon);
+      button.createEl("span", { text: cfg.label });
+      const entry = {
+        id: cfg.id,
+        label: cfg.label,
+        icon: cfg.icon,
+        container,
+        button,
+        view: null,
+        mounted: false
+      };
+      this.tabs.push(entry);
+      button.addEventListener("click", () => {
+        void this.switchTab(cfg.id);
+      });
+    }
+    await this.switchTab(this.activeTab);
   }
   async onClose() {
-    this.disconnect();
-  }
-  render() {
-    if (!this.root) return;
-    this.root.empty();
-    this.statusBar = this.root.createEl("div", { cls: "vault-mind-status-bar" });
-    this.statusBar.createEl("span", { cls: "vault-mind-status-dot" });
-    this.statusBar.createEl("span", { text: "Vault Mind" });
-    this.statusBar.createEl("span", { cls: "vault-mind-version", text: "" });
-    const tokenBar = this.root.createEl("div", { cls: "vault-mind-status-bar" });
-    const mode = this.deps.tokenStore.getMode();
-    tokenBar.createEl("span", { text: `Token: ${this.formatMode(mode)}` });
-    if (!this.deps.tokenStore.isKeychainAvailable()) {
-      const installBtn = tokenBar.createEl("button", {
-        text: "Install libsecret",
-        attr: { "aria-label": "Install libsecret for secure token storage" }
-      });
-      installBtn.addEventListener(
-        "click",
-        () => new InstallLibsecretModal(this.app, {
-          tokenStore: this.deps.tokenStore,
-          onOptIn: () => this.render()
-        }).open()
-      );
-    }
-    const importBtn = tokenBar.createEl("button", {
-      text: "Import from dotenv",
-      attr: { "aria-label": "Import API token from dotenv file" }
-    });
-    importBtn.addEventListener("click", () => this.importToken());
-    const forgetBtn = tokenBar.createEl("button", {
-      text: "Forget",
-      attr: { "aria-label": "Forget stored API token" }
-    });
-    forgetBtn.addEventListener("click", () => this.forgetToken());
-    const detailsBar = this.root.createEl("div", { cls: "vault-mind-status-bar" });
-    this.providerEl = detailsBar.createEl("span", {
-      cls: "vault-mind-provider",
-      text: "Provider: \u2014"
-    });
-    this.modelEl = detailsBar.createEl("span", { cls: "vault-mind-model", text: "Model: \u2014" });
-    this.watcherBtn = detailsBar.createEl("button", {
-      text: "Start watcher",
-      attr: { "aria-label": "Toggle file watcher" }
-    });
-    this.watcherBtn.addEventListener("click", () => this.toggleWatcher());
-    const launchBtn = this.root.createEl("button", {
-      text: import_obsidian8.Platform.isMacOS ? "Open in Terminal" : "Open in Console",
-      attr: { "aria-label": "Open pi TUI in external terminal" }
-    });
-    launchBtn.addEventListener("click", () => this.launchPiTui());
-    const searchBox = this.root.createEl("div", { cls: "vault-mind-search-box" });
-    const input = searchBox.createEl("input", {
-      type: "text",
-      placeholder: "Search vault...",
-      attr: { "aria-label": "Search vault" }
-    });
-    const searchBtn = searchBox.createEl("button", {
-      title: "Search",
-      attr: { "aria-label": "Search vault" }
-    });
-    (0, import_obsidian8.setIcon)(searchBtn, "search");
-    searchBtn.addEventListener("click", () => this.runSearch(input.value));
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") this.runSearch(input.value);
-    });
-    this.resultsBox = this.root.createEl("div");
-  }
-  formatMode(mode) {
-    switch (mode) {
-      case "keychain":
-        return "keychain";
-      case "insecure":
-        return "INSECURE";
-      case "dotenv":
-        return "dotenv";
-      default:
-        return "none";
-    }
-  }
-  async connect() {
-    this.disconnect();
-    this.discoveredConfig = readExtensionConfig(this.deps.vaultPath);
-    const token = await this.deps.tokenStore.getToken();
-    if (!token) {
-      this.setError("No token configured. Import from ~/.pi/agent/vault-mind.env or paste one.");
-      return;
-    }
-    this.client = new VaultMindClient({
-      host: this.deps.settings.host,
-      port: readServerPort(this.deps.vaultPath) ?? this.deps.settings.port,
-      token
-    });
-    this.unsubState = this.client.subscribeState((state) => this.updateConnectionState(state));
-    this.unsubEvents = this.client.subscribeEvents((event) => this.handleEvent(event));
-    this.client.connect();
-    await this.refreshStatus();
-  }
-  disconnect() {
-    if (this.unsubState) {
-      this.unsubState();
-      this.unsubState = null;
-    }
-    if (this.unsubEvents) {
-      this.unsubEvents();
-      this.unsubEvents = null;
-    }
-    if (this.client) {
-      this.client.disconnect();
-      this.client = null;
-    }
-  }
-  updateConnectionState(state) {
-    const dot = this.statusBar?.querySelector(".vault-mind-status-dot");
-    if (dot) {
-      dot.classList.remove("connected", "error");
-      if (state.connected) dot.classList.add("connected");
-      else if (state.error) dot.classList.add("error");
-    }
-    this.deps.plugin.updateStatusBar(state.connected, Boolean(state.error));
-  }
-  handleEvent(event) {
-    switch (event.type) {
-      case "vault-edit-proposed": {
-        new import_obsidian8.Notice(`Vault Mind: proposed edit for ${event.path}`);
-        const file = this.app.vault.getAbstractFileByPath(event.path);
-        if (file) {
-          new DiffModal(
-            this.app,
-            { path: event.path, old: event.oldContent, new: event.newContent },
-            async () => {
-              if (!(file instanceof import_obsidian8.TFile)) {
-                new import_obsidian8.Notice(`Vault Mind: file not found: ${event.path}`);
-                return;
-              }
-              try {
-                await this.app.vault.modify(file, event.newContent);
-                new import_obsidian8.Notice(`Vault Mind: accepted changes to ${event.path}`);
-              } catch (err) {
-                new import_obsidian8.Notice(`Vault Mind: failed to write ${event.path}: ${err.message}`);
-              }
-            }
-          ).open();
-        }
-        break;
+    for (const tab of this.tabs) {
+      if (tab.view) {
+        tab.view.unmount();
+        this.removeChild(tab.view);
+        tab.view = null;
+        tab.mounted = false;
       }
-      case "job-notification":
-        new import_obsidian8.Notice(`Vault Mind job ${event.jobId}: ${event.status} \u2014 ${event.message}`);
-        break;
-      case "context-request":
-        break;
     }
+    this.tabs = [];
   }
-  async refreshStatus() {
-    if (!this.client) return;
-    try {
-      const status = await this.client.status();
-      this.renderStatus(status);
-    } catch (err) {
-      this.setError(`Status refresh failed: ${err.message}`);
-    }
-  }
-  renderStatus(status) {
-    const versionEl = this.statusBar?.querySelector(".vault-mind-version");
-    if (versionEl) versionEl.textContent = `v${status.version}`;
-    const model = this.discoveredConfig?.model ?? status.embedding?.model ?? "\u2014";
-    if (this.providerEl) this.providerEl.textContent = `Model: ${model}`;
-    if (this.modelEl) this.modelEl.textContent = `Dim: ${status.embedding?.dim ?? "\u2014"}`;
-    if (this.watcherBtn) {
-      this.watcherBtn.textContent = status.watcher ? "Stop watcher" : "Start watcher";
-      this.watcherBtn.classList.toggle("connected", status.watcher);
-    }
-  }
-  setError(message) {
-    this.resultsBox?.empty();
-    this.resultsBox?.createEl("p", { cls: "vault-mind-empty", text: message });
-    new import_obsidian8.Notice(`Vault Mind: ${message}`);
-  }
-  async runSearch(query) {
-    if (!this.client || !query.trim()) return;
-    this.resultsBox?.empty();
-    try {
-      const res = await this.client.search(query.trim());
-      await this.renderSearchResults(res);
-    } catch (err) {
-      this.setError(`Search failed: ${err.message}`);
-    }
-  }
-  async renderSearchResults(res) {
-    this.resultsBox?.empty();
-    if (res.hits.length === 0) {
-      this.resultsBox?.createEl("p", { cls: "vault-mind-empty", text: "No results." });
-      return;
-    }
-    const list = this.resultsBox?.createEl("ul");
-    if (!list) return;
-    for (const hit of res.hits) {
-      const source = String(hit.source || "");
-      const fact = String(hit.fact || "");
-      const display = (fact || source).replace(/\|/g, "\\|").replace(/\]\]/g, "");
-      const markdown = source ? `[[${source}|${display}]]` : display || JSON.stringify(hit);
-      const li = list.createEl("li");
-      await import_obsidian8.MarkdownRenderer.render(this.app, markdown, li, "", this);
-    }
-  }
-  async toggleWatcher() {
-    if (!this.client) return;
-    try {
-      const res = await this.client.toggleWatcher();
-      new import_obsidian8.Notice(`Vault Mind: watcher ${res.watcher ? "started" : "stopped"}`);
-      await this.refreshStatus();
-    } catch (err) {
-      this.setError(`Watcher toggle failed: ${err.message}`);
-    }
-  }
-  async importToken() {
-    const ok = await this.deps.tokenStore.importFromDotenv();
-    if (!ok) {
-      new import_obsidian8.Notice("Vault Mind: token not found in ~/.pi/agent/vault-mind.env");
-      return;
-    }
-    new import_obsidian8.Notice("Vault Mind: token imported");
-    await this.connect();
-  }
-  async forgetToken() {
-    await this.deps.tokenStore.forgetToken();
-    new import_obsidian8.Notice("Vault Mind: token forgotten");
-    this.disconnect();
-  }
-  launchPiTui() {
-    if (!import_obsidian8.Platform.isDesktop) {
-      new import_obsidian8.Notice("Vault Mind: TUI launcher is only available on desktop");
-      return;
-    }
-    const cwd = this.deps.vaultPath;
-    const piConfigDir = this.deps.piConfigDir;
-    const piBinary = this.deps.piBinaryPath;
-    const env = { ...process.env, PI_CODING_AGENT_DIR: piConfigDir };
-    try {
-      if (import_obsidian8.Platform.isMacOS) {
-        const script = `cd ${shellQuote(cwd)} && export PI_CODING_AGENT_DIR=${shellQuote(piConfigDir)} && ${piBinary} --cwd ${shellQuote(cwd)}`;
-        const appleScript = `tell application "Terminal" to do script "${script.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-        (0, import_node_child_process5.spawn)("osascript", ["-e", appleScript]);
-      } else if (import_obsidian8.Platform.isLinux) {
-        const cmd = `cd ${shellQuote(cwd)} && export PI_CODING_AGENT_DIR=${shellQuote(piConfigDir)} && ${piBinary} --cwd ${shellQuote(cwd)}`;
-        (0, import_node_child_process5.spawn)("x-terminal-emulator", ["-e", "bash", "-c", cmd], { env });
-      } else if (import_obsidian8.Platform.isWin) {
-        const cmd = `cd /d ${winQuote(cwd)} && set PI_CODING_AGENT_DIR=${winQuote(piConfigDir)} && ${piBinary} --cwd ${winQuote(cwd)}`;
-        (0, import_node_child_process5.spawn)("cmd", ["/c", "start", "cmd", "/k", cmd], { env, shell: false });
-      } else {
-        new import_obsidian8.Notice("Vault Mind: unsupported platform for TUI launcher");
+  /** Switch to a specific tab by ID. Called by the panel and by external commands. */
+  async switchTab(id) {
+    this.activeTab = id;
+    for (const tab of this.tabs) {
+      const isActive = tab.id === id;
+      tab.container.style.display = isActive ? "" : "none";
+      tab.button.classList.toggle("is-active", isActive);
+      tab.button.setAttribute("aria-selected", String(isActive));
+      if (isActive && !tab.mounted) {
+        tab.view = this.createView(tab.id);
+        this.addChild(tab.view);
+        await tab.view.mount(tab.container);
+        tab.mounted = true;
       }
-    } catch (err) {
-      new import_obsidian8.Notice(`Vault Mind: failed to launch pi TUI: ${err.message}`);
+    }
+  }
+  createView(id) {
+    const { deps } = this;
+    switch (id) {
+      case "queue":
+        return new QueueView(this.leaf, {
+          settings: deps.settings,
+          tokenStore: deps.tokenStore,
+          vaultPath: deps.vaultPath
+        });
+      case "status":
+        return new StatusView(this.leaf, {
+          settings: deps.settings,
+          tokenStore: deps.tokenStore,
+          vaultPath: deps.vaultPath,
+          piConfigDir: deps.piConfigDir,
+          systemMdPath: deps.systemMdPath,
+          piBinaryPath: deps.piBinaryPath,
+          plugin: deps.plugin
+        });
+      case "setup":
+        return new SetupView(this.leaf, {
+          settings: deps.settings,
+          tokenStore: deps.tokenStore,
+          vaultPath: deps.vaultPath,
+          piConfigDir: deps.piConfigDir,
+          systemMdPath: deps.systemMdPath
+        });
+      case "chat":
+        return new ChatView(this.leaf, {
+          vaultPath: deps.vaultPath,
+          piConfigDir: deps.piConfigDir,
+          systemMdPath: deps.systemMdPath,
+          piBinaryPath: deps.piBinaryPath,
+          includeEditorContext: deps.includeEditorContext,
+          includeFilePicker: deps.includeFilePicker,
+          includeSlashCommands: deps.includeSlashCommands,
+          editorContext: deps.editorContext
+        });
     }
   }
 };
@@ -2575,7 +2891,7 @@ var DEFAULT_SETTINGS = {
   includeFilePicker: true,
   includeSlashCommands: true
 };
-var VaultMindSettingTab = class extends import_obsidian9.PluginSettingTab {
+var VaultMindSettingTab = class extends import_obsidian10.PluginSettingTab {
   plugin;
   constructor(app, plugin) {
     super(app, plugin);
@@ -2584,67 +2900,67 @@ var VaultMindSettingTab = class extends import_obsidian9.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    new import_obsidian9.Setting(containerEl).setName("Connection").setHeading();
-    new import_obsidian9.Setting(containerEl).setName("Host").setDesc("HTTP server host").addText(
+    new import_obsidian10.Setting(containerEl).setName("Connection").setHeading();
+    new import_obsidian10.Setting(containerEl).setName("Host").setDesc("HTTP server host").addText(
       (text) => text.setPlaceholder("127.0.0.1").setValue(this.plugin.settings.host).onChange(async (value) => {
         this.plugin.settings.host = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian9.Setting(containerEl).setName("Port").setDesc("HTTP server port").addText(
+    new import_obsidian10.Setting(containerEl).setName("Port").setDesc("HTTP server port").addText(
       (text) => text.setPlaceholder("11435").setValue(String(this.plugin.settings.port)).onChange(async (value) => {
         const n = Number.parseInt(value, 10);
         this.plugin.settings.port = Number.isNaN(n) ? 11435 : n;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian9.Setting(containerEl).setName("Pi binary path").setDesc("Path to the pi executable for the chat view").addText(
+    new import_obsidian10.Setting(containerEl).setName("Pi binary path").setDesc("Path to the pi executable for the chat view").addText(
       (text) => text.setPlaceholder("pi").setValue(this.plugin.settings.piBinaryPath).onChange(async (value) => {
         this.plugin.settings.piBinaryPath = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian9.Setting(containerEl).setName("Check extension on startup").setDesc("Detect whether pi-vault-mind is installed in your pi session when Obsidian starts").addToggle(
+    new import_obsidian10.Setting(containerEl).setName("Check extension on startup").setDesc("Detect whether pi-vault-mind is installed in your pi session when Obsidian starts").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.checkExtensionOnStartup).onChange(async (value) => {
         this.plugin.settings.checkExtensionOnStartup = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian9.Setting(containerEl).setName("Include editor context").setDesc("Send the active note path and selection with chat messages").addToggle(
+    new import_obsidian10.Setting(containerEl).setName("Include editor context").setDesc("Send the active note path and selection with chat messages").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.includeEditorContext).onChange(async (value) => {
         this.plugin.settings.includeEditorContext = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian9.Setting(containerEl).setName("Include file picker").setDesc("Allow @ references in the chat input to attach vault files as context").addToggle(
+    new import_obsidian10.Setting(containerEl).setName("Include file picker").setDesc("Allow @ references in the chat input to attach vault files as context").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.includeFilePicker).onChange(async (value) => {
         this.plugin.settings.includeFilePicker = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian9.Setting(containerEl).setName("Include slash commands").setDesc("Allow / references in the chat input to run Pi commands").addToggle(
+    new import_obsidian10.Setting(containerEl).setName("Include slash commands").setDesc("Allow / references in the chat input to run Pi commands").addToggle(
       (toggle) => toggle.setValue(this.plugin.settings.includeSlashCommands).onChange(async (value) => {
         this.plugin.settings.includeSlashCommands = value;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian9.Setting(containerEl).setName("Folder layout").setHeading();
-    new import_obsidian9.Setting(containerEl).setName("Inbox").setDesc("Agent input folder (default: Agent/Inbox)").addText(
+    new import_obsidian10.Setting(containerEl).setName("Folder layout").setHeading();
+    new import_obsidian10.Setting(containerEl).setName("Inbox").setDesc("Agent input folder (default: Agent/Inbox)").addText(
       (text) => text.setPlaceholder("Agent/Inbox").onChange(async (value) => {
         await this.saveFolderSetting("inbox", value);
       })
     );
-    new import_obsidian9.Setting(containerEl).setName("Library").setDesc("Knowledge output folder (default: Agent/Library)").addText(
+    new import_obsidian10.Setting(containerEl).setName("Library").setDesc("Knowledge output folder (default: Agent/Library)").addText(
       (text) => text.setPlaceholder("Agent/Library").onChange(async (value) => {
         await this.saveFolderSetting("library", value);
       })
     );
-    new import_obsidian9.Setting(containerEl).setName("Presentations").setDesc("Broadcaster output folder (default: Agent/Presentations)").addText(
+    new import_obsidian10.Setting(containerEl).setName("Presentations").setDesc("Broadcaster output folder (default: Agent/Presentations)").addText(
       (text) => text.setPlaceholder("Agent/Presentations").onChange(async (value) => {
         await this.saveFolderSetting("presentations", value);
       })
     );
-    new import_obsidian9.Setting(containerEl).setName("Journal").setDesc("Audit/checkpoint trail folder (default: Agent/Journal)").addText(
+    new import_obsidian10.Setting(containerEl).setName("Journal").setDesc("Audit/checkpoint trail folder (default: Agent/Journal)").addText(
       (text) => text.setPlaceholder("Agent/Journal").onChange(async (value) => {
         await this.saveFolderSetting("journal", value);
       })
@@ -2652,8 +2968,8 @@ var VaultMindSettingTab = class extends import_obsidian9.PluginSettingTab {
     const token = this.plugin.tokenStore;
     const backends = token.availableBackends();
     const currentMode = token.getMode();
-    new import_obsidian9.Setting(containerEl).setName("Token storage").setHeading();
-    new import_obsidian9.Setting(containerEl).setName("Backend").setDesc(`Current: ${currentMode === "none" ? "not configured" : currentMode}`).addDropdown((dropdown) => {
+    new import_obsidian10.Setting(containerEl).setName("Token storage").setHeading();
+    new import_obsidian10.Setting(containerEl).setName("Backend").setDesc(`Current: ${currentMode === "none" ? "not configured" : currentMode}`).addDropdown((dropdown) => {
       for (const b of backends) {
         dropdown.addOption(
           b,
@@ -2665,21 +2981,21 @@ var VaultMindSettingTab = class extends import_obsidian9.PluginSettingTab {
         const existing = await token.getToken();
         if (existing) {
           await token.setToken(existing, value);
-          new import_obsidian9.Notice(`Vault Mind: token moved to ${value}`);
+          new import_obsidian10.Notice(`Vault Mind: token moved to ${value}`);
         }
         this.display();
       });
     });
-    new import_obsidian9.Setting(containerEl).setName("Import token").setDesc("Load from ~/.pi/agent/vault-mind.env into the selected backend.").addButton(
+    new import_obsidian10.Setting(containerEl).setName("Import token").setDesc("Load from ~/.pi/agent/vault-mind.env into the selected backend.").addButton(
       (btn) => btn.setButtonText("Import from dotenv").onClick(async () => {
         const ok = await token.importFromDotenv();
-        new import_obsidian9.Notice(ok ? "Vault Mind: token imported" : "Vault Mind: no token found in dotenv");
+        new import_obsidian10.Notice(ok ? "Vault Mind: token imported" : "Vault Mind: no token found in dotenv");
         this.display();
       })
     ).addButton(
       (btn) => btn.setButtonText("Forget").onClick(async () => {
         await token.forgetToken();
-        new import_obsidian9.Notice("Vault Mind: token forgotten");
+        new import_obsidian10.Notice("Vault Mind: token forgotten");
         this.display();
       })
     );
@@ -2687,7 +3003,7 @@ var VaultMindSettingTab = class extends import_obsidian9.PluginSettingTab {
   async saveFolderSetting(key, value) {
     const token = await this.plugin.tokenStore.getToken();
     if (!token) {
-      new import_obsidian9.Notice("Vault Mind: no API token configured");
+      new import_obsidian10.Notice("Vault Mind: no API token configured");
       return;
     }
     const client = new VaultMindClient({
@@ -2699,19 +3015,19 @@ var VaultMindSettingTab = class extends import_obsidian9.PluginSettingTab {
       await client.setup({
         folders: { [key]: value || void 0 }
       });
-      new import_obsidian9.Notice(`Vault Mind: ${key} folder saved`);
+      new import_obsidian10.Notice(`Vault Mind: ${key} folder saved`);
     } catch (err) {
-      new import_obsidian9.Notice(`Vault Mind: failed to save ${key} folder \u2014 ${err.message}`);
+      new import_obsidian10.Notice(`Vault Mind: failed to save ${key} folder \u2014 ${err.message}`);
     }
   }
 };
-var VaultMindPlugin = class extends import_obsidian9.Plugin {
+var VaultMindPlugin = class extends import_obsidian10.Plugin {
   editorContext = { filePath: null, cursor: null, selection: null };
   connectionState = { connected: false, error: false };
   statusBarItem = null;
   contextPushTimer = null;
   async onload() {
-    (0, import_obsidian9.addIcon)("vault-mind", VAULT_MIND_ICON);
+    (0, import_obsidian10.addIcon)("vault-mind", VAULT_MIND_ICON);
     await this.loadSettings();
     const savedData = await this.loadData() ?? {};
     this.tokenStore = new TokenStore(
@@ -2724,7 +3040,7 @@ var VaultMindPlugin = class extends import_obsidian9.Plugin {
     this.registerEditorExtension(
       import_view.EditorView.updateListener.of((update) => {
         if (!update.selectionSet) return;
-        const info = update.state.field(import_obsidian9.editorInfoField, false);
+        const info = update.state.field(import_obsidian10.editorInfoField, false);
         const activeFile = this.app.workspace.getActiveFile();
         if (!info?.file || activeFile?.path !== info.file.path) {
           return;
@@ -2738,7 +3054,7 @@ var VaultMindPlugin = class extends import_obsidian9.Plugin {
     );
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
-        const active = this.app.workspace.getActiveViewOfType(import_obsidian9.MarkdownView);
+        const active = this.app.workspace.getActiveViewOfType(import_obsidian10.MarkdownView);
         if (!active?.file) {
           this.editorContext.filePath = null;
           this.editorContext.cursor = null;
@@ -2763,8 +3079,8 @@ var VaultMindPlugin = class extends import_obsidian9.Plugin {
         void this.saveSettings();
       }
     }
-    const piConfigDir = (0, import_obsidian9.normalizePath)(`${vaultPath}/.pi/agent`);
-    const systemMdPath = (0, import_obsidian9.normalizePath)(`${piConfigDir}/system.md`);
+    const piConfigDir = (0, import_obsidian10.normalizePath)(`${vaultPath}/.pi/agent`);
+    const systemMdPath = (0, import_obsidian10.normalizePath)(`${piConfigDir}/system.md`);
     const viewDeps = {
       settings: this.settings,
       tokenStore: this.tokenStore,
@@ -2787,6 +3103,12 @@ var VaultMindPlugin = class extends import_obsidian9.Plugin {
       includeSlashCommands: this.settings.includeSlashCommands,
       editorContext: this.editorContext
     };
+    const panelDeps = {
+      ...viewDeps,
+      ...statusDeps,
+      ...chatDeps
+    };
+    this.registerView(VIEW_TYPE_PANEL, (leaf) => new VaultMindPanel(leaf, panelDeps));
     this.registerView(VIEW_TYPE_QUEUE, (leaf) => new QueueView(leaf, viewDeps));
     this.registerView(VIEW_TYPE_STATUS, (leaf) => new StatusView(leaf, statusDeps));
     this.registerView(VIEW_TYPE_SETUP, (leaf) => new SetupView(leaf, viewDeps));
@@ -2798,15 +3120,15 @@ var VaultMindPlugin = class extends import_obsidian9.Plugin {
     this.statusBarItem.setAttribute("aria-label", "Open Vault Mind status");
     this.statusBarItem.createEl("span", { cls: "vault-mind-status-dot" });
     this.statusBarItem.createEl("span", { text: "Vault Mind" });
-    this.statusBarItem.addEventListener("click", () => this.openView(VIEW_TYPE_STATUS));
+    this.statusBarItem.addEventListener("click", () => this.openPanel("status"));
     this.statusBarItem.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        void this.openView(VIEW_TYPE_STATUS);
+        void this.openPanel("status");
       }
     });
     const ribbonIconEl = this.addRibbonIcon("vault-mind", "Vault Mind", () => {
-      this.openView(VIEW_TYPE_QUEUE);
+      this.openPanel("queue");
     });
     ribbonIconEl.addClass("vault-mind-ribbon-icon");
     ribbonIconEl.setAttribute("tabindex", "0");
@@ -2815,32 +3137,37 @@ var VaultMindPlugin = class extends import_obsidian9.Plugin {
     ribbonIconEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        void this.openView(VIEW_TYPE_QUEUE);
+        void this.openPanel("queue");
       }
     });
-    (0, import_obsidian9.setIcon)(ribbonIconEl, "vault-mind");
+    (0, import_obsidian10.setIcon)(ribbonIconEl, "vault-mind");
+    this.addCommand({
+      id: "open-panel",
+      name: "Open panel",
+      callback: () => this.openPanel("queue")
+    });
     this.addCommand({
       id: "open-queue",
       name: "Open queue",
-      callback: () => this.openView(VIEW_TYPE_QUEUE)
+      callback: () => this.openPanel("queue")
     });
     this.addCommand({
       id: "open-status",
       name: "Open status",
-      callback: () => this.openView(VIEW_TYPE_STATUS)
+      callback: () => this.openPanel("status")
     });
     this.addCommand({
       id: "open-setup",
       name: "Open setup",
-      callback: () => this.openView(VIEW_TYPE_SETUP)
+      callback: () => this.openPanel("setup")
     });
     this.addCommand({
       id: "open-chat",
       name: "Open chat",
-      callback: () => this.openView(VIEW_TYPE_CHAT)
+      callback: () => this.openPanel("chat")
     });
     this.addSettingTab(new VaultMindSettingTab(this.app, this));
-    if (this.settings.checkExtensionOnStartup && (0, import_node_fs5.existsSync)((0, import_obsidian9.normalizePath)(`${vaultPath}/.pi`))) {
+    if (this.settings.checkExtensionOnStartup && (0, import_node_fs5.existsSync)((0, import_obsidian10.normalizePath)(`${vaultPath}/.pi`))) {
       void this.checkExtension();
     }
     registerVaultMindProtocolHandlers(this);
@@ -2879,6 +3206,29 @@ var VaultMindPlugin = class extends import_obsidian9.Plugin {
         this.editorContext.cursor
       );
     } catch {
+    }
+  }
+  /**
+   * Opens the unified panel and switches to the given tab.
+   */
+  async openPanel(tabId) {
+    const { workspace } = this.app;
+    let leaf = null;
+    const leaves = workspace.getLeavesOfType(VIEW_TYPE_PANEL);
+    if (leaves.length > 0) {
+      leaf = leaves[0];
+    } else {
+      leaf = workspace.getRightLeaf(false);
+      if (!leaf) {
+        leaf = workspace.getLeaf(false);
+      }
+      await leaf.setViewState({ type: VIEW_TYPE_PANEL, active: true });
+    }
+    if (leaf) {
+      workspace.revealLeaf(leaf);
+      if (leaf.view instanceof VaultMindPanel) {
+        await leaf.view.switchTab(tabId);
+      }
     }
   }
   async loadSettings() {
