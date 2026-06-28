@@ -749,6 +749,7 @@
 /* Utility: hide elements via CSS class instead of inline styles */
 /* Use higher specificity by scoping to plugin container */
 .pi-chat-container .pi-session-panel.is-hidden,
+.pi-chat-container .pi-session-popover.is-hidden,
 .pi-chat-container .pi-attachments.is-hidden,
 .pi-chat-container .pi-abort-btn.is-hidden,
 .pi-chat-container .pi-header-model.is-hidden,
@@ -830,6 +831,7 @@
 	display: flex;
 	align-items: center;
 	flex-shrink: 0;
+	position: relative;
 }
 
 .pi-header-session-name {
@@ -897,6 +899,202 @@
 .pi-header-new-btn:focus-visible {
 	outline: 2px solid var(--interactive-accent);
 	outline-offset: 2px;
+}
+/* ── Session Popover ── */
+.pi-session-popover {
+	position: absolute;
+	top: calc(100% + 4px);
+	right: 0;
+	width: 320px;
+	max-width: calc(100vw - 24px);
+	max-height: 70vh;
+	display: flex;
+	flex-direction: column;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	box-shadow: var(--shadow-s);
+	z-index: 100;
+	overflow: hidden;
+}
+
+.pi-session-popover:focus {
+	outline: none;
+}
+
+.pi-session-popover-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 8px 12px;
+	border-bottom: 1px solid var(--background-modifier-border);
+	background: var(--background-secondary);
+}
+
+.pi-session-popover-title {
+	font-weight: 600;
+	font-size: 0.9em;
+}
+
+.pi-session-popover-spinner {
+	display: inline-block;
+	animation: pi-spin 1s linear infinite;
+}
+
+.pi-session-popover-list {
+	flex: 1;
+	overflow-y: auto;
+	padding: 4px;
+}
+
+.pi-session-popover-empty {
+	padding: 16px 12px;
+	color: var(--text-muted);
+	font-size: 0.85em;
+	text-align: center;
+}
+
+.pi-session-popover-item {
+	display: flex;
+	align-items: flex-start;
+	gap: 6px;
+	padding: 6px 8px;
+	border-radius: var(--radius-s);
+	cursor: pointer;
+}
+
+.pi-session-popover-item:hover,
+.pi-session-popover-item.is-selected {
+	background: var(--background-modifier-hover);
+}
+
+.pi-session-popover-item.is-current {
+	border-left: 2px solid var(--interactive-accent);
+}
+
+.pi-session-popover-item-main {
+	flex: 1;
+	min-width: 0;
+}
+
+.pi-session-popover-name-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.pi-session-popover-name {
+	font-weight: 500;
+	font-size: 0.9em;
+	color: var(--text-normal);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.pi-session-popover-current-badge {
+	font-size: 0.7em;
+	color: var(--text-accent);
+	background: var(--background-primary-alt);
+	padding: 1px 4px;
+	border-radius: 4px;
+	text-transform: uppercase;
+}
+
+.pi-session-popover-meta {
+	font-size: 0.75em;
+	color: var(--text-muted);
+	margin-top: 2px;
+}
+
+.pi-session-popover-preview {
+	font-size: 0.8em;
+	color: var(--text-muted);
+	margin-top: 2px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.pi-session-popover-rename-row {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.pi-session-popover-rename-input {
+	flex: 1;
+	font-size: 0.9em;
+	padding: 2px 6px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 4px;
+	background: var(--background-primary);
+	color: var(--text-normal);
+}
+
+.pi-session-popover-rename-input:focus {
+	border-color: var(--interactive-accent);
+	outline: none;
+}
+
+.pi-session-popover-delete-confirm {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 0.8em;
+	color: var(--text-error);
+	margin-top: 4px;
+}
+
+.pi-session-popover-actions {
+	display: flex;
+	gap: 2px;
+	opacity: 0;
+}
+
+.pi-session-popover-item:hover .pi-session-popover-actions,
+.pi-session-popover-item.is-selected .pi-session-popover-actions {
+	opacity: 1;
+}
+
+.pi-session-popover-action-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border: none;
+	border-radius: 4px;
+	background: transparent;
+	color: var(--text-muted);
+	cursor: pointer;
+	font-size: 0.85em;
+}
+
+.pi-session-popover-action-btn:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.pi-session-popover-action-btn:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 2px;
+}
+
+.pi-session-popover-delete-btn:hover,
+.pi-session-popover-delete-confirm-btn:hover {
+	background: var(--background-modifier-error-hover);
+	color: var(--text-error);
+}
+
+@keyframes pi-spin {
+	from {
+		transform: rotate(0deg);
+	}
+	to {
+		transform: rotate(360deg);
+	}
 }
 
 /* ── Chat Body (panel + messages) ── */
@@ -1691,6 +1889,9 @@
 	border-radius: 8px;
 	font-size: 14px;
 	margin-bottom: 16px;
+	resize: vertical;
+	min-height: 2.5em;
+	font-family: var(--font-interface);
 }
 
 .pi-permission-input:focus {
@@ -1845,4 +2046,128 @@
 
 .vault-mind-pending-reject:hover {
 	opacity: 0.85;
+}
+
+/* ── Mentionable badge preview popup ── */
+.pi-mentionable-chip {
+	cursor: pointer;
+}
+
+.pi-mentionable-preview {
+	position: fixed;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	padding: var(--size-4-3);
+	max-width: 360px;
+	box-shadow: var(--shadow-s);
+	z-index: 1000;
+}
+
+.pi-mentionable-preview-title {
+	font-weight: var(--font-semibold);
+	margin-bottom: var(--size-4-2);
+	color: var(--text-normal);
+	word-break: break-word;
+}
+
+.pi-mentionable-preview-body {
+	font-family: var(--font-monospace);
+	font-size: 0.85em;
+	color: var(--text-muted);
+	white-space: pre-wrap;
+}
+
+.pi-mentionable-preview-body p {
+	margin: 0 0 var(--size-4-1);
+}
+
+.pi-mentionable-preview-body p:last-child {
+	margin-bottom: 0;
+}
+
+.pi-mentionable-preview-empty {
+	font-style: italic;
+	color: var(--text-faint);
+}
+
+.pi-mentionable-preview-image {
+	max-width: 320px;
+	max-height: 240px;
+	border-radius: var(--radius-s);
+}
+
+/* ── Assistant message action row ── */
+.pi-message-action-row {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	margin-left: auto;
+	opacity: 0;
+	transition: opacity 0.15s ease;
+}
+
+.pi-message:hover .pi-message-action-row,
+.pi-message:focus-within .pi-message-action-row {
+	opacity: 1;
+}
+
+.pi-message-action-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--size-4-1);
+	padding: var(--size-4-1) var(--size-4-2);
+	font-size: 0.75em;
+	line-height: 1;
+	color: var(--text-muted);
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	cursor: pointer;
+}
+
+.pi-message-action-btn:hover {
+	color: var(--text-normal);
+	background: var(--background-modifier-hover);
+}
+
+.pi-message-action-btn:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 2px;
+}
+
+.pi-message-action-copy.is-copied {
+	color: var(--text-success);
+}
+
+/* ── Message info popover ── */
+.pi-message-actions-popover {
+	position: fixed;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	padding: var(--size-4-3);
+	max-width: 280px;
+	box-shadow: var(--shadow-s);
+	z-index: 1000;
+}
+
+.pi-message-actions-popover-title {
+	font-weight: var(--font-semibold);
+	margin-bottom: var(--size-4-2);
+	color: var(--text-normal);
+}
+
+.pi-message-actions-popover-body {
+	font-size: 0.85em;
+	color: var(--text-muted);
+}
+
+.pi-message-actions-popover-body p {
+	margin: 0 0 var(--size-4-1);
+}
+
+.pi-message-actions-popover-body p:last-child {
+	margin-bottom: 0;
 }
