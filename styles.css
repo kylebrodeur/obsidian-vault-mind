@@ -1256,7 +1256,7 @@
 	font-family: var(--font-text);
 	font-size: var(--font-text-size);
 	line-height: 1.4;
-	overflow-y: auto;
+	overflow-y: hidden;
 }
 
 .pi-input-textarea:focus {
