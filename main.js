@@ -5865,9 +5865,8 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
       }
       try {
         await this.runInit(piBinary, progress);
-        this.addStep(progress, "done", "Vault initialized \u2713 \u2014 opening chat...");
+        this.addStep(progress, "done", "Vault initialized \u2713");
         this.plugin.showNotice("vault initialized \u2014 launching pi");
-        await new Promise((r) => activeWindow.setTimeout(r, 1e3));
         this.plugin.pendingChatMessage = "/vm setup";
         this.app.setting?.close();
         await this.plugin.openPanel("chat");
@@ -5933,8 +5932,15 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
       options
     );
     this.markDone(step3b);
+    const step3c = this.addStep(progress, "active", "Installing model router...");
+    await execAsync(
+      `PI_CODING_AGENT_DIR=${q(agentDir)} ${q(piBinary)} install npm:@kylebrodeur/pi-model-router`,
+      options
+    );
+    this.markDone(step3c);
     const step4 = this.addStep(progress, "active", "Scaffolding config...");
     this.scaffoldConfig(vaultPath);
+    this.scaffoldModelRouterConfig(agentDir);
     this.markDone(step4);
     const step5 = this.addStep(progress, "active", "Writing system prompt...");
     this.seedPiConfig(vaultPath, agentDir);
@@ -5966,6 +5972,41 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
     if (!(0, import_node_fs3.existsSync)(collectionsDir)) (0, import_node_fs3.mkdirSync)(collectionsDir, { recursive: true });
     const mainJsonl = import_node_path3.default.join(collectionsDir, "main.jsonl");
     if (!(0, import_node_fs3.existsSync)(mainJsonl)) (0, import_node_fs3.writeFileSync)(mainJsonl, "", "utf-8");
+  }
+  scaffoldModelRouterConfig(agentDir) {
+    const piDir = import_node_path3.default.dirname(agentDir);
+    const configPath = import_node_path3.default.join(piDir, "model-router.json");
+    if ((0, import_node_fs3.existsSync)(configPath)) return;
+    const config = {
+      defaultProfile: "auto",
+      features: {
+        rateLimitFallback: true,
+        ollamaSync: false,
+        scopeShim: true,
+        perTurnRouting: false,
+        intentClassifier: false,
+        costBudgeting: false,
+        phaseMemory: false,
+        contextCompression: false
+      },
+      rateLimitFallback: {
+        enabled: true,
+        shortDelayThreshold: 30,
+        autoFallback: true,
+        autoRestore: true,
+        restoreCheckInterval: 300,
+        fallbackSequence: ["ollama/gemma3:4b", "ollama/gemma4:4b", "ollama/*"]
+      },
+      profiles: {
+        auto: {
+          high: { model: "ollama/gemma4:31b-cloud", thinking: "medium" },
+          medium: { model: "ollama/gemma4:12b", thinking: "low" },
+          low: { model: "ollama/gemma3:4b", thinking: "off" }
+        }
+      }
+    };
+    (0, import_node_fs3.writeFileSync)(configPath, `${JSON.stringify(config, null, 2)}
+`, "utf-8");
   }
   seedPiConfig(vaultPath, agentDir) {
     const vaultName = this.app.vault.getName();
@@ -6157,10 +6198,14 @@ var VaultMindPlugin = class extends import_obsidian18.Plugin {
     for (const notice of this.activeNotices) notice.hide();
     this.activeNotices = [];
   }
-  /** Create a Notice tracked for cleanup. Use instead of `new Notice()` directly. */
-  showNotice(message, timeout) {
+  /** Create a Notice tracked for cleanup. Auto-dismisses after timeout (default 5s). */
+  showNotice(message, timeout = 5e3) {
     const notice = new import_obsidian18.Notice(`Vault Mind: ${message}`, timeout);
     this.activeNotices.push(notice);
+    activeWindow.setTimeout(() => {
+      const idx = this.activeNotices.indexOf(notice);
+      if (idx !== -1) this.activeNotices.splice(idx, 1);
+    }, timeout + 200);
     return notice;
   }
   scheduleContextPush() {
