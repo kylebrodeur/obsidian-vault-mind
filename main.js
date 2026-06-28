@@ -5995,13 +5995,13 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
         autoFallback: true,
         autoRestore: true,
         restoreCheckInterval: 300,
-        fallbackSequence: ["ollama/gemma3:4b", "ollama/gemma4:4b", "ollama/*"]
+        fallbackSequence: ["ollama/gemma4:e4b", "ollama/gemma3:4b", "ollama/*"]
       },
       profiles: {
         auto: {
           high: { model: "ollama/gemma4:31b-cloud", thinking: "medium" },
-          medium: { model: "ollama/gemma4:12b", thinking: "low" },
-          low: { model: "ollama/gemma3:4b", thinking: "off" }
+          medium: { model: "ollama/gemma4:e4b", thinking: "low" },
+          low: { model: "ollama/gemma4:e4b", thinking: "off" }
         }
       }
     };
