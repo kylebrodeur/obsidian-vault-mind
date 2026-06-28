@@ -939,6 +939,9 @@ var PiConnection = class {
           console.warn("[Pi RPC] Non-JSON line from stdout:", trimmed);
         }
       });
+      this.readline.on("close", () => {
+        if (this.intentionallyDestroyed) return;
+      });
     }
     if (this.process.stderr) {
       this.process.stderr.on("data", (data) => {
@@ -1065,6 +1068,9 @@ var PiConnection = class {
     return this.connected;
   }
   dispatch(event) {
+    if (this.intentionallyDestroyed && this.handlers.length === 0) {
+      return;
+    }
     if (event.type === "error" && this.intentionallyDestroyed) {
       return;
     }
@@ -3036,7 +3042,8 @@ var PiChatView = class extends import_obsidian13.ItemView {
         onDelete: (session) => this.deleteSession(session),
         onExport: (session) => this.exportSession(session)
       },
-      this.app
+      this.app,
+      `${this.plugin.piConfigDir}/sessions`
     );
     this.messagesContainer = chatBody.createDiv({ cls: "pi-messages" });
     this.inputContainer = container.createDiv({ cls: "pi-input-container" });
@@ -4523,7 +4530,8 @@ var ChatTab = class {
       scheduleStoreFlush: () => {
         void deps.onStoreFlush?.();
       },
-      statusBar: null
+      statusBar: null,
+      piConfigDir: deps.piConfigDir
     };
     this.view = new PiChatView(deps.leaf, pluginRef);
     await this.view.onOpen(container);
@@ -4569,6 +4577,8 @@ var QueueTab = class {
   unsubEvents = null;
   connectionState = { connected: false };
   explicitError = null;
+  pendingContainer = null;
+  pendingEntries = [];
   constructor(deps) {
     this.deps = deps;
   }
@@ -4591,6 +4601,7 @@ var QueueTab = class {
     refresh.addEventListener("click", () => this.refresh());
     this.chips = this.root.createEl("div", { cls: "vault-mind-count-chips" });
     this.list = this.root.createEl("ul", { cls: "vault-mind-queue-list" });
+    this.pendingContainer = this.root.createEl("div");
   }
   async connect() {
     this.disconnect();
@@ -4688,7 +4699,14 @@ var QueueTab = class {
       this.renderList();
     } catch (err) {
       this.setError(`Refresh failed: ${err.message}`);
+      return;
     }
+    try {
+      this.pendingEntries = await this.client.listPending();
+    } catch {
+      this.pendingEntries = [];
+    }
+    this.renderPending();
   }
   renderList() {
     if (!this.list) return;
@@ -4817,6 +4835,53 @@ var QueueTab = class {
   truncate(text, max) {
     if (text.length <= max) return text;
     return `${text.slice(0, max).trim()}\u2026`;
+  }
+  renderPending() {
+    if (!this.pendingContainer) return;
+    this.pendingContainer.empty();
+    if (this.pendingEntries.length === 0) return;
+    const section = this.pendingContainer.createEl("details", {
+      cls: "vault-mind-pending-section"
+    });
+    section.setAttribute("open", "");
+    section.createEl("summary", {
+      cls: "vault-mind-pending-summary",
+      text: `Pending Review (${this.pendingEntries.length})`
+    });
+    for (const item of this.pendingEntries) {
+      const row = section.createEl("div", { cls: "vault-mind-pending-item" });
+      row.createEl("span", { cls: "vault-mind-pending-collection", text: item.collection });
+      const preview = String(item.entry.fact ?? item.entry.source ?? "");
+      row.createEl("span", {
+        cls: "vault-mind-pending-entry-text",
+        text: this.truncate(preview, 80)
+      });
+      const actions = row.createEl("div", { cls: "vault-mind-pending-actions" });
+      const approveBtn = actions.createEl("button", {
+        text: "Approve",
+        cls: "vault-mind-pending-approve"
+      });
+      approveBtn.addEventListener("click", async () => {
+        try {
+          await this.client?.approveEntry(item.id, item.collection, "approve");
+          await this.refresh();
+        } catch (err) {
+          new import_obsidian14.Notice(`Vault Mind: ${err.message}`);
+        }
+      });
+      const rejectBtn = actions.createEl("button", {
+        text: "Reject",
+        cls: "vault-mind-pending-reject"
+      });
+      rejectBtn.addEventListener("click", async () => {
+        try {
+          await this.client?.approveEntry(item.id, item.collection, "reject");
+          await this.refresh();
+        } catch (err) {
+          new import_obsidian14.Notice(`Vault Mind: ${err.message}`);
+        }
+      });
+    }
   }
   showContextMenu(evt, job) {
     const menu = new import_obsidian14.Menu();
@@ -5227,6 +5292,7 @@ var StatusTab = class {
   unsubState = null;
   unsubEvents = null;
   discoveredConfig = null;
+  embeddingConfigEl = null;
   component = null;
   constructor(deps) {
     this.deps = deps;
@@ -5288,6 +5354,9 @@ var StatusTab = class {
       attr: { "aria-label": "Start file watcher" }
     });
     this.watcherBtn.addEventListener("click", () => this.toggleWatcher());
+    const configSection = this.root.createEl("div", { cls: "vault-mind-config-section" });
+    configSection.createEl("div", { cls: "vault-mind-config-heading", text: "Embedding config" });
+    this.embeddingConfigEl = configSection.createEl("div", { cls: "vault-mind-config-details" });
     const launchBtn = this.root.createEl("button", {
       text: import_obsidian16.Platform.isMacOS ? "Open in Terminal" : "Open in Console",
       attr: { "aria-label": "Open pi TUI in external terminal" }
@@ -5420,6 +5489,17 @@ var StatusTab = class {
         status.watcher ? "Stop file watcher" : "Start file watcher"
       );
       this.watcherBtn.classList.toggle("connected", status.watcher);
+    }
+    if (this.embeddingConfigEl) {
+      this.embeddingConfigEl.empty();
+      const embModel = this.discoveredConfig?.model ?? status.embedding?.model ?? "\u2014";
+      const embDim = this.discoveredConfig?.dim ?? status.embedding?.dim ?? "\u2014";
+      const localUrl = this.discoveredConfig?.localUrl ?? "\u2014";
+      const serverText = status.server?.running ? `running on port ${status.server.port}` : "stopped";
+      this.embeddingConfigEl.createEl("span", { text: `Model: ${embModel}` });
+      this.embeddingConfigEl.createEl("span", { text: `Dim: ${embDim}` });
+      this.embeddingConfigEl.createEl("span", { text: `Local: ${localUrl}` });
+      this.embeddingConfigEl.createEl("span", { text: `Server: ${serverText}` });
     }
   }
   setError(message) {
@@ -5666,6 +5746,10 @@ var VaultMindPanel = class extends import_obsidian17.ItemView {
 
 // src/main.ts
 var execAsync = (0, import_node_util.promisify)(import_node_child_process4.exec);
+var DEFAULT_EMBEDDING_MODEL = "embeddinggemma";
+var DEFAULT_OLLAMA_EMBEDDING_URL = "http://127.0.0.1:11434/v1";
+var MODAL_REMOTE_URL_PLACEHOLDER = "https://your-workspace--embedding.modal.run/v1";
+var isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 var VAULT_MIND_ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z"/><path d="M9 21h6"/><path d="M10 9a2 2 0 0 1 4 0"/><path d="M8 12h1"/><path d="M15 12h1"/><circle cx="12" cy="6" r="1"/></svg>`;
 var DEFAULT_SETTINGS = {
   host: "127.0.0.1",
@@ -5865,11 +5949,9 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
       }
       try {
         await this.runInit(piBinary, progress);
-        this.addStep(progress, "done", "Vault initialized \u2713");
-        this.plugin.showNotice("vault initialized \u2014 launching pi");
-        this.plugin.pendingChatMessage = "/vm setup";
-        this.app.setting?.close();
-        await this.plugin.openPanel("chat");
+        this.plugin.showNotice("vault initialized \u2014 configure embedding");
+        const step6 = this.addStep(progress, "active", "Configure embedding...");
+        this.renderInitConfigForm(progress, step6);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         this.addStep(progress, "error", `Failed: ${message}`);
@@ -5900,6 +5982,129 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
         await runInitialization(btn);
       });
     });
+  }
+  renderInitConfigForm(progress, step) {
+    const configSection = progress.createEl("div", { cls: "vault-mind-init-config" });
+    configSection.createEl("p", { text: "Configure embedding (optional):" });
+    let provider = "ollama";
+    let ollamaUrl = DEFAULT_OLLAMA_EMBEDDING_URL;
+    let ollamaModel = DEFAULT_EMBEDDING_MODEL;
+    let modalWorkspace = "";
+    let modalRemoteUrl = "";
+    let enableContextAutomation = true;
+    const providerFields = configSection.createEl("div", {
+      cls: "vault-mind-init-config-fields"
+    });
+    const renderProviderFields = () => {
+      providerFields.empty();
+      if (provider === "ollama") {
+        new import_obsidian18.Setting(providerFields).setName("Ollama").setDesc("Local OpenAI-compatible endpoint and embedding model.").addText(
+          (text) => text.setPlaceholder(DEFAULT_OLLAMA_EMBEDDING_URL).setValue(ollamaUrl).onChange((value) => {
+            ollamaUrl = value;
+          })
+        ).addText(
+          (text) => text.setPlaceholder(DEFAULT_EMBEDDING_MODEL).setValue(ollamaModel).onChange((value) => {
+            ollamaModel = value;
+          })
+        );
+        return;
+      }
+      if (provider === "modal") {
+        new import_obsidian18.Setting(providerFields).setName("Modal").setDesc("Workspace slug and remote OpenAI-compatible endpoint.").addText(
+          (text) => text.setPlaceholder("workspace-slug").setValue(modalWorkspace).onChange((value) => {
+            modalWorkspace = value;
+          })
+        ).addText(
+          (text) => text.setPlaceholder(MODAL_REMOTE_URL_PLACEHOLDER).setValue(modalRemoteUrl).onChange((value) => {
+            modalRemoteUrl = value;
+          })
+        );
+        return;
+      }
+      providerFields.createEl("p", {
+        cls: "setting-item-description",
+        text: "Embedding setup will be skipped for now."
+      });
+    };
+    new import_obsidian18.Setting(configSection).setName("Embedding provider").setDesc("Choose where Vault Mind should send embedding requests.").addDropdown((dropdown) => {
+      dropdown.addOption("ollama", "Local Ollama");
+      dropdown.addOption("modal", "Modal (cloud)");
+      dropdown.addOption("skip", "Skip for now");
+      dropdown.setValue(provider);
+      dropdown.onChange((value) => {
+        provider = value;
+        renderProviderFields();
+      });
+    });
+    configSection.appendChild(providerFields);
+    renderProviderFields();
+    new import_obsidian18.Setting(configSection).setName("Context automation").setDesc("Enable pi-context ACM after setup.").addToggle(
+      (toggle) => toggle.setValue(enableContextAutomation).onChange((value) => {
+        enableContextAutomation = value;
+      })
+    ).addButton(
+      (btn) => btn.setButtonText("Continue").setCta().onClick(async () => {
+        btn.setDisabled(true);
+        try {
+          this.writeInitEmbeddingConfig({
+            provider,
+            ollamaUrl,
+            ollamaModel,
+            modalWorkspace,
+            modalRemoteUrl,
+            enableContextAutomation
+          });
+          this.markDone(step);
+          this.plugin.pendingChatMessage = null;
+          this.plugin.showNotice("vault initialized \u2014 launching pi");
+          this.app.setting?.close();
+          await this.plugin.openPanel("chat");
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          this.addStep(progress, "error", `Failed to save config: ${message}`);
+          this.plugin.showNotice(`failed to save config \u2014 ${message}`);
+          btn.setDisabled(false);
+        }
+      })
+    );
+  }
+  writeInitEmbeddingConfig(options) {
+    const configPath = import_node_path3.default.join(this.plugin.vaultPath, "pi-vault-mind.config.json");
+    const config = (0, import_node_fs3.existsSync)(configPath) ? JSON.parse((0, import_node_fs3.readFileSync)(configPath, "utf-8")) : {};
+    const vaultMind = isRecord(config.vaultMind) ? config.vaultMind : {};
+    const embedding = {};
+    if (options.provider === "ollama") {
+      embedding.localUrl = options.ollamaUrl.trim() || DEFAULT_OLLAMA_EMBEDDING_URL;
+      embedding.model = options.ollamaModel.trim() || DEFAULT_EMBEDDING_MODEL;
+    } else if (options.provider === "modal") {
+      const remoteUrl = options.modalRemoteUrl.trim();
+      if (!remoteUrl) {
+        throw new Error("Enter a Modal remote URL or choose Skip for now.");
+      }
+      const workspace = options.modalWorkspace.trim();
+      const modal = {
+        baseUrl: remoteUrl,
+        model: DEFAULT_EMBEDDING_MODEL
+      };
+      if (workspace) modal.workspace = workspace;
+      embedding.remoteUrl = remoteUrl;
+      embedding.modal = modal;
+    }
+    vaultMind.embedding = embedding;
+    config.vaultMind = vaultMind;
+    const extensionCompatibility = isRecord(config.extensionCompatibility) ? config.extensionCompatibility : {};
+    const currentPiContext = isRecord(extensionCompatibility["pi-context"]) ? extensionCompatibility["pi-context"] : {};
+    extensionCompatibility["pi-context"] = {
+      tagPatterns: [],
+      enhanceInjectors: false,
+      autoEnableAcm: true,
+      indexContextEvents: true,
+      ...currentPiContext,
+      enabled: options.enableContextAutomation
+    };
+    config.extensionCompatibility = extensionCompatibility;
+    (0, import_node_fs3.writeFileSync)(configPath, `${JSON.stringify(config, null, 2)}
+`, "utf-8");
   }
   async runInit(piBinary, progress) {
     const vaultPath = this.plugin.vaultPath;

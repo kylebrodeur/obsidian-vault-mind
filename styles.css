@@ -1737,3 +1737,98 @@
 	border-color: var(--interactive-accent);
 	box-shadow: 0 0 0 2px var(--interactive-accent);
 }
+
+/* ── Pending Review Section (Queue Tab) ── */
+.vault-mind-pending-section {
+	margin-top: 12px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	overflow: hidden;
+}
+
+.vault-mind-pending-section > summary.vault-mind-pending-summary {
+	padding: 8px 12px;
+	font-weight: 600;
+	font-size: 0.85em;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--text-muted);
+	background: var(--background-secondary);
+	cursor: pointer;
+	user-select: none;
+	list-style: none;
+}
+
+.vault-mind-pending-section > summary.vault-mind-pending-summary::marker,
+.vault-mind-pending-section > summary.vault-mind-pending-summary::-webkit-details-marker {
+	display: none;
+}
+
+.vault-mind-pending-section > summary.vault-mind-pending-summary::before {
+	content: "▶ ";
+	font-size: 0.7em;
+	opacity: 0.6;
+}
+
+.vault-mind-pending-section[open] > summary.vault-mind-pending-summary::before {
+	content: "▼ ";
+}
+
+.vault-mind-pending-item {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 12px;
+	border-top: 1px solid var(--background-modifier-border);
+	flex-wrap: wrap;
+}
+
+.vault-mind-pending-collection {
+	font-size: 0.78em;
+	font-weight: 600;
+	color: var(--text-accent);
+	white-space: nowrap;
+	flex-shrink: 0;
+}
+
+.vault-mind-pending-entry-text {
+	flex: 1;
+	font-size: 0.85em;
+	color: var(--text-normal);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.vault-mind-pending-actions {
+	display: flex;
+	gap: 6px;
+	flex-shrink: 0;
+}
+
+.vault-mind-pending-approve,
+.vault-mind-pending-reject {
+	padding: 3px 10px;
+	border-radius: 4px;
+	font-size: 0.8em;
+	cursor: pointer;
+	border: 1px solid transparent;
+}
+
+.vault-mind-pending-approve {
+	background: var(--color-green);
+	color: var(--text-on-accent);
+}
+
+.vault-mind-pending-approve:hover {
+	opacity: 0.85;
+}
+
+.vault-mind-pending-reject {
+	background: var(--color-red);
+	color: var(--text-on-accent);
+}
+
+.vault-mind-pending-reject:hover {
+	opacity: 0.85;
+}
