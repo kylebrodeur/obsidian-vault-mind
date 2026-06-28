@@ -642,6 +642,20 @@
 	color: var(--text-error);
 }
 
+.vault-mind-modal-status,
+.vault-mind-modal-app-status {
+	font-size: var(--font-ui-small);
+	margin: 4px 0;
+}
+
+.vault-mind-status-ok {
+	color: var(--color-green);
+}
+
+.vault-mind-status-warn {
+	color: var(--color-orange);
+}
+
 /* Search tab */
 .vault-mind-search-container {
 	display: flex;

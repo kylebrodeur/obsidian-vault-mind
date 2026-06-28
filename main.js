@@ -5748,7 +5748,8 @@ var VaultMindPanel = class extends import_obsidian17.ItemView {
 var execAsync = (0, import_node_util.promisify)(import_node_child_process4.exec);
 var DEFAULT_EMBEDDING_MODEL = "embeddinggemma";
 var DEFAULT_OLLAMA_EMBEDDING_URL = "http://127.0.0.1:11434/v1";
-var MODAL_REMOTE_URL_PLACEHOLDER = "https://your-workspace--embedding.modal.run/v1";
+var MODAL_APP_BASE_URL_SUFFIX = "--pi-vault-mind-embed-embeddingservice-fastapi-app.modal.run";
+var modalRemoteUrlForWorkspace = (workspace) => `https://${workspace}${MODAL_APP_BASE_URL_SUFFIX}`;
 var isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 var VAULT_MIND_ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z"/><path d="M9 21h6"/><path d="M10 9a2 2 0 0 1 4 0"/><path d="M8 12h1"/><path d="M15 12h1"/><circle cx="12" cy="6" r="1"/></svg>`;
 var DEFAULT_SETTINGS = {
@@ -5919,6 +5920,33 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
       return null;
     }
   }
+  async detectModalConfig() {
+    try {
+      const { stdout } = await execAsync("modal token info", {
+        timeout: 5e3,
+        env: buildExecEnv()
+      });
+      const workspace = /Workspace:\s+(\S+)/.exec(stdout)?.[1] ?? null;
+      return { workspace, tokenAvailable: true };
+    } catch {
+      return { workspace: null, tokenAvailable: false };
+    }
+  }
+  detectOpToken() {
+    const envToken = process.env.PVM_API_TOKEN;
+    if (envToken) return { source: "env", value: envToken };
+    const envPath = import_node_path3.default.join(this.plugin.vaultPath, ".pi", "agent", "vault-mind.env");
+    if (!(0, import_node_fs3.existsSync)(envPath)) return null;
+    try {
+      const contents = (0, import_node_fs3.readFileSync)(envPath, "utf-8");
+      if (/(?:^|\n)\s*(?:export\s+)?PVM_API_TOKEN\s*=/.test(contents)) {
+        return { source: "file", value: null };
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }
   renderInitSection(containerEl, configured) {
     new import_obsidian18.Setting(containerEl).setName("Vault initialization").setHeading();
     const piBinary = detectPiBinary(this.plugin.settings.piBinaryPath, this.plugin.vaultPath);
@@ -5991,6 +6019,7 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
     let ollamaModel = DEFAULT_EMBEDDING_MODEL;
     let modalWorkspace = "";
     let modalRemoteUrl = "";
+    let modalToken = "";
     let enableContextAutomation = true;
     const providerFields = configSection.createEl("div", {
       cls: "vault-mind-init-config-fields"
@@ -6010,15 +6039,76 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
         return;
       }
       if (provider === "modal") {
-        new import_obsidian18.Setting(providerFields).setName("Modal").setDesc("Workspace slug and remote OpenAI-compatible endpoint.").addText(
-          (text) => text.setPlaceholder("workspace-slug").setValue(modalWorkspace).onChange((value) => {
+        const statusEl = providerFields.createEl("p", {
+          cls: "setting-item-description vault-mind-modal-status",
+          text: "Detecting Modal CLI..."
+        });
+        let workspaceSetting = null;
+        new import_obsidian18.Setting(providerFields).setName("Workspace").setDesc("Your Modal workspace slug (auto-detected if modal CLI is available).").addText((text) => {
+          workspaceSetting = text;
+          text.setPlaceholder("workspace-slug").setValue(modalWorkspace).onChange((value) => {
             modalWorkspace = value;
-          })
-        ).addText(
-          (text) => text.setPlaceholder(MODAL_REMOTE_URL_PLACEHOLDER).setValue(modalRemoteUrl).onChange((value) => {
-            modalRemoteUrl = value;
-          })
-        );
+            modalRemoteUrl = value.trim() ? modalRemoteUrlForWorkspace(value.trim()) : "";
+          });
+        });
+        new import_obsidian18.Setting(providerFields).setName("API token").setDesc("Paste your PVM_API_TOKEN, an op:// reference, or leave blank if already in env.").addText((text) => {
+          text.inputEl.type = "password";
+          text.setPlaceholder("op://Private/pi-vault-mind-auth/password or raw token").setValue(modalToken).onChange((value) => {
+            modalToken = value;
+          });
+        });
+        const appStatusEl = providerFields.createEl("p", {
+          cls: "setting-item-description vault-mind-modal-app-status",
+          text: ""
+        });
+        void (async () => {
+          try {
+            const [detected, tokenInfo] = await Promise.all([
+              this.detectModalConfig(),
+              Promise.resolve(this.detectOpToken())
+            ]);
+            if (detected.workspace) {
+              modalWorkspace = detected.workspace;
+              modalRemoteUrl = modalRemoteUrlForWorkspace(detected.workspace);
+              workspaceSetting?.setValue(detected.workspace);
+              statusEl.setText(`\u2713 Modal CLI detected \u2014 workspace: ${detected.workspace}`);
+              statusEl.addClass("vault-mind-status-ok");
+            } else if (detected.tokenAvailable) {
+              statusEl.setText("Modal CLI detected \u2014 enter workspace slug manually.");
+              statusEl.addClass("vault-mind-status-warn");
+            } else {
+              statusEl.setText("Modal CLI not found \u2014 enter workspace slug manually.");
+              statusEl.addClass("vault-mind-status-warn");
+            }
+            if (tokenInfo) {
+              appStatusEl.setText(
+                `\u2713 Token found (${tokenInfo.source === "env" ? "environment" : "vault-mind.env"}) \u2014 leave token field blank to use it.`
+              );
+              appStatusEl.addClass("vault-mind-status-ok");
+            }
+            if (detected.workspace) {
+              try {
+                const { stdout } = await execAsync("modal app list --json", {
+                  timeout: 8e3,
+                  env: buildExecEnv()
+                });
+                const apps = JSON.parse(stdout);
+                const vmApp = apps.find((app) => app.description === "pi-vault-mind-embed");
+                appStatusEl.removeClass("vault-mind-status-ok");
+                appStatusEl.removeClass("vault-mind-status-warn");
+                if (vmApp) {
+                  appStatusEl.setText(`\u2713 pi-vault-mind-embed: ${vmApp.state}`);
+                  appStatusEl.addClass("vault-mind-status-ok");
+                } else {
+                  appStatusEl.setText("\u26A0 pi-vault-mind-embed app not found \u2014 deploy it first.");
+                  appStatusEl.addClass("vault-mind-status-warn");
+                }
+              } catch {
+              }
+            }
+          } catch {
+          }
+        })();
         return;
       }
       providerFields.createEl("p", {
@@ -6052,6 +6142,7 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
             ollamaModel,
             modalWorkspace,
             modalRemoteUrl,
+            modalToken,
             enableContextAutomation
           });
           this.markDone(step);
@@ -6077,11 +6168,13 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
       embedding.localUrl = options.ollamaUrl.trim() || DEFAULT_OLLAMA_EMBEDDING_URL;
       embedding.model = options.ollamaModel.trim() || DEFAULT_EMBEDDING_MODEL;
     } else if (options.provider === "modal") {
-      const remoteUrl = options.modalRemoteUrl.trim();
-      if (!remoteUrl) {
-        throw new Error("Enter a Modal remote URL or choose Skip for now.");
-      }
       const workspace = options.modalWorkspace.trim();
+      const remoteUrl = options.modalRemoteUrl.trim() || (workspace ? modalRemoteUrlForWorkspace(workspace) : "");
+      if (!remoteUrl) {
+        throw new Error("Enter a Modal workspace slug or choose Skip for now.");
+      }
+      const modalToken = options.modalToken.trim();
+      if (modalToken) this.writeModalToken(modalToken);
       const modal = {
         baseUrl: remoteUrl,
         model: DEFAULT_EMBEDDING_MODEL
@@ -6104,6 +6197,22 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
     };
     config.extensionCompatibility = extensionCompatibility;
     (0, import_node_fs3.writeFileSync)(configPath, `${JSON.stringify(config, null, 2)}
+`, "utf-8");
+  }
+  writeModalToken(token) {
+    if (token.startsWith("op://")) {
+      this.appendEnvAssignment(import_node_path3.default.join(this.plugin.vaultPath, ".env.1pass"), "PVM_API_TOKEN", token);
+      return;
+    }
+    const agentDir = import_node_path3.default.join(this.plugin.vaultPath, ".pi", "agent");
+    (0, import_node_fs3.mkdirSync)(agentDir, { recursive: true });
+    this.appendEnvAssignment(import_node_path3.default.join(agentDir, "vault-mind.env"), "PVM_API_TOKEN", token);
+  }
+  appendEnvAssignment(filePath, key, value) {
+    const existing = (0, import_node_fs3.existsSync)(filePath) ? (0, import_node_fs3.readFileSync)(filePath, "utf-8") : "";
+    const separator = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+    const escapedValue = value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    (0, import_node_fs3.writeFileSync)(filePath, `${existing}${separator}${key}="${escapedValue}"
 `, "utf-8");
   }
   async runInit(piBinary, progress) {
@@ -6143,6 +6252,15 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
       options
     );
     this.markDone(step3c);
+    const step3d = this.addStep(progress, "active", "Installing 1Password support...");
+    try {
+      await execAsync(
+        `PI_CODING_AGENT_DIR=${q(agentDir)} ${q(piBinary)} install npm:pi-1password`,
+        options
+      );
+    } catch {
+    }
+    this.markDone(step3d);
     const step4 = this.addStep(progress, "active", "Scaffolding config...");
     this.scaffoldConfig(vaultPath);
     this.scaffoldModelRouterConfig(agentDir);
