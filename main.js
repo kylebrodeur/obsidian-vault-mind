@@ -1149,7 +1149,7 @@ __export(main_exports, {
 module.exports = __toCommonJS(main_exports);
 var import_node_child_process3 = require("node:child_process");
 var import_node_fs3 = require("node:fs");
-var import_node_path3 = __toESM(require("node:path"), 1);
+var import_node_path4 = __toESM(require("node:path"), 1);
 var import_node_util = require("node:util");
 var import_view = require("@codemirror/view");
 var import_obsidian18 = require("obsidian");
@@ -2829,23 +2829,23 @@ function adoptRenderedValue(value, capture, map, visited) {
 function createPaths(dom) {
   const pathTape = [];
   const attrNames = [];
-  const path6 = [];
+  const path7 = [];
   const previous = [];
   const pushPath = (attrName) => {
-    const pathLen = path6.length;
+    const pathLen = path7.length;
     const previousLen = previous.length;
     const limit = pathLen < previousLen ? pathLen : previousLen;
     let sharedDepth = 0;
-    while (sharedDepth < limit && previous[sharedDepth] === path6[sharedDepth]) {
+    while (sharedDepth < limit && previous[sharedDepth] === path7[sharedDepth]) {
       sharedDepth++;
     }
     pathTape.push(sharedDepth, pathLen - sharedDepth);
     for (let i = sharedDepth; i < pathLen; i++)
-      pathTape.push(path6[i]);
+      pathTape.push(path7[i]);
     pathTape.push(attrName ? attrNames.push(attrName) : 0);
     previous.length = pathLen;
     for (let i = 0; i < pathLen; i++)
-      previous[i] = path6[i];
+      previous[i] = path7[i];
   };
   const walk = (node) => {
     if (node.nodeType === 1) {
@@ -2862,16 +2862,16 @@ function createPaths(dom) {
     }
     const children2 = node.childNodes;
     for (let i = 0; i < children2.length; i++) {
-      path6.push(i);
+      path7.push(i);
       walk(children2[i]);
-      path6.pop();
+      path7.pop();
     }
   };
   const children = dom.childNodes;
   for (let i = 0; i < children.length; i++) {
-    path6.push(i);
+    path7.push(i);
     walk(children[i]);
-    path6.pop();
+    path7.pop();
   }
   return [pathTape, attrNames];
 }
@@ -3287,8 +3287,8 @@ var VaultMindClient = class {
     }, this.reconnectDelay);
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, 3e4);
   }
-  async httpJson(method, path6, body) {
-    const res = await fetch(`${this.baseUrl}${path6}`, {
+  async httpJson(method, path7, body) {
+    const res = await fetch(`${this.baseUrl}${path7}`, {
       method,
       headers: this.authHeaders,
       body: body ? JSON.stringify(body) : void 0
@@ -3701,9 +3701,9 @@ var DiffModal = class extends import_obsidian3.Modal {
   oldContent;
   newContent;
   onAccept;
-  constructor(app, { path: path6, old, new: newContent }, onAccept) {
+  constructor(app, { path: path7, old, new: newContent }, onAccept) {
     super(app);
-    this.path = path6;
+    this.path = path7;
     this.oldContent = old;
     this.newContent = newContent;
     this.onAccept = onAccept;
@@ -3732,32 +3732,32 @@ var DiffModal = class extends import_obsidian3.Modal {
 };
 function registerVaultMindProtocolHandlers(plugin) {
   plugin.registerObsidianProtocolHandler("vault-mind/open-file", (params) => {
-    const path6 = params?.path;
-    if (!isString(path6)) {
+    const path7 = params?.path;
+    if (!isString(path7)) {
       new import_obsidian3.Notice("Vault Mind: missing path parameter");
       return;
     }
-    plugin.app.workspace.openLinkText(path6, "", true);
+    plugin.app.workspace.openLinkText(path7, "", true);
   });
   plugin.registerObsidianProtocolHandler("vault-mind/show-diff", (params) => {
-    const path6 = params?.path;
+    const path7 = params?.path;
     const oldContent = params?.old;
     const newContent = params?.new;
-    if (!isString(path6) || !isString(oldContent) || !isString(newContent)) {
+    if (!isString(path7) || !isString(oldContent) || !isString(newContent)) {
       new import_obsidian3.Notice("Vault Mind: missing path, old, or new parameter");
       return;
     }
-    new DiffModal(plugin.app, { path: path6, old: oldContent, new: newContent }, async () => {
-      const file = plugin.app.vault.getAbstractFileByPath(path6);
+    new DiffModal(plugin.app, { path: path7, old: oldContent, new: newContent }, async () => {
+      const file = plugin.app.vault.getAbstractFileByPath(path7);
       if (!(file instanceof import_obsidian3.TFile)) {
-        new import_obsidian3.Notice(`Vault Mind: file not found: ${path6}`);
+        new import_obsidian3.Notice(`Vault Mind: file not found: ${path7}`);
         return;
       }
       try {
         await plugin.app.vault.modify(file, newContent);
-        new import_obsidian3.Notice(`Vault Mind: accepted changes to ${path6}`);
+        new import_obsidian3.Notice(`Vault Mind: accepted changes to ${path7}`);
       } catch (err) {
-        new import_obsidian3.Notice(`Vault Mind: failed to write ${path6}: ${err.message}`);
+        new import_obsidian3.Notice(`Vault Mind: failed to write ${path7}: ${err.message}`);
       }
     }).open();
   });
@@ -3792,8 +3792,11 @@ async function resolveToken(app) {
 
 // src/views/panel.ts
 var import_node_fs2 = require("node:fs");
-var import_node_path2 = __toESM(require("node:path"), 1);
+var import_node_path3 = __toESM(require("node:path"), 1);
 var import_obsidian17 = require("obsidian");
+
+// src/tabs/chat-tab.ts
+var import_node_path2 = __toESM(require("node:path"), 1);
 
 // src/chat/rpc.ts
 var import_obsidian4 = require("obsidian");
@@ -5383,8 +5386,8 @@ var SessionScanner = class {
     let inner = slug;
     if (inner.startsWith("--")) inner = inner.slice(2);
     if (inner.endsWith("--")) inner = inner.slice(0, -2);
-    const path6 = `/${inner.replace(/-/g, "/")}`;
-    return path6;
+    const path7 = `/${inner.replace(/-/g, "/")}`;
+    return path7;
   }
 };
 
@@ -5642,8 +5645,8 @@ var SessionListPopover = class {
   /**
    * Set the path of the current session so it can be highlighted.
    */
-  setCurrentPath(path6) {
-    this.state.currentPath = path6;
+  setCurrentPath(path7) {
+    this.state.currentPath = path7;
   }
   /**
    * Re-scan the session directory and update the list.
@@ -6485,8 +6488,7 @@ var ChatTab = class {
     const { deps } = this;
     const piBinary = detectPiBinary(deps.settings.piBinaryPath, deps.vaultPath) ?? deps.settings.piBinaryPath;
     const token = await resolveToken(deps.app);
-    const path6 = await import("node:path");
-    const sessionsDir = path6.join(deps.piConfigDir, "sessions");
+    const sessionsDir = import_node_path2.default.join(deps.piConfigDir, "sessions");
     this.connection = new PiConnection({
       piBinaryPath: piBinary,
       cwd: deps.vaultPath,
@@ -7540,7 +7542,7 @@ var VaultMindPanel = class extends import_obsidian17.ItemView {
     container.empty();
     container.addClass("vault-mind-panel");
     const hasExtensions = (0, import_node_fs2.existsSync)(
-      import_node_path2.default.join(this.deps.vaultPath, ".pi", "agent", "npm", "node_modules", "pi-vault-mind")
+      import_node_path3.default.join(this.deps.vaultPath, ".pi", "agent", "npm", "node_modules", "pi-vault-mind")
     );
     if (!hasExtensions) {
       this.renderSetupPrompt(container);
@@ -7645,7 +7647,7 @@ var VaultMindPanel = class extends import_obsidian17.ItemView {
    * server does not freeze the whole panel.
    */
   async checkPersonalized() {
-    const configPath = import_node_path2.default.join(this.deps.vaultPath, "pi-vault-mind.config.json");
+    const configPath = import_node_path3.default.join(this.deps.vaultPath, "pi-vault-mind.config.json");
     try {
       const raw = (0, import_node_fs2.readFileSync)(configPath, "utf-8");
       const cfg = JSON.parse(raw);
@@ -7661,7 +7663,7 @@ var VaultMindPanel = class extends import_obsidian17.ItemView {
       }
     } catch {
     }
-    const markerPath = import_node_path2.default.join(this.deps.piConfigDir, ".personalized");
+    const markerPath = import_node_path3.default.join(this.deps.piConfigDir, ".personalized");
     if ((0, import_node_fs2.existsSync)(markerPath)) return true;
     const statusPersonalized = await this.fetchPersonalizationStatus();
     if (statusPersonalized === true) return true;
@@ -7780,7 +7782,7 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
     this.plugin = plugin;
   }
   renderReconfigureForm(containerEl) {
-    const configPath = import_node_path3.default.join(this.plugin.vaultPath, "pi-vault-mind.config.json");
+    const configPath = import_node_path4.default.join(this.plugin.vaultPath, "pi-vault-mind.config.json");
     if (!(0, import_node_fs3.existsSync)(configPath)) return;
     const config = JSON.parse((0, import_node_fs3.readFileSync)(configPath, "utf-8"));
     const vaultMind = isRecord2(config.vaultMind) ? config.vaultMind : {};
@@ -7800,11 +7802,11 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
     const extensionCompatibility = isRecord2(config.extensionCompatibility) ? config.extensionCompatibility : {};
     const piContext = isRecord2(extensionCompatibility["pi-context"]) ? extensionCompatibility["pi-context"] : {};
     let enableContextAutomation = piContext.enabled ?? true;
-    const vaultKey = import_node_path3.default.basename(this.plugin.vaultPath);
+    const vaultKey = import_node_path4.default.basename(this.plugin.vaultPath);
     const vaults = isRecord2(config.vaults) ? config.vaults : {};
     const vaultCfg = isRecord2(vaults[vaultKey]) ? vaults[vaultKey] : {};
     let autoStart = vaultCfg.autoStart ?? false;
-    const routerPath = import_node_path3.default.join(this.plugin.vaultPath, ".pi", "model-router.json");
+    const routerPath = import_node_path4.default.join(this.plugin.vaultPath, ".pi", "model-router.json");
     let primaryModel;
     let fallbackSequence;
     if ((0, import_node_fs3.existsSync)(routerPath)) {
@@ -7932,9 +7934,9 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    const piDir = import_node_path3.default.join(this.plugin.vaultPath, ".pi");
+    const piDir = import_node_path4.default.join(this.plugin.vaultPath, ".pi");
     const hasExtensions = (0, import_node_fs3.existsSync)(
-      import_node_path3.default.join(piDir, "agent", "npm", "node_modules", "pi-vault-mind")
+      import_node_path4.default.join(piDir, "agent", "npm", "node_modules", "pi-vault-mind")
     );
     this.renderInitSection(containerEl, hasExtensions);
     new import_obsidian18.Setting(containerEl).setName("Connection").setHeading();
@@ -8049,13 +8051,13 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
     if (process.env.PVM_API_TOKEN) {
       return "Configured from PVM_API_TOKEN environment variable.";
     }
-    if ((0, import_node_fs3.existsSync)(import_node_path3.default.join(this.plugin.vaultPath, ".env.1pass"))) {
+    if ((0, import_node_fs3.existsSync)(import_node_path4.default.join(this.plugin.vaultPath, ".env.1pass"))) {
       return ".env.1pass is present; pi-1password resolves the token when pi starts.";
     }
     return null;
   }
   getInstalledExtensionVersion() {
-    const packageJsonPath = import_node_path3.default.join(
+    const packageJsonPath = import_node_path4.default.join(
       this.plugin.vaultPath,
       ".pi",
       "agent",
@@ -8275,7 +8277,7 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
             tokenSection.empty();
             const existingEnvToken = process.env.PVM_API_TOKEN;
             const existingResolvedToken = await resolveToken(this.app);
-            const env1passPath = import_node_path3.default.join(this.plugin.vaultPath, ".pi", "agent", ".env.1pass");
+            const env1passPath = import_node_path4.default.join(this.plugin.vaultPath, ".pi", "agent", ".env.1pass");
             const hasEnvFile = (0, import_node_fs3.existsSync)(env1passPath);
             if (existingEnvToken) {
               tokenSection.createEl("p", {
@@ -8302,7 +8304,7 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
               });
             } else {
               const opBin = detectOpBinary();
-              const pi1passDir = import_node_path3.default.join(
+              const pi1passDir = import_node_path4.default.join(
                 this.plugin.vaultPath,
                 ".pi",
                 "agent",
@@ -8411,7 +8413,7 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
     );
   }
   async writeInitEmbeddingConfig(options) {
-    const configPath = import_node_path3.default.join(this.plugin.vaultPath, "pi-vault-mind.config.json");
+    const configPath = import_node_path4.default.join(this.plugin.vaultPath, "pi-vault-mind.config.json");
     const config = (0, import_node_fs3.existsSync)(configPath) ? JSON.parse((0, import_node_fs3.readFileSync)(configPath, "utf-8")) : {};
     const vaultMind = isRecord2(config.vaultMind) ? config.vaultMind : {};
     const embedding = {};
@@ -8473,7 +8475,7 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
         return;
       }
       this.appendEnvAssignment(
-        import_node_path3.default.join(this.plugin.vaultPath, ".env.1pass"),
+        import_node_path4.default.join(this.plugin.vaultPath, ".env.1pass"),
         "PVM_API_TOKEN",
         trimmed
       );
@@ -8490,7 +8492,7 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
   }
   async runInit(piBinary, progress) {
     const vaultPath = this.plugin.vaultPath;
-    const agentDir = import_node_path3.default.join(vaultPath, ".pi", "agent");
+    const agentDir = import_node_path4.default.join(vaultPath, ".pi", "agent");
     const shell = process.env.SHELL || (process.platform === "darwin" ? "/bin/zsh" : "/bin/bash");
     const options = {
       shell,
@@ -8525,7 +8527,7 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
       options
     );
     this.markDone(step3c);
-    const pi1passDir = import_node_path3.default.join(agentDir, "npm", "node_modules", "pi-1password");
+    const pi1passDir = import_node_path4.default.join(agentDir, "npm", "node_modules", "pi-1password");
     if (!(0, import_node_fs3.existsSync)(pi1passDir)) {
       const opBin = detectOpBinary();
       if (opBin) {
@@ -8549,8 +8551,8 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
     this.markDone(step5);
   }
   scaffoldConfig(vaultPath) {
-    const configPath = import_node_path3.default.join(vaultPath, "pi-vault-mind.config.json");
-    const collectionsDir = import_node_path3.default.join(vaultPath, "collections");
+    const configPath = import_node_path4.default.join(vaultPath, "pi-vault-mind.config.json");
+    const collectionsDir = import_node_path4.default.join(vaultPath, "collections");
     if (!(0, import_node_fs3.existsSync)(configPath)) {
       const config = {
         version: 2,
@@ -8572,12 +8574,12 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
 `, "utf-8");
     }
     if (!(0, import_node_fs3.existsSync)(collectionsDir)) (0, import_node_fs3.mkdirSync)(collectionsDir, { recursive: true });
-    const mainJsonl = import_node_path3.default.join(collectionsDir, "main.jsonl");
+    const mainJsonl = import_node_path4.default.join(collectionsDir, "main.jsonl");
     if (!(0, import_node_fs3.existsSync)(mainJsonl)) (0, import_node_fs3.writeFileSync)(mainJsonl, "", "utf-8");
   }
   scaffoldModelRouterConfig(agentDir) {
-    const piDir = import_node_path3.default.dirname(agentDir);
-    const configPath = import_node_path3.default.join(piDir, "model-router.json");
+    const piDir = import_node_path4.default.dirname(agentDir);
+    const configPath = import_node_path4.default.join(piDir, "model-router.json");
     if ((0, import_node_fs3.existsSync)(configPath)) return;
     const { primary: mediumModel, fallbackSequence } = defaultModelRouterChoices();
     const config = {
@@ -8613,7 +8615,7 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
   }
   /** Update `.pi/model-router.json` with the user's primary/fallback choices. */
   writeModelRouterConfig(vaultPath, primaryModel, fallbackSequence) {
-    const configPath = import_node_path3.default.join(vaultPath, ".pi", "model-router.json");
+    const configPath = import_node_path4.default.join(vaultPath, ".pi", "model-router.json");
     if (!(0, import_node_fs3.existsSync)(configPath)) return;
     const config = JSON.parse((0, import_node_fs3.readFileSync)(configPath, "utf-8"));
     const profiles = isRecord2(config.profiles) ? config.profiles : {};
@@ -8631,7 +8633,7 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
   }
   seedPiConfig(vaultPath, agentDir) {
     const vaultName = this.app.vault.getName();
-    const systemMdPath = import_node_path3.default.join(agentDir, "system.md");
+    const systemMdPath = import_node_path4.default.join(agentDir, "system.md");
     (0, import_node_fs3.mkdirSync)(agentDir, { recursive: true });
     if (!(0, import_node_fs3.existsSync)(systemMdPath)) {
       (0, import_node_fs3.writeFileSync)(
@@ -8640,7 +8642,7 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
         "utf-8"
       );
     }
-    const configYamlPath = import_node_path3.default.join(agentDir, "config.yaml");
+    const configYamlPath = import_node_path4.default.join(agentDir, "config.yaml");
     if (!(0, import_node_fs3.existsSync)(configYamlPath)) {
       (0, import_node_fs3.writeFileSync)(
         configYamlPath,
@@ -8735,8 +8737,8 @@ var VaultMindPlugin = class extends import_obsidian18.Plugin {
     );
     const vaultPath = this.app.vault.adapter.getBasePath?.() || this.app.vault.getName();
     this.vaultPath = vaultPath;
-    const piConfigDir = import_node_path3.default.join(vaultPath, ".pi", "agent");
-    const systemMdPath = import_node_path3.default.join(piConfigDir, "system.md");
+    const piConfigDir = import_node_path4.default.join(vaultPath, ".pi", "agent");
+    const systemMdPath = import_node_path4.default.join(piConfigDir, "system.md");
     const panelDeps = {
       vaultPath,
       piConfigDir,
@@ -8971,10 +8973,10 @@ var VaultMindPlugin = class extends import_obsidian18.Plugin {
       return;
     }
     const source = content.slice(0, 8e3);
-    const path6 = activeFile.path;
+    const path7 = activeFile.path;
     this.pendingChatMessage = `Ingest the following note into the vault collection "main" using vm_ingest:
 
-<file path="${path6}">
+<file path="${path7}">
 ${source}
 </file>`;
     await this.openPanel("chat");
