@@ -3628,15 +3628,7 @@ function detectModalBinary() {
   for (const c of candidates) {
     if (fs2.existsSync(c)) return c;
   }
-  try {
-    const result = (0, import_node_child_process.execSync)(`${process.env.SHELL || "/bin/zsh"} -lc "which modal 2>/dev/null"`, {
-      timeout: 3e3,
-      env: buildExecEnv()
-    }).toString().trim();
-    return result || null;
-  } catch {
-    return null;
-  }
+  return findInPath("modal");
 }
 function detectOpBinary() {
   const candidates = [
@@ -3648,15 +3640,7 @@ function detectOpBinary() {
   for (const c of candidates) {
     if (fs2.existsSync(c)) return c;
   }
-  try {
-    const result = (0, import_node_child_process.execSync)(`${process.env.SHELL || "/bin/zsh"} -lc "which op 2>/dev/null"`, {
-      timeout: 3e3,
-      env: buildExecEnv()
-    }).toString().trim();
-    return result || null;
-  } catch {
-    return null;
-  }
+  return findInPath("op");
 }
 function resolveNodeBinDir() {
   return detectRuntime()?.binDir ?? null;
@@ -3665,8 +3649,8 @@ function detectPiBinary(configured, vaultPath) {
   if (path3.isAbsolute(configured) && fs2.existsSync(configured)) {
     return configured;
   }
-  const shellPath = whichPi(configured);
-  if (shellPath) return shellPath;
+  const pathHit = findInPath("pi");
+  if (pathHit) return pathHit;
   const home = os2.homedir();
   const pnpmHome = process.env.PNPM_HOME || (process.platform === "darwin" ? path3.join(home, "Library", "pnpm") : path3.join(home, ".local", "share", "pnpm"));
   const candidates = [
@@ -3696,22 +3680,15 @@ function detectPiBinary(configured, vaultPath) {
   }
   return null;
 }
-function whichPi(name) {
-  const shell = process.env.SHELL || (process.platform === "darwin" ? "/bin/zsh" : "/bin/bash");
-  const cmd = process.platform === "win32" ? `where ${name}` : `which ${name}`;
-  try {
-    const result = (0, import_node_child_process.execSync)(cmd, {
-      encoding: "utf-8",
-      shell,
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 5e3,
-      env: { ...process.env }
-    });
-    const resolved = result.trim().split("\n")[0];
-    if (resolved && fs2.existsSync(resolved)) {
-      return resolved;
+function findInPath(name) {
+  const suffix = process.platform === "win32" ? ".exe" : "";
+  const fullName = `${name}${suffix}`;
+  for (const dir of buildExecPath().split(path3.delimiter)) {
+    if (!dir) continue;
+    const candidate = path3.join(dir, fullName);
+    if (fs2.existsSync(candidate)) {
+      return candidate;
     }
-  } catch {
   }
   return null;
 }
@@ -8024,8 +8001,14 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
       (text) => text.setPlaceholder("Agent/Journal").onChange(async (v) => await this.saveFolderSetting("journal", v))
     );
     new import_obsidian18.Setting(containerEl).setName("Token storage").setHeading();
-    const tokenStatus = new import_obsidian18.Setting(containerEl).setName("API token").setDesc("Checking token source...");
-    void this.getTokenSourceDescription().then((d) => tokenStatus.setDesc(d)).catch(() => tokenStatus.setDesc("Not configured."));
+    const TOKEN_NOT_CONFIGURED = "Not configured. Set PVM_API_TOKEN, store a token in Obsidian keychain, or add .env.1pass.";
+    const tokenDesc = this.getTokenSourceDescriptionSync() ?? TOKEN_NOT_CONFIGURED;
+    const tokenStatus = new import_obsidian18.Setting(containerEl).setName("API token").setDesc(tokenDesc);
+    if (this.getTokenSourceDescriptionSync() === null) {
+      void resolveToken(this.app).then((t2) => {
+        tokenStatus.setDesc(t2 ? "Configured in Obsidian keychain." : TOKEN_NOT_CONFIGURED);
+      });
+    }
     if (hasExtensions) {
       this.renderReconfigureForm(containerEl);
     } else {
@@ -8057,17 +8040,19 @@ var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
       this.plugin.showNotice(`failed to save ${key} folder \u2014 ${err.message}`);
     }
   }
-  async getTokenSourceDescription() {
+  /**
+   * Synchronous token-source check.  Returns a description string when the
+   * source can be determined without async I/O, or `null` when a keychain
+   * lookup is still needed.
+   */
+  getTokenSourceDescriptionSync() {
     if (process.env.PVM_API_TOKEN) {
       return "Configured from PVM_API_TOKEN environment variable.";
-    }
-    if (await resolveToken(this.app)) {
-      return "Configured in Obsidian keychain.";
     }
     if ((0, import_node_fs3.existsSync)(import_node_path3.default.join(this.plugin.vaultPath, ".env.1pass"))) {
       return ".env.1pass is present; pi-1password resolves the token when pi starts.";
     }
-    return "Not configured. Set PVM_API_TOKEN, store a token in Obsidian keychain, or add .env.1pass.";
+    return null;
   }
   getInstalledExtensionVersion() {
     const packageJsonPath = import_node_path3.default.join(

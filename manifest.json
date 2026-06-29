@@ -1,7 +1,7 @@
 {
 	"id": "vault-mind",
 	"name": "Vault Mind",
-	"version": "0.6.0",
+	"version": "0.6.1",
 	"minAppVersion": "1.5.0",
 	"description": "Live queue, status, search, and chat for the pi-vault-mind knowledge store extension.",
 	"author": "Kyle Brodeur",
