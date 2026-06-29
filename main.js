@@ -1151,988 +1151,8 @@ var import_node_child_process3 = require("node:child_process");
 var import_node_fs3 = require("node:fs");
 var import_node_path3 = __toESM(require("node:path"), 1);
 var import_node_util = require("node:util");
-var import_view2 = require("@codemirror/view");
-var import_obsidian19 = require("obsidian");
-
-// src/chat/message-store.ts
-var MAX_MESSAGES_PER_SESSION = 500;
-var MessageStore = class {
-  data;
-  dirty = false;
-  constructor() {
-    this.data = { sessions: {} };
-  }
-  /**
-   * Load from serialized data (call with plugin.loadData() result).
-   */
-  load(raw) {
-    if (raw && typeof raw === "object" && raw.sessions) {
-      this.data = raw;
-    } else {
-      this.data = { sessions: {} };
-    }
-    this.dirty = false;
-  }
-  /**
-   * Get serializable data (pass to plugin.saveData()).
-   */
-  serialize() {
-    this.dirty = false;
-    return this.data;
-  }
-  /**
-   * Check if there are unsaved changes.
-   */
-  isDirty() {
-    return this.dirty;
-  }
-  /**
-   * Get messages for a session.
-   */
-  getMessages(sessionPath) {
-    return this.data.sessions[sessionPath] || [];
-  }
-  /**
-   * Set all messages for a session (e.g. on save/clear).
-   */
-  setMessages(sessionPath, messages) {
-    this.data.sessions[sessionPath] = messages.slice(-MAX_MESSAGES_PER_SESSION);
-    this.dirty = true;
-  }
-  /**
-   * Append a single message to a session.
-   */
-  appendMessage(sessionPath, message) {
-    if (!this.data.sessions[sessionPath]) {
-      this.data.sessions[sessionPath] = [];
-    }
-    this.data.sessions[sessionPath].push(message);
-    if (this.data.sessions[sessionPath].length > MAX_MESSAGES_PER_SESSION) {
-      this.data.sessions[sessionPath] = this.data.sessions[sessionPath].slice(
-        -MAX_MESSAGES_PER_SESSION
-      );
-    }
-    this.dirty = true;
-  }
-  /**
-   * Remove a session's messages.
-   */
-  removeSession(sessionPath) {
-    delete this.data.sessions[sessionPath];
-    this.dirty = true;
-  }
-  /**
-   * Get the last active session path.
-   */
-  getLastSession() {
-    return this.data.lastSession;
-  }
-  /**
-   * Set the last active session path.
-   */
-  setLastSession(sessionPath) {
-    this.data.lastSession = sessionPath;
-    this.dirty = true;
-  }
-  /**
-   * List all session paths that have stored messages, sorted by most recent message.
-   */
-  listSessions() {
-    return Object.keys(this.data.sessions).filter((key) => this.data.sessions[key].length > 0).sort((a, b) => {
-      const aLast = this.data.sessions[a].slice(-1)[0]?.timestamp ?? 0;
-      const bLast = this.data.sessions[b].slice(-1)[0]?.timestamp ?? 0;
-      return bLast - aLast;
-    });
-  }
-};
-
-// src/client.ts
-var VaultMindClient = class {
-  config;
-  ws = null;
-  reconnectTimer = null;
-  reconnectDelay = 1e3;
-  intentionalClose = false;
-  eventHandlers = /* @__PURE__ */ new Set();
-  stateHandlers = /* @__PURE__ */ new Set();
-  _state = { connected: false };
-  constructor(config) {
-    this.config = config;
-  }
-  get baseUrl() {
-    return `http://${this.config.host}:${this.config.port}`;
-  }
-  get wsUrl() {
-    return `ws://${this.config.host}:${this.config.port}/agent/stream`;
-  }
-  get authHeaders() {
-    return {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${this.config.token}`
-    };
-  }
-  setState(state) {
-    this._state = state;
-    for (const h of this.stateHandlers) h(state);
-  }
-  get state() {
-    return this._state;
-  }
-  subscribeEvents(handler) {
-    this.eventHandlers.add(handler);
-    return () => this.eventHandlers.delete(handler);
-  }
-  subscribeState(handler) {
-    this.stateHandlers.add(handler);
-    return () => this.stateHandlers.delete(handler);
-  }
-  emit(event) {
-    for (const h of this.eventHandlers) {
-      try {
-        h(event);
-      } catch {
-      }
-    }
-  }
-  connect() {
-    if (this.ws) return;
-    try {
-      this.ws = new WebSocket(this.wsUrl, [`Authorization: Bearer ${this.config.token}`]);
-    } catch (err) {
-      this.setState({ connected: false, error: String(err), reconnecting: true });
-      this.scheduleReconnect();
-      return;
-    }
-    this.ws.onopen = () => {
-      this.reconnectDelay = 1e3;
-      this.setState({ connected: true, reconnecting: false });
-    };
-    this.ws.onmessage = (event) => {
-      try {
-        const parsed = JSON.parse(event.data);
-        this.emit(parsed);
-      } catch {
-      }
-    };
-    this.ws.onclose = (event) => {
-      this.ws = null;
-      if (this.intentionalClose) {
-        this.setState({ connected: false, error: void 0, reconnecting: false });
-        return;
-      }
-      const wasConnected = this._state.connected;
-      this.setState({ connected: false, error: `closed ${event.code}`, reconnecting: true });
-      if (wasConnected || event.code !== 4401) {
-        this.scheduleReconnect();
-      }
-    };
-    this.ws.onerror = () => {
-      this.setState({ connected: this.ws?.readyState === WebSocket.OPEN, error: "socket error" });
-    };
-  }
-  disconnect() {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    this.intentionalClose = true;
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
-    this.setState({ connected: false, error: void 0, reconnecting: false });
-    this.intentionalClose = false;
-  }
-  scheduleReconnect() {
-    if (this.reconnectTimer) return;
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = null;
-      this.connect();
-    }, this.reconnectDelay);
-    this.reconnectDelay = Math.min(this.reconnectDelay * 2, 3e4);
-  }
-  async httpJson(method, path6, body) {
-    const res = await fetch(`${this.baseUrl}${path6}`, {
-      method,
-      headers: this.authHeaders,
-      body: body ? JSON.stringify(body) : void 0
-    });
-    const text = await res.text();
-    if (!res.ok) throw new Error(`${res.status} ${text}`);
-    return text ? JSON.parse(text) : void 0;
-  }
-  async status() {
-    return await this.httpJson("GET", "/vm/status");
-  }
-  async init(vaultPath) {
-    return await this.httpJson("POST", "/vm/init", vaultPath ? { vaultPath } : void 0);
-  }
-  async setup(body) {
-    return await this.httpJson("POST", "/vm/setup", body);
-  }
-  async startServer() {
-    return await this.httpJson("POST", "/server/start");
-  }
-  async toggleWatcher() {
-    return await this.httpJson("POST", "/vm/watcher/toggle");
-  }
-  async listQueue(status) {
-    const query = status ? `?status=${status}` : "";
-    return await this.httpJson("GET", `/agent/queue${query}`);
-  }
-  async retryJob(id) {
-    return await this.httpJson("POST", `/agent/jobs/${encodeURIComponent(id)}/retry`);
-  }
-  async cancelJob(id) {
-    return await this.httpJson(
-      "POST",
-      `/agent/jobs/${encodeURIComponent(id)}/cancel`
-    );
-  }
-  async search(query, collection = "main", limit = 5) {
-    return await this.httpJson("POST", "/vm/search", {
-      collection,
-      query,
-      limit
-    });
-  }
-  async ftsSearch(query, collection = "main", limit = 10) {
-    const res = await this.httpJson("POST", "/vm/fts-search", { query, collection, limit });
-    return res.hits;
-  }
-  async graphQuery(entity, depth = 1) {
-    const res = await this.httpJson("POST", "/vm/graph", { entity, depth });
-    return res.results;
-  }
-  async listPending() {
-    const res = await this.httpJson("GET", "/vm/pending");
-    return res.pending;
-  }
-  async approveEntry(id, collection, action) {
-    await this.httpJson("POST", "/vm/approve", { id, collection, action });
-  }
-  async pushContext(filePath, selection, cursor2) {
-    return await this.httpJson("POST", "/vault-mind/context", {
-      filePath,
-      selection,
-      cursor: cursor2
-    });
-  }
-  async scan(file, vault) {
-    try {
-      return await this.httpJson("POST", "/vault-mind/scan", { file, vault });
-    } catch (err) {
-      return { error: String(err) };
-    }
-  }
-  async dispatch(role, instruction, file, vault) {
-    try {
-      return await this.httpJson("POST", "/vault-mind/dispatch", {
-        role,
-        instruction,
-        file,
-        vault
-      });
-    } catch (err) {
-      return { error: String(err) };
-    }
-  }
-};
-
-// src/config.ts
-var import_node_fs = require("node:fs");
-var import_node_os = require("node:os");
-var import_node_path = __toESM(require("node:path"), 1);
-function extractConfigLayer(cfg) {
-  const wiki = cfg.wiki ?? {};
-  const vaultMind = cfg.vaultMind ?? {};
-  const source = Object.keys(wiki).length > 0 ? wiki : vaultMind;
-  const embedding = source.embedding ?? {};
-  const modal = embedding.modal ?? {};
-  const ollamaHost = typeof embedding.ollamaHost === "string" ? embedding.ollamaHost : void 0;
-  const ollamaModel = typeof embedding.ollamaModel === "string" ? embedding.ollamaModel : void 0;
-  return {
-    remoteUrl: typeof embedding.remoteUrl === "string" ? embedding.remoteUrl : void 0,
-    localUrl: typeof embedding.localUrl === "string" ? embedding.localUrl : ollamaHost ? `${ollamaHost.replace(/\/$/, "")}/v1` : void 0,
-    model: typeof embedding.model === "string" ? embedding.model : ollamaModel,
-    dim: typeof embedding.dim === "number" ? embedding.dim : void 0,
-    collections: typeof cfg.collections === "object" && cfg.collections !== null ? Object.keys(cfg.collections) : void 0,
-    workspace: typeof modal.workspace === "string" ? modal.workspace : void 0,
-    useTransformers: typeof embedding.useTransformers === "boolean" ? embedding.useTransformers : void 0
-  };
-}
-function mergeConfigLayers(globalCfg, projectCfg) {
-  const global = extractConfigLayer(globalCfg);
-  const project = extractConfigLayer(projectCfg);
-  return {
-    remoteUrl: project.remoteUrl ?? global.remoteUrl,
-    localUrl: project.localUrl ?? global.localUrl,
-    model: project.model ?? global.model,
-    dim: project.dim ?? global.dim,
-    collections: project.collections ?? global.collections,
-    workspace: project.workspace ?? global.workspace,
-    useTransformers: project.useTransformers ?? global.useTransformers
-  };
-}
-function readExtensionConfig(vaultPath) {
-  const globalPath = import_node_path.default.join((0, import_node_os.homedir)(), ".pi", "agent", "vault-mind.config.json");
-  const projectPath = import_node_path.default.join(vaultPath, "pi-vault-mind.config.json");
-  let globalCfg = {};
-  let projectCfg = {};
-  try {
-    globalCfg = JSON.parse((0, import_node_fs.readFileSync)(globalPath, "utf-8"));
-  } catch {
-  }
-  try {
-    projectCfg = JSON.parse((0, import_node_fs.readFileSync)(projectPath, "utf-8"));
-  } catch {
-  }
-  const merged = mergeConfigLayers(globalCfg, projectCfg);
-  return Object.keys(merged).length > 0 ? merged : null;
-}
-function readServerPort(vaultPath) {
-  const serverJsonPath = import_node_path.default.join(vaultPath, ".vault-mind", "server.json");
-  try {
-    const raw = (0, import_node_fs.readFileSync)(serverJsonPath, "utf-8");
-    const data = JSON.parse(raw);
-    const port = data.port;
-    return typeof port === "number" && port > 0 ? port : void 0;
-  } catch {
-    return void 0;
-  }
-}
-
-// src/modals.ts
-var import_obsidian = require("obsidian");
-var VAULT_MIND_ROLES = [
-  "Manager",
-  "Miner",
-  "Broadcaster",
-  "Heavy-Lifter",
-  "Watcher"
-];
-var RolePickerModal = class extends import_obsidian.FuzzySuggestModal {
-  onChooseRole;
-  constructor(app, onChooseRole) {
-    super(app);
-    this.onChooseRole = onChooseRole;
-    this.setPlaceholder("Pick a Vault Mind agent role");
-    this.setInstructions([
-      { command: "\u2191\u2193", purpose: "navigate" },
-      { command: "\u21B5", purpose: "select" }
-    ]);
-  }
-  getItems() {
-    return [...VAULT_MIND_ROLES];
-  }
-  getItemText(role) {
-    return role;
-  }
-  onChooseItem(role) {
-    this.onChooseRole(role);
-  }
-};
-var InstructionInputModal = class extends import_obsidian.Modal {
-  titleText;
-  onSubmit;
-  constructor(app, title, onSubmit) {
-    super(app);
-    this.titleText = title;
-    this.onSubmit = onSubmit;
-  }
-  onOpen() {
-    const { contentEl } = this;
-    contentEl.empty();
-    contentEl.createEl("h2", { text: this.titleText });
-    const textarea = new import_obsidian.TextAreaComponent(contentEl);
-    textarea.setPlaceholder("Describe what the agent should do...");
-    textarea.inputEl.rows = 8;
-    textarea.inputEl.addClass("vault-mind-instruction-input");
-    textarea.inputEl.style.width = "100%";
-    const buttonRow = contentEl.createDiv({ cls: "vault-mind-modal-buttons" });
-    buttonRow.style.display = "flex";
-    buttonRow.style.justifyContent = "flex-end";
-    buttonRow.style.gap = "0.5rem";
-    buttonRow.style.marginTop = "1rem";
-    new import_obsidian.ButtonComponent(buttonRow).setButtonText("Cancel").onClick(() => {
-      this.onSubmit(null);
-      this.close();
-    });
-    new import_obsidian.ButtonComponent(buttonRow).setButtonText("Dispatch").setCta().onClick(() => {
-      this.onSubmit(textarea.getValue());
-      this.close();
-    });
-    textarea.inputEl.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-        event.preventDefault();
-        this.onSubmit(textarea.getValue());
-        this.close();
-      }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        this.onSubmit(null);
-        this.close();
-      }
-    });
-  }
-  onClose() {
-    this.contentEl.empty();
-  }
-};
-
-// src/pi-detect.ts
-var import_node_child_process = require("node:child_process");
-var fs = __toESM(require("node:fs"), 1);
-var os = __toESM(require("node:os"), 1);
-var path2 = __toESM(require("node:path"), 1);
-function resolvePnpmHome() {
-  if (process.env.PNPM_HOME) return process.env.PNPM_HOME;
-  if (process.platform === "darwin") return path2.join(os.homedir(), "Library", "pnpm");
-  return path2.join(os.homedir(), ".local", "share", "pnpm");
-}
-function detectFnm() {
-  const fnmRoot = path2.join(os.homedir(), ".local", "share", "fnm");
-  if (!fs.existsSync(fnmRoot)) return null;
-  const binDir = path2.join(fnmRoot, "aliases", "default", "bin");
-  const node = path2.join(binDir, "node");
-  if (!fs.existsSync(node)) return null;
-  return {
-    node,
-    pnpm: fs.existsSync(path2.join(binDir, "pnpm")) ? path2.join(binDir, "pnpm") : null,
-    binDir,
-    source: "fnm",
-    pnpmHome: resolvePnpmHome()
-  };
-}
-function detectNvm() {
-  const nvmDir = process.env.NVM_DIR || path2.join(os.homedir(), ".nvm");
-  const aliasFile = path2.join(nvmDir, "alias", "default");
-  let version;
-  try {
-    version = fs.readFileSync(aliasFile, "utf-8").trim();
-  } catch {
-    return null;
-  }
-  if (!version.startsWith("v") && /^\d/.test(version)) version = `v${version}`;
-  if (!version.startsWith("v")) return null;
-  const binDir = path2.join(nvmDir, "versions", "node", version, "bin");
-  if (!fs.existsSync(path2.join(binDir, "node"))) return null;
-  return {
-    node: path2.join(binDir, "node"),
-    pnpm: fs.existsSync(path2.join(binDir, "pnpm")) ? path2.join(binDir, "pnpm") : null,
-    binDir,
-    source: `nvm (${version})`,
-    pnpmHome: resolvePnpmHome(),
-    nvmDir,
-    nvmBin: binDir
-  };
-}
-function detectFallback() {
-  const pnpmHome = resolvePnpmHome();
-  if (fs.existsSync(path2.join(pnpmHome, "pnpm")) || fs.existsSync(path2.join(pnpmHome, "pi"))) {
-    return {
-      pnpm: path2.join(pnpmHome, "pnpm"),
-      node: null,
-      binDir: pnpmHome,
-      source: "PNPM_HOME",
-      pnpmHome
-    };
-  }
-  return null;
-}
-function detectRuntime() {
-  return detectFnm() || detectNvm() || detectFallback();
-}
-function buildExecPath() {
-  const dirs = [];
-  const runtime = detectRuntime();
-  if (runtime) {
-    dirs.push(runtime.binDir);
-    if (runtime.pnpmHome && runtime.pnpmHome !== runtime.binDir) {
-      dirs.push(runtime.pnpmHome);
-    }
-  }
-  const pnpmHome = resolvePnpmHome();
-  if (!dirs.includes(pnpmHome)) dirs.push(pnpmHome);
-  const homeLocalBin = path2.join(os.homedir(), ".local", "bin");
-  dirs.push(
-    homeLocalBin,
-    "/opt/homebrew/bin",
-    "/usr/local/bin",
-    "/usr/bin",
-    "/bin",
-    "/usr/sbin",
-    "/sbin"
-  );
-  const existing = (process.env.PATH || "").split(":");
-  for (const p of existing) {
-    if (p && !dirs.includes(p)) dirs.push(p);
-  }
-  return dirs.join(":");
-}
-function buildExecEnv() {
-  const env = { ...process.env, PATH: buildExecPath() };
-  const runtime = detectRuntime();
-  if (runtime) {
-    env.PNPM_HOME = runtime.pnpmHome;
-    if (runtime.nvmDir) env.NVM_DIR = runtime.nvmDir;
-    if (runtime.nvmBin) env.NVM_BIN = runtime.nvmBin;
-  }
-  return env;
-}
-function detectModalBinary() {
-  const candidates = [
-    path2.join(os.homedir(), ".local", "bin", "modal"),
-    "/opt/homebrew/bin/modal",
-    "/usr/local/bin/modal"
-  ];
-  for (const c of candidates) {
-    if (fs.existsSync(c)) return c;
-  }
-  try {
-    const result = (0, import_node_child_process.execSync)(`${process.env.SHELL || "/bin/zsh"} -lc "which modal 2>/dev/null"`, {
-      timeout: 3e3,
-      env: buildExecEnv()
-    }).toString().trim();
-    return result || null;
-  } catch {
-    return null;
-  }
-}
-function detectOpBinary() {
-  const candidates = [
-    path2.join(os.homedir(), ".local", "bin", "op"),
-    "/opt/homebrew/bin/op",
-    "/usr/local/bin/op",
-    "/usr/bin/op"
-  ];
-  for (const c of candidates) {
-    if (fs.existsSync(c)) return c;
-  }
-  try {
-    const result = (0, import_node_child_process.execSync)(`${process.env.SHELL || "/bin/zsh"} -lc "which op 2>/dev/null"`, {
-      timeout: 3e3,
-      env: buildExecEnv()
-    }).toString().trim();
-    return result || null;
-  } catch {
-    return null;
-  }
-}
-function resolveNodeBinDir() {
-  return detectRuntime()?.binDir ?? null;
-}
-function detectPiBinary(configured, vaultPath) {
-  if (path2.isAbsolute(configured) && fs.existsSync(configured)) {
-    return configured;
-  }
-  const shellPath = whichPi(configured);
-  if (shellPath) return shellPath;
-  const home = os.homedir();
-  const pnpmHome = process.env.PNPM_HOME || (process.platform === "darwin" ? path2.join(home, "Library", "pnpm") : path2.join(home, ".local", "share", "pnpm"));
-  const candidates = [
-    // System npm global installs (base case — no version manager)
-    "/usr/local/bin/pi",
-    "/opt/homebrew/bin/pi",
-    path2.join(home, ".npm-global", "bin", "pi"),
-    path2.join(home, ".local", "bin", "pi"),
-    // pnpm global (PNPM_HOME)
-    path2.join(pnpmHome, "pi")
-  ];
-  const nodeBin = resolveNodeBinDir();
-  if (nodeBin && nodeBin !== "/usr/local/bin" && nodeBin !== "/opt/homebrew/bin") {
-    candidates.push(path2.join(nodeBin, "pi"));
-  }
-  candidates.push(
-    // Less common locations
-    path2.join(home, ".pi", "bin", "pi")
-  );
-  if (vaultPath) {
-    candidates.unshift(path2.join(vaultPath, "node_modules", ".bin", "pi"));
-  }
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
-      return candidate;
-    }
-  }
-  return null;
-}
-function whichPi(name) {
-  const shell = process.env.SHELL || (process.platform === "darwin" ? "/bin/zsh" : "/bin/bash");
-  const cmd = process.platform === "win32" ? `where ${name}` : `which ${name}`;
-  try {
-    const result = (0, import_node_child_process.execSync)(cmd, {
-      encoding: "utf-8",
-      shell,
-      stdio: ["ignore", "pipe", "pipe"],
-      timeout: 5e3,
-      env: { ...process.env }
-    });
-    const resolved = result.trim().split("\n")[0];
-    if (resolved && fs.existsSync(resolved)) {
-      return resolved;
-    }
-  } catch {
-  }
-  return null;
-}
-
-// src/protocol.ts
-var import_obsidian2 = require("obsidian");
-var isString = (value) => typeof value === "string";
-var DiffModal = class extends import_obsidian2.Modal {
-  path;
-  oldContent;
-  newContent;
-  onAccept;
-  constructor(app, { path: path6, old, new: newContent }, onAccept) {
-    super(app);
-    this.path = path6;
-    this.oldContent = old;
-    this.newContent = newContent;
-    this.onAccept = onAccept;
-  }
-  onOpen() {
-    this.titleEl.setText(`Proposed edit: ${this.path}`);
-    const oldSection = this.contentEl.createEl("div");
-    oldSection.createEl("h3", { text: "Current content" });
-    const oldPre = oldSection.createEl("pre", { cls: "vault-mind-diff vault-mind-diff-old" });
-    oldPre.textContent = this.oldContent;
-    const newSection = this.contentEl.createEl("div");
-    newSection.createEl("h3", { text: "Proposed content" });
-    const newPre = newSection.createEl("pre", { cls: "vault-mind-diff vault-mind-diff-new" });
-    newPre.textContent = this.newContent;
-    new import_obsidian2.Setting(this.contentEl).addButton(
-      (btn) => btn.setButtonText("Accept").setCta().onClick(() => {
-        this.onAccept();
-        this.close();
-      })
-    ).addButton(
-      (btn) => btn.setButtonText("Reject").onClick(() => {
-        this.close();
-      })
-    );
-  }
-};
-function registerVaultMindProtocolHandlers(plugin) {
-  plugin.registerObsidianProtocolHandler("vault-mind/open-file", (params) => {
-    const path6 = params?.path;
-    if (!isString(path6)) {
-      new import_obsidian2.Notice("Vault Mind: missing path parameter");
-      return;
-    }
-    plugin.app.workspace.openLinkText(path6, "", true);
-  });
-  plugin.registerObsidianProtocolHandler("vault-mind/show-diff", (params) => {
-    const path6 = params?.path;
-    const oldContent = params?.old;
-    const newContent = params?.new;
-    if (!isString(path6) || !isString(oldContent) || !isString(newContent)) {
-      new import_obsidian2.Notice("Vault Mind: missing path, old, or new parameter");
-      return;
-    }
-    new DiffModal(plugin.app, { path: path6, old: oldContent, new: newContent }, async () => {
-      const file = plugin.app.vault.getAbstractFileByPath(path6);
-      if (!(file instanceof import_obsidian2.TFile)) {
-        new import_obsidian2.Notice(`Vault Mind: file not found: ${path6}`);
-        return;
-      }
-      try {
-        await plugin.app.vault.modify(file, newContent);
-        new import_obsidian2.Notice(`Vault Mind: accepted changes to ${path6}`);
-      } catch (err) {
-        new import_obsidian2.Notice(`Vault Mind: failed to write ${path6}: ${err.message}`);
-      }
-    }).open();
-  });
-  plugin.registerObsidianProtocolHandler("vault-mind/notify", (params) => {
-    const message = params?.message;
-    if (!isString(message)) {
-      new import_obsidian2.Notice("Vault Mind: missing message parameter");
-      return;
-    }
-    new import_obsidian2.Notice(message);
-  });
-  plugin.registerObsidianProtocolHandler("vault-mind/search", async (params) => {
-    const query = params?.query;
-    if (!isString(query)) {
-      new import_obsidian2.Notice("Vault Mind: missing query parameter");
-      return;
-    }
-    const searchLeaf = await plugin.app.workspace.ensureSideLeaf("search", "left");
-    if (searchLeaf.view?.setQuery) {
-      searchLeaf.view.setQuery(query);
-    }
-  });
-}
-
-// src/token.ts
-var PVM_TOKEN_SECRET_ID = "vault-mind-pvm-token";
-async function resolveToken(app) {
-  const envToken = process.env.PVM_API_TOKEN;
-  if (envToken) return envToken;
-  return app.secretStorage.getSecret(PVM_TOKEN_SECRET_ID) ?? void 0;
-}
-
-// src/views/panel.ts
-var import_node_fs2 = require("node:fs");
-var import_node_path2 = __toESM(require("node:path"), 1);
+var import_view = require("@codemirror/view");
 var import_obsidian18 = require("obsidian");
-
-// src/chat/rpc.ts
-var import_obsidian3 = require("obsidian");
-var spawn;
-var createInterface;
-if (import_obsidian3.Platform.isDesktop) {
-  const childProcessModule = require("node:child_process");
-  const readlineModule = require("node:readline");
-  spawn = childProcessModule.spawn;
-  createInterface = readlineModule.createInterface;
-}
-var PiConnection = class {
-  piBinaryPath;
-  cwd;
-  extraArgs;
-  timeout;
-  apiKeys;
-  piConfigDir;
-  buildEnv;
-  process = null;
-  readline = null;
-  handlers = [];
-  disconnectHandler = null;
-  connected = false;
-  requestId = 0;
-  pendingRequests = /* @__PURE__ */ new Map();
-  intentionallyDestroyed = false;
-  constructor(opts) {
-    this.piBinaryPath = opts.piBinaryPath;
-    this.cwd = opts.cwd;
-    this.extraArgs = opts.extraArgs ?? [];
-    this.apiKeys = opts.apiKeys ?? {};
-    this.timeout = opts.timeout ?? 6e4;
-    this.piConfigDir = opts.piConfigDir ?? null;
-    this.buildEnv = opts.buildEnv ?? null;
-  }
-  /**
-   * Spawn the Pi process and set up JSON line parsing on stdout.
-   */
-  connect() {
-    if (this.process) {
-      this.destroy();
-    }
-    this.intentionallyDestroyed = false;
-    if (!this.piBinaryPath || this.piBinaryPath.trim() === "") {
-      throw new Error("Pi binary path is not configured. Please set the path in plugin settings.");
-    }
-    const baseEnv = this.buildEnv ? this.buildEnv() : { PATH: process.env.PATH || "/usr/bin:/bin" };
-    const env = { ...baseEnv };
-    for (const [envVarName, key] of Object.entries(this.apiKeys)) {
-      if (key?.trim()) {
-        env[envVarName] = key;
-      }
-    }
-    if (this.piConfigDir) {
-      env.PI_CODING_AGENT_DIR = this.piConfigDir;
-    }
-    this.process = spawn(this.piBinaryPath, ["--mode", "rpc", ...this.extraArgs], {
-      cwd: this.cwd,
-      stdio: ["pipe", "pipe", "pipe"],
-      env
-    });
-    this.connected = true;
-    const stderrBuffer = [];
-    if (this.process.stdout) {
-      this.readline = createInterface({
-        input: this.process.stdout,
-        crlfDelay: Number.POSITIVE_INFINITY
-      });
-      this.readline.on("line", (line) => {
-        const trimmed = line.trim();
-        if (!trimmed) return;
-        try {
-          const event = JSON.parse(trimmed);
-          this.dispatch(event);
-        } catch {
-          console.warn("[Pi RPC] Non-JSON line from stdout:", trimmed);
-        }
-      });
-      this.readline.on("close", () => {
-        if (this.intentionallyDestroyed) return;
-      });
-    }
-    if (this.process.stderr) {
-      this.process.stderr.on("data", (data) => {
-        const text = data.toString();
-        stderrBuffer.push(text);
-        console.warn("[Pi RPC] stderr:", text);
-      });
-    }
-    this.process.on("exit", (code, signal) => {
-      if (this.intentionallyDestroyed) {
-        this.connected = false;
-        this.cleanup();
-        return;
-      }
-      if (code !== 0) {
-        console.warn("[Pi RPC] Process exited with code", code, "signal", signal);
-        if (stderrBuffer.length > 0) {
-          console.warn("[Pi RPC] stderr output:", stderrBuffer.join(""));
-        }
-      }
-      this.connected = false;
-      this.dispatch({
-        type: "error",
-        error: `Pi process exited (code=${code}, signal=${signal})`
-      });
-      this.cleanup();
-    });
-    this.process.on("error", (err) => {
-      this.connected = false;
-      console.error("[Pi RPC] Process error:", err.message);
-      if (stderrBuffer.length > 0) {
-        console.error("[Pi RPC] stderr output:", stderrBuffer.join(""));
-      }
-      this.dispatch({
-        type: "error",
-        error: `Pi process error: ${err.message}`
-      });
-      this.cleanup();
-    });
-  }
-  /**
-   * Send a command to Pi via stdin as a JSON line.
-   * Automatically injects a request ID and returns a Promise that resolves
-   * when Pi sends a matching response (type === "response" with same id).
-   * Streaming events still go to onEvent handlers.
-   */
-  send(command) {
-    if (!this.process || !this.process.stdin || !this.connected) {
-      throw new Error("Pi is not connected");
-    }
-    const id = `req-${this.requestId++}`;
-    const line = `${JSON.stringify({ ...command, id })}
-`;
-    return new Promise((resolve, reject) => {
-      const timeoutId = window.setTimeout(() => {
-        if (this.pendingRequests.has(id)) {
-          this.pendingRequests.delete(id);
-          reject(new Error(`Request ${id} timed out after ${this.timeout / 1e3}s`));
-        }
-      }, this.timeout);
-      this.pendingRequests.set(id, {
-        resolve: (value) => {
-          window.clearTimeout(timeoutId);
-          resolve(value);
-        },
-        reject: (reason) => {
-          window.clearTimeout(timeoutId);
-          reject(reason);
-        },
-        timeoutId
-      });
-      this.process?.stdin?.write(line);
-    });
-  }
-  /**
-   * Send a raw JSON line without request tracking.
-   * Used for extension UI responses in RPC mode.
-   */
-  sendRaw(command) {
-    if (!this.process || !this.process.stdin || !this.connected) {
-      throw new Error("Pi is not connected");
-    }
-    this.process.stdin.write(`${JSON.stringify(command)}
-`);
-  }
-  /**
-   * Register a handler for events received from Pi.
-   * Each JSON line parsed from stdout is dispatched to all handlers.
-   */
-  onEvent(handler) {
-    this.handlers.push(handler);
-  }
-  /**
-   * Remove a previously registered event handler.
-   */
-  offEvent(handler) {
-    const idx = this.handlers.indexOf(handler);
-    if (idx !== -1) {
-      this.handlers.splice(idx, 1);
-    }
-  }
-  /**
-   * Register a handler called when the Pi process disconnects unexpectedly.
-   */
-  onDisconnect(handler) {
-    this.disconnectHandler = handler;
-  }
-  /**
-   * Kill the child process and clean up.
-   */
-  destroy() {
-    this.intentionallyDestroyed = true;
-    this.disconnectHandler = null;
-    this.handlers = [];
-    if (this.process) {
-      this.process.kill();
-    }
-    this.cleanup();
-  }
-  /**
-   * Check if the Pi process is alive.
-   */
-  isConnected() {
-    return this.connected;
-  }
-  dispatch(event) {
-    if (this.intentionallyDestroyed && this.handlers.length === 0) {
-      return;
-    }
-    if (event.type === "error" && this.intentionallyDestroyed) {
-      return;
-    }
-    if (event.type === "response" && typeof event.id === "string") {
-      const pending = this.pendingRequests.get(event.id);
-      if (pending) {
-        this.pendingRequests.delete(event.id);
-        if (event.success === false) {
-          pending.reject(new Error(String(event.error || "Request failed")));
-        } else {
-          pending.resolve(event);
-        }
-        return;
-      }
-    }
-    for (const handler of this.handlers) {
-      try {
-        handler(event);
-      } catch (err) {
-        console.error("[Pi RPC] Handler error:", err);
-      }
-    }
-  }
-  cleanup() {
-    const wasConnected = this.connected;
-    this.connected = false;
-    if (this.readline) {
-      this.readline.close();
-      this.readline = null;
-    }
-    this.process = null;
-    for (const [, pending] of this.pendingRequests) {
-      window.clearTimeout(pending.timeoutId);
-      pending.reject(new Error("Pi connection closed"));
-    }
-    this.pendingRequests.clear();
-    if (wasConnected && this.disconnectHandler) {
-      this.disconnectHandler();
-    }
-  }
-};
-
-// src/chat/view.ts
-var import_obsidian15 = require("obsidian");
 
 // ../../node_modules/.pnpm/@arrow-js+core@1.0.6/node_modules/@arrow-js/core/dist/chunks/internal-DchK7S7v.mjs
 var queueMarker = Symbol();
@@ -3874,6 +2894,1201 @@ function normalizeNodePlaceholders(dom) {
   walk(dom);
 }
 
+// src/chat/pi-config-reader.ts
+var import_obsidian = require("obsidian");
+var fs;
+var os;
+var path;
+var JSON5;
+if (import_obsidian.Platform.isDesktop) {
+  fs = require("node:fs");
+  os = require("node:os");
+  path = require("node:path");
+  JSON5 = require_lib();
+}
+function readPiModelsConfig(projectPath) {
+  if (!import_obsidian.Platform.isDesktop) {
+    return { providers: [] };
+  }
+  const providers = {};
+  let error;
+  let configExists = false;
+  try {
+    const homeDir = os.homedir();
+    const userModelsPath = path.join(homeDir, ".pi", "agent", "models.json");
+    if (fs.existsSync(userModelsPath)) {
+      configExists = true;
+      const content = fs.readFileSync(userModelsPath, "utf-8");
+      const userConfig = JSON5.parse(content);
+      if (userConfig.providers) {
+        Object.assign(providers, userConfig.providers);
+      }
+    }
+  } catch (err) {
+    error = `Failed to read ~/.pi/agent/models.json: ${err instanceof Error ? err.message : String(err)}`;
+    console.warn("[Pi Plugin]", error);
+  }
+  if (projectPath) {
+    try {
+      const projectModelsPath = path.join(projectPath, ".pi", "models.json");
+      if (fs.existsSync(projectModelsPath)) {
+        configExists = true;
+        const content = fs.readFileSync(projectModelsPath, "utf-8");
+        const projectConfig = JSON5.parse(content);
+        if (projectConfig.providers) {
+          Object.assign(providers, projectConfig.providers);
+        }
+      }
+    } catch (err) {
+      error = `Failed to read project models.json: ${err instanceof Error ? err.message : String(err)}`;
+      console.warn("[Pi Plugin]", error);
+    }
+  }
+  if (configExists && Object.keys(providers).length === 0 && error) {
+    return { providers: [], error };
+  }
+  const result = [];
+  for (const [providerName, config] of Object.entries(providers)) {
+    const models = (config.models || []).map((m) => ({
+      id: m.id,
+      name: m.name || m.id,
+      reasoning: m.reasoning,
+      contextWindow: m.contextWindow
+    }));
+    const rawApiKey = (config.apiKey || "").trim();
+    const envVarName = rawApiKey.startsWith("$") ? rawApiKey.slice(1) : rawApiKey;
+    result.push({
+      name: providerName,
+      envVarName,
+      baseUrl: config.baseUrl,
+      api: config.api,
+      models
+    });
+  }
+  result.sort((a, b) => a.name.localeCompare(b.name));
+  return { providers: result, error };
+}
+function readProviders(projectPath) {
+  return readPiModelsConfig(projectPath).providers;
+}
+
+// src/chat/arrow/model-sequence-picker.ts
+function ModelSequencePicker(props) {
+  let searchInputEl = null;
+  const local = reactive({
+    query: "",
+    models: [],
+    sequence: [...props.sequence],
+    /** Model ID currently being dragged, null when idle. */
+    dragModelId: null
+  });
+  void (async () => {
+    try {
+      const providers = readProviders(props.projectPath);
+      const flat = [];
+      for (const provider of providers) {
+        for (const model of provider.models) {
+          flat.push({ id: model.id, name: model.name, provider: provider.name });
+        }
+      }
+      flat.sort((a, b) => a.name.localeCompare(b.name));
+      local.models = flat;
+    } catch {
+    }
+  })();
+  function filtered() {
+    const q = local.query.trim().toLowerCase();
+    if (!q) return [];
+    return local.models.filter(
+      (m) => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q) || m.provider.toLowerCase().includes(q)
+    );
+  }
+  function addModel(id) {
+    if (local.sequence.includes(id)) return;
+    local.sequence = [...local.sequence, id];
+    local.query = "";
+    if (searchInputEl) searchInputEl.value = "";
+    props.onSequenceChange(local.sequence);
+  }
+  function removeModel(id) {
+    local.sequence = local.sequence.filter((m) => m !== id);
+    props.onSequenceChange(local.sequence);
+  }
+  function onDragStart(id) {
+    local.dragModelId = id;
+  }
+  function onDragOver(e) {
+    e.preventDefault();
+  }
+  function onDrop(e, targetId) {
+    e.preventDefault();
+    const fromId = local.dragModelId;
+    if (!fromId || fromId === targetId) {
+      local.dragModelId = null;
+      return;
+    }
+    const seq = [...local.sequence];
+    const fromIdx = seq.indexOf(fromId);
+    const toIdx = seq.indexOf(targetId);
+    if (fromIdx === -1 || toIdx === -1) {
+      local.dragModelId = null;
+      return;
+    }
+    seq.splice(fromIdx, 1);
+    seq.splice(toIdx, 0, fromId);
+    local.sequence = seq;
+    local.dragModelId = null;
+    props.onSequenceChange(local.sequence);
+  }
+  return html`<div class="pi-model-seq-picker">
+		<div class="pi-model-seq-search-row">
+			<input
+				type="text"
+				class="pi-model-seq-search"
+				placeholder="Search models to add…"
+				@input="${(e) => {
+    const el = e.target;
+    searchInputEl = el;
+    local.query = el.value;
+  }}"
+			/>
+		</div>
+		${() => filtered().length > 0 ? html`<div class="pi-model-seq-suggestions" role="listbox">
+						${() => filtered().map(
+    (m) => html`<button
+									type="button"
+									class="pi-model-seq-suggestion"
+									role="option"
+									@click="${() => addModel(m.id)}"
+								>
+									<span class="pi-model-seq-suggestion-name">${() => m.name}</span>
+									<span class="pi-model-seq-suggestion-provider">${() => m.provider}</span>
+								</button>`.key(m.id)
+  )}
+					</div>` : false}
+		<div class="pi-model-seq-list">
+			${() => local.sequence.length === 0 ? html`<p class="pi-model-seq-empty">No models — defaults will be used.</p>` : local.sequence.map(
+    (modelId) => html`<div
+								class="pi-model-seq-row"
+								draggable="true"
+								@dragstart="${() => onDragStart(modelId)}"
+								@dragover="${(e) => onDragOver(e)}"
+								@drop="${(e) => onDrop(e, modelId)}"
+							>
+								<span class="pi-model-seq-handle" aria-hidden="true">≡</span>
+								<span class="pi-model-seq-name">${() => modelId}</span>
+								${() => local.sequence[0] === modelId ? html`<span class="pi-model-seq-badge">primary</span>` : false}
+								<button
+									type="button"
+									class="pi-model-seq-remove"
+									aria-label="Remove"
+									@click="${() => removeModel(modelId)}"
+								>×</button>
+							</div>`.key(modelId)
+  )}
+		</div>
+	</div>`;
+}
+
+// src/chat/message-store.ts
+var MAX_MESSAGES_PER_SESSION = 500;
+var MessageStore = class {
+  data;
+  dirty = false;
+  constructor() {
+    this.data = { sessions: {} };
+  }
+  /**
+   * Load from serialized data (call with plugin.loadData() result).
+   */
+  load(raw) {
+    if (raw && typeof raw === "object" && raw.sessions) {
+      this.data = raw;
+    } else {
+      this.data = { sessions: {} };
+    }
+    this.dirty = false;
+  }
+  /**
+   * Get serializable data (pass to plugin.saveData()).
+   */
+  serialize() {
+    this.dirty = false;
+    return this.data;
+  }
+  /**
+   * Check if there are unsaved changes.
+   */
+  isDirty() {
+    return this.dirty;
+  }
+  /**
+   * Get messages for a session.
+   */
+  getMessages(sessionPath) {
+    return this.data.sessions[sessionPath] || [];
+  }
+  /**
+   * Set all messages for a session (e.g. on save/clear).
+   */
+  setMessages(sessionPath, messages) {
+    this.data.sessions[sessionPath] = messages.slice(-MAX_MESSAGES_PER_SESSION);
+    this.dirty = true;
+  }
+  /**
+   * Append a single message to a session.
+   */
+  appendMessage(sessionPath, message) {
+    if (!this.data.sessions[sessionPath]) {
+      this.data.sessions[sessionPath] = [];
+    }
+    this.data.sessions[sessionPath].push(message);
+    if (this.data.sessions[sessionPath].length > MAX_MESSAGES_PER_SESSION) {
+      this.data.sessions[sessionPath] = this.data.sessions[sessionPath].slice(
+        -MAX_MESSAGES_PER_SESSION
+      );
+    }
+    this.dirty = true;
+  }
+  /**
+   * Remove a session's messages.
+   */
+  removeSession(sessionPath) {
+    delete this.data.sessions[sessionPath];
+    this.dirty = true;
+  }
+  /**
+   * Get the last active session path.
+   */
+  getLastSession() {
+    return this.data.lastSession;
+  }
+  /**
+   * Set the last active session path.
+   */
+  setLastSession(sessionPath) {
+    this.data.lastSession = sessionPath;
+    this.dirty = true;
+  }
+  /**
+   * List all session paths that have stored messages, sorted by most recent message.
+   */
+  listSessions() {
+    return Object.keys(this.data.sessions).filter((key) => this.data.sessions[key].length > 0).sort((a, b) => {
+      const aLast = this.data.sessions[a].slice(-1)[0]?.timestamp ?? 0;
+      const bLast = this.data.sessions[b].slice(-1)[0]?.timestamp ?? 0;
+      return bLast - aLast;
+    });
+  }
+};
+
+// src/client.ts
+var VaultMindClient = class {
+  config;
+  ws = null;
+  reconnectTimer = null;
+  reconnectDelay = 1e3;
+  intentionalClose = false;
+  eventHandlers = /* @__PURE__ */ new Set();
+  stateHandlers = /* @__PURE__ */ new Set();
+  _state = { connected: false };
+  constructor(config) {
+    this.config = config;
+  }
+  get baseUrl() {
+    return `http://${this.config.host}:${this.config.port}`;
+  }
+  get wsUrl() {
+    return `ws://${this.config.host}:${this.config.port}/agent/stream`;
+  }
+  get authHeaders() {
+    return {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${this.config.token}`
+    };
+  }
+  setState(state) {
+    this._state = state;
+    for (const h of this.stateHandlers) h(state);
+  }
+  get state() {
+    return this._state;
+  }
+  subscribeEvents(handler) {
+    this.eventHandlers.add(handler);
+    return () => this.eventHandlers.delete(handler);
+  }
+  subscribeState(handler) {
+    this.stateHandlers.add(handler);
+    return () => this.stateHandlers.delete(handler);
+  }
+  emit(event) {
+    for (const h of this.eventHandlers) {
+      try {
+        h(event);
+      } catch {
+      }
+    }
+  }
+  connect() {
+    if (this.ws) return;
+    try {
+      this.ws = new WebSocket(this.wsUrl, [`Authorization: Bearer ${this.config.token}`]);
+    } catch (err) {
+      this.setState({ connected: false, error: String(err), reconnecting: true });
+      this.scheduleReconnect();
+      return;
+    }
+    this.ws.onopen = () => {
+      this.reconnectDelay = 1e3;
+      this.setState({ connected: true, reconnecting: false });
+    };
+    this.ws.onmessage = (event) => {
+      try {
+        const parsed = JSON.parse(event.data);
+        this.emit(parsed);
+      } catch {
+      }
+    };
+    this.ws.onclose = (event) => {
+      this.ws = null;
+      if (this.intentionalClose) {
+        this.setState({ connected: false, error: void 0, reconnecting: false });
+        return;
+      }
+      const wasConnected = this._state.connected;
+      this.setState({ connected: false, error: `closed ${event.code}`, reconnecting: true });
+      if (wasConnected || event.code !== 4401) {
+        this.scheduleReconnect();
+      }
+    };
+    this.ws.onerror = () => {
+      this.setState({ connected: this.ws?.readyState === WebSocket.OPEN, error: "socket error" });
+    };
+  }
+  disconnect() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.intentionalClose = true;
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+    this.setState({ connected: false, error: void 0, reconnecting: false });
+    this.intentionalClose = false;
+  }
+  scheduleReconnect() {
+    if (this.reconnectTimer) return;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, this.reconnectDelay);
+    this.reconnectDelay = Math.min(this.reconnectDelay * 2, 3e4);
+  }
+  async httpJson(method, path6, body) {
+    const res = await fetch(`${this.baseUrl}${path6}`, {
+      method,
+      headers: this.authHeaders,
+      body: body ? JSON.stringify(body) : void 0
+    });
+    const text = await res.text();
+    if (!res.ok) throw new Error(`${res.status} ${text}`);
+    return text ? JSON.parse(text) : void 0;
+  }
+  async status() {
+    return await this.httpJson("GET", "/vm/status");
+  }
+  async init(vaultPath) {
+    return await this.httpJson("POST", "/vm/init", vaultPath ? { vaultPath } : void 0);
+  }
+  async setup(body) {
+    return await this.httpJson("POST", "/vm/setup", body);
+  }
+  async startServer() {
+    return await this.httpJson("POST", "/server/start");
+  }
+  async toggleWatcher() {
+    return await this.httpJson("POST", "/vm/watcher/toggle");
+  }
+  async listQueue(status) {
+    const query = status ? `?status=${status}` : "";
+    return await this.httpJson("GET", `/agent/queue${query}`);
+  }
+  async retryJob(id) {
+    return await this.httpJson("POST", `/agent/jobs/${encodeURIComponent(id)}/retry`);
+  }
+  async cancelJob(id) {
+    return await this.httpJson(
+      "POST",
+      `/agent/jobs/${encodeURIComponent(id)}/cancel`
+    );
+  }
+  async search(query, collection = "main", limit = 5) {
+    return await this.httpJson("POST", "/vm/search", {
+      collection,
+      query,
+      limit
+    });
+  }
+  async ftsSearch(query, collection = "main", limit = 10) {
+    const res = await this.httpJson("POST", "/vm/fts-search", { query, collection, limit });
+    return res.hits;
+  }
+  async graphQuery(entity, depth = 1) {
+    const res = await this.httpJson("POST", "/vm/graph", { entity, depth });
+    return res.results;
+  }
+  async listPending() {
+    const res = await this.httpJson("GET", "/vm/pending");
+    return res.pending;
+  }
+  async approveEntry(id, collection, action) {
+    await this.httpJson("POST", "/vm/approve", { id, collection, action });
+  }
+  async pushContext(filePath, selection, cursor2) {
+    return await this.httpJson("POST", "/vault-mind/context", {
+      filePath,
+      selection,
+      cursor: cursor2
+    });
+  }
+  async scan(file, vault) {
+    try {
+      return await this.httpJson("POST", "/vault-mind/scan", { file, vault });
+    } catch (err) {
+      return { error: String(err) };
+    }
+  }
+  async dispatch(role, instruction, file, vault) {
+    try {
+      return await this.httpJson("POST", "/vault-mind/dispatch", {
+        role,
+        instruction,
+        file,
+        vault
+      });
+    } catch (err) {
+      return { error: String(err) };
+    }
+  }
+  async vmStats() {
+    return await this.httpJson("GET", "/vm/stats");
+  }
+};
+
+// src/config.ts
+var import_node_fs = require("node:fs");
+var import_node_os = require("node:os");
+var import_node_path = __toESM(require("node:path"), 1);
+function extractConfigLayer(cfg) {
+  const wiki = cfg.wiki ?? {};
+  const vaultMind = cfg.vaultMind ?? {};
+  const source = Object.keys(wiki).length > 0 ? wiki : vaultMind;
+  const embedding = source.embedding ?? {};
+  const modal = embedding.modal ?? {};
+  const ollamaHost = typeof embedding.ollamaHost === "string" ? embedding.ollamaHost : void 0;
+  const ollamaModel = typeof embedding.ollamaModel === "string" ? embedding.ollamaModel : void 0;
+  return {
+    remoteUrl: typeof embedding.remoteUrl === "string" ? embedding.remoteUrl : void 0,
+    localUrl: typeof embedding.localUrl === "string" ? embedding.localUrl : ollamaHost ? `${ollamaHost.replace(/\/$/, "")}/v1` : void 0,
+    model: typeof embedding.model === "string" ? embedding.model : ollamaModel,
+    dim: typeof embedding.dim === "number" ? embedding.dim : void 0,
+    collections: typeof cfg.collections === "object" && cfg.collections !== null ? Object.keys(cfg.collections) : void 0,
+    workspace: typeof modal.workspace === "string" ? modal.workspace : void 0,
+    useTransformers: typeof embedding.useTransformers === "boolean" ? embedding.useTransformers : void 0
+  };
+}
+function mergeConfigLayers(globalCfg, projectCfg) {
+  const global = extractConfigLayer(globalCfg);
+  const project = extractConfigLayer(projectCfg);
+  return {
+    remoteUrl: project.remoteUrl ?? global.remoteUrl,
+    localUrl: project.localUrl ?? global.localUrl,
+    model: project.model ?? global.model,
+    dim: project.dim ?? global.dim,
+    collections: project.collections ?? global.collections,
+    workspace: project.workspace ?? global.workspace,
+    useTransformers: project.useTransformers ?? global.useTransformers
+  };
+}
+function readExtensionConfig(vaultPath) {
+  const globalPath = import_node_path.default.join((0, import_node_os.homedir)(), ".pi", "agent", "vault-mind.config.json");
+  const projectPath = import_node_path.default.join(vaultPath, "pi-vault-mind.config.json");
+  let globalCfg = {};
+  let projectCfg = {};
+  try {
+    globalCfg = JSON.parse((0, import_node_fs.readFileSync)(globalPath, "utf-8"));
+  } catch {
+  }
+  try {
+    projectCfg = JSON.parse((0, import_node_fs.readFileSync)(projectPath, "utf-8"));
+  } catch {
+  }
+  const merged = mergeConfigLayers(globalCfg, projectCfg);
+  return Object.keys(merged).length > 0 ? merged : null;
+}
+function readServerPort(vaultPath) {
+  const serverJsonPath = import_node_path.default.join(vaultPath, ".vault-mind", "server.json");
+  try {
+    const raw = (0, import_node_fs.readFileSync)(serverJsonPath, "utf-8");
+    const data = JSON.parse(raw);
+    const port = data.port;
+    return typeof port === "number" && port > 0 ? port : void 0;
+  } catch {
+    return void 0;
+  }
+}
+
+// src/modals.ts
+var import_obsidian2 = require("obsidian");
+var VAULT_MIND_ROLES = [
+  "Manager",
+  "Miner",
+  "Broadcaster",
+  "Heavy-Lifter",
+  "Watcher"
+];
+var RolePickerModal = class extends import_obsidian2.FuzzySuggestModal {
+  onChooseRole;
+  constructor(app, onChooseRole) {
+    super(app);
+    this.onChooseRole = onChooseRole;
+    this.setPlaceholder("Pick a Vault Mind agent role");
+    this.setInstructions([
+      { command: "\u2191\u2193", purpose: "navigate" },
+      { command: "\u21B5", purpose: "select" }
+    ]);
+  }
+  getItems() {
+    return [...VAULT_MIND_ROLES];
+  }
+  getItemText(role) {
+    return role;
+  }
+  onChooseItem(role) {
+    this.onChooseRole(role);
+  }
+};
+var InstructionInputModal = class extends import_obsidian2.Modal {
+  titleText;
+  onSubmit;
+  constructor(app, title, onSubmit) {
+    super(app);
+    this.titleText = title;
+    this.onSubmit = onSubmit;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h2", { text: this.titleText });
+    const textarea = new import_obsidian2.TextAreaComponent(contentEl);
+    textarea.setPlaceholder("Describe what the agent should do...");
+    textarea.inputEl.rows = 8;
+    textarea.inputEl.addClass("vault-mind-instruction-input");
+    textarea.inputEl.style.width = "100%";
+    const buttonRow = contentEl.createDiv({ cls: "vault-mind-modal-buttons" });
+    buttonRow.style.display = "flex";
+    buttonRow.style.justifyContent = "flex-end";
+    buttonRow.style.gap = "0.5rem";
+    buttonRow.style.marginTop = "1rem";
+    new import_obsidian2.ButtonComponent(buttonRow).setButtonText("Cancel").onClick(() => {
+      this.onSubmit(null);
+      this.close();
+    });
+    new import_obsidian2.ButtonComponent(buttonRow).setButtonText("Dispatch").setCta().onClick(() => {
+      this.onSubmit(textarea.getValue());
+      this.close();
+    });
+    textarea.inputEl.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        this.onSubmit(textarea.getValue());
+        this.close();
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        this.onSubmit(null);
+        this.close();
+      }
+    });
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
+
+// src/pi-detect.ts
+var import_node_child_process = require("node:child_process");
+var fs2 = __toESM(require("node:fs"), 1);
+var os2 = __toESM(require("node:os"), 1);
+var path3 = __toESM(require("node:path"), 1);
+function resolvePnpmHome() {
+  if (process.env.PNPM_HOME) return process.env.PNPM_HOME;
+  if (process.platform === "darwin") return path3.join(os2.homedir(), "Library", "pnpm");
+  return path3.join(os2.homedir(), ".local", "share", "pnpm");
+}
+function detectFnm() {
+  const fnmRoot = path3.join(os2.homedir(), ".local", "share", "fnm");
+  if (!fs2.existsSync(fnmRoot)) return null;
+  const binDir = path3.join(fnmRoot, "aliases", "default", "bin");
+  const node = path3.join(binDir, "node");
+  if (!fs2.existsSync(node)) return null;
+  return {
+    node,
+    pnpm: fs2.existsSync(path3.join(binDir, "pnpm")) ? path3.join(binDir, "pnpm") : null,
+    binDir,
+    source: "fnm",
+    pnpmHome: resolvePnpmHome()
+  };
+}
+function detectNvm() {
+  const nvmDir = process.env.NVM_DIR || path3.join(os2.homedir(), ".nvm");
+  const aliasFile = path3.join(nvmDir, "alias", "default");
+  let version;
+  try {
+    version = fs2.readFileSync(aliasFile, "utf-8").trim();
+  } catch {
+    return null;
+  }
+  if (!version.startsWith("v") && /^\d/.test(version)) version = `v${version}`;
+  if (!version.startsWith("v")) return null;
+  const binDir = path3.join(nvmDir, "versions", "node", version, "bin");
+  if (!fs2.existsSync(path3.join(binDir, "node"))) return null;
+  return {
+    node: path3.join(binDir, "node"),
+    pnpm: fs2.existsSync(path3.join(binDir, "pnpm")) ? path3.join(binDir, "pnpm") : null,
+    binDir,
+    source: `nvm (${version})`,
+    pnpmHome: resolvePnpmHome(),
+    nvmDir,
+    nvmBin: binDir
+  };
+}
+function detectFallback() {
+  const pnpmHome = resolvePnpmHome();
+  if (fs2.existsSync(path3.join(pnpmHome, "pnpm")) || fs2.existsSync(path3.join(pnpmHome, "pi"))) {
+    return {
+      pnpm: path3.join(pnpmHome, "pnpm"),
+      node: null,
+      binDir: pnpmHome,
+      source: "PNPM_HOME",
+      pnpmHome
+    };
+  }
+  return null;
+}
+function detectRuntime() {
+  return detectFnm() || detectNvm() || detectFallback();
+}
+function buildExecPath() {
+  const dirs = [];
+  const runtime = detectRuntime();
+  if (runtime) {
+    dirs.push(runtime.binDir);
+    if (runtime.pnpmHome && runtime.pnpmHome !== runtime.binDir) {
+      dirs.push(runtime.pnpmHome);
+    }
+  }
+  const pnpmHome = resolvePnpmHome();
+  if (!dirs.includes(pnpmHome)) dirs.push(pnpmHome);
+  const homeLocalBin = path3.join(os2.homedir(), ".local", "bin");
+  dirs.push(
+    homeLocalBin,
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin"
+  );
+  const existing = (process.env.PATH || "").split(":");
+  for (const p of existing) {
+    if (p && !dirs.includes(p)) dirs.push(p);
+  }
+  return dirs.join(":");
+}
+function buildExecEnv() {
+  const env = { ...process.env, PATH: buildExecPath() };
+  const runtime = detectRuntime();
+  if (runtime) {
+    env.PNPM_HOME = runtime.pnpmHome;
+    if (runtime.nvmDir) env.NVM_DIR = runtime.nvmDir;
+    if (runtime.nvmBin) env.NVM_BIN = runtime.nvmBin;
+  }
+  return env;
+}
+function detectModalBinary() {
+  const candidates = [
+    path3.join(os2.homedir(), ".local", "bin", "modal"),
+    "/opt/homebrew/bin/modal",
+    "/usr/local/bin/modal"
+  ];
+  for (const c of candidates) {
+    if (fs2.existsSync(c)) return c;
+  }
+  try {
+    const result = (0, import_node_child_process.execSync)(`${process.env.SHELL || "/bin/zsh"} -lc "which modal 2>/dev/null"`, {
+      timeout: 3e3,
+      env: buildExecEnv()
+    }).toString().trim();
+    return result || null;
+  } catch {
+    return null;
+  }
+}
+function detectOpBinary() {
+  const candidates = [
+    path3.join(os2.homedir(), ".local", "bin", "op"),
+    "/opt/homebrew/bin/op",
+    "/usr/local/bin/op",
+    "/usr/bin/op"
+  ];
+  for (const c of candidates) {
+    if (fs2.existsSync(c)) return c;
+  }
+  try {
+    const result = (0, import_node_child_process.execSync)(`${process.env.SHELL || "/bin/zsh"} -lc "which op 2>/dev/null"`, {
+      timeout: 3e3,
+      env: buildExecEnv()
+    }).toString().trim();
+    return result || null;
+  } catch {
+    return null;
+  }
+}
+function resolveNodeBinDir() {
+  return detectRuntime()?.binDir ?? null;
+}
+function detectPiBinary(configured, vaultPath) {
+  if (path3.isAbsolute(configured) && fs2.existsSync(configured)) {
+    return configured;
+  }
+  const shellPath = whichPi(configured);
+  if (shellPath) return shellPath;
+  const home = os2.homedir();
+  const pnpmHome = process.env.PNPM_HOME || (process.platform === "darwin" ? path3.join(home, "Library", "pnpm") : path3.join(home, ".local", "share", "pnpm"));
+  const candidates = [
+    // System npm global installs (base case — no version manager)
+    "/usr/local/bin/pi",
+    "/opt/homebrew/bin/pi",
+    path3.join(home, ".npm-global", "bin", "pi"),
+    path3.join(home, ".local", "bin", "pi"),
+    // pnpm global (PNPM_HOME)
+    path3.join(pnpmHome, "pi")
+  ];
+  const nodeBin = resolveNodeBinDir();
+  if (nodeBin && nodeBin !== "/usr/local/bin" && nodeBin !== "/opt/homebrew/bin") {
+    candidates.push(path3.join(nodeBin, "pi"));
+  }
+  candidates.push(
+    // Less common locations
+    path3.join(home, ".pi", "bin", "pi")
+  );
+  if (vaultPath) {
+    candidates.unshift(path3.join(vaultPath, "node_modules", ".bin", "pi"));
+  }
+  for (const candidate of candidates) {
+    if (fs2.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+function whichPi(name) {
+  const shell = process.env.SHELL || (process.platform === "darwin" ? "/bin/zsh" : "/bin/bash");
+  const cmd = process.platform === "win32" ? `where ${name}` : `which ${name}`;
+  try {
+    const result = (0, import_node_child_process.execSync)(cmd, {
+      encoding: "utf-8",
+      shell,
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 5e3,
+      env: { ...process.env }
+    });
+    const resolved = result.trim().split("\n")[0];
+    if (resolved && fs2.existsSync(resolved)) {
+      return resolved;
+    }
+  } catch {
+  }
+  return null;
+}
+
+// src/protocol.ts
+var import_obsidian3 = require("obsidian");
+var isString = (value) => typeof value === "string";
+var DiffModal = class extends import_obsidian3.Modal {
+  path;
+  oldContent;
+  newContent;
+  onAccept;
+  constructor(app, { path: path6, old, new: newContent }, onAccept) {
+    super(app);
+    this.path = path6;
+    this.oldContent = old;
+    this.newContent = newContent;
+    this.onAccept = onAccept;
+  }
+  onOpen() {
+    this.titleEl.setText(`Proposed edit: ${this.path}`);
+    const oldSection = this.contentEl.createEl("div");
+    oldSection.createEl("h3", { text: "Current content" });
+    const oldPre = oldSection.createEl("pre", { cls: "vault-mind-diff vault-mind-diff-old" });
+    oldPre.textContent = this.oldContent;
+    const newSection = this.contentEl.createEl("div");
+    newSection.createEl("h3", { text: "Proposed content" });
+    const newPre = newSection.createEl("pre", { cls: "vault-mind-diff vault-mind-diff-new" });
+    newPre.textContent = this.newContent;
+    new import_obsidian3.Setting(this.contentEl).addButton(
+      (btn) => btn.setButtonText("Accept").setCta().onClick(() => {
+        this.onAccept();
+        this.close();
+      })
+    ).addButton(
+      (btn) => btn.setButtonText("Reject").onClick(() => {
+        this.close();
+      })
+    );
+  }
+};
+function registerVaultMindProtocolHandlers(plugin) {
+  plugin.registerObsidianProtocolHandler("vault-mind/open-file", (params) => {
+    const path6 = params?.path;
+    if (!isString(path6)) {
+      new import_obsidian3.Notice("Vault Mind: missing path parameter");
+      return;
+    }
+    plugin.app.workspace.openLinkText(path6, "", true);
+  });
+  plugin.registerObsidianProtocolHandler("vault-mind/show-diff", (params) => {
+    const path6 = params?.path;
+    const oldContent = params?.old;
+    const newContent = params?.new;
+    if (!isString(path6) || !isString(oldContent) || !isString(newContent)) {
+      new import_obsidian3.Notice("Vault Mind: missing path, old, or new parameter");
+      return;
+    }
+    new DiffModal(plugin.app, { path: path6, old: oldContent, new: newContent }, async () => {
+      const file = plugin.app.vault.getAbstractFileByPath(path6);
+      if (!(file instanceof import_obsidian3.TFile)) {
+        new import_obsidian3.Notice(`Vault Mind: file not found: ${path6}`);
+        return;
+      }
+      try {
+        await plugin.app.vault.modify(file, newContent);
+        new import_obsidian3.Notice(`Vault Mind: accepted changes to ${path6}`);
+      } catch (err) {
+        new import_obsidian3.Notice(`Vault Mind: failed to write ${path6}: ${err.message}`);
+      }
+    }).open();
+  });
+  plugin.registerObsidianProtocolHandler("vault-mind/notify", (params) => {
+    const message = params?.message;
+    if (!isString(message)) {
+      new import_obsidian3.Notice("Vault Mind: missing message parameter");
+      return;
+    }
+    new import_obsidian3.Notice(message);
+  });
+  plugin.registerObsidianProtocolHandler("vault-mind/search", async (params) => {
+    const query = params?.query;
+    if (!isString(query)) {
+      new import_obsidian3.Notice("Vault Mind: missing query parameter");
+      return;
+    }
+    const searchLeaf = await plugin.app.workspace.ensureSideLeaf("search", "left");
+    if (searchLeaf.view?.setQuery) {
+      searchLeaf.view.setQuery(query);
+    }
+  });
+}
+
+// src/token.ts
+var PVM_TOKEN_SECRET_ID = "vault-mind-pvm-token";
+async function resolveToken(app) {
+  const envToken = process.env.PVM_API_TOKEN;
+  if (envToken) return envToken;
+  return app.secretStorage.getSecret(PVM_TOKEN_SECRET_ID) ?? void 0;
+}
+
+// src/views/panel.ts
+var import_node_fs2 = require("node:fs");
+var import_node_path2 = __toESM(require("node:path"), 1);
+var import_obsidian17 = require("obsidian");
+
+// src/chat/rpc.ts
+var import_obsidian4 = require("obsidian");
+var spawn;
+var createInterface;
+if (import_obsidian4.Platform.isDesktop) {
+  const childProcessModule = require("node:child_process");
+  const readlineModule = require("node:readline");
+  spawn = childProcessModule.spawn;
+  createInterface = readlineModule.createInterface;
+}
+var PiConnection = class {
+  piBinaryPath;
+  cwd;
+  extraArgs;
+  timeout;
+  apiKeys;
+  piConfigDir;
+  sessionsDir;
+  buildEnv;
+  process = null;
+  readline = null;
+  handlers = [];
+  disconnectHandler = null;
+  connected = false;
+  requestId = 0;
+  pendingRequests = /* @__PURE__ */ new Map();
+  intentionallyDestroyed = false;
+  constructor(opts) {
+    this.piBinaryPath = opts.piBinaryPath;
+    this.cwd = opts.cwd;
+    this.extraArgs = opts.extraArgs ?? [];
+    this.apiKeys = opts.apiKeys ?? {};
+    this.timeout = opts.timeout ?? 6e4;
+    this.piConfigDir = opts.piConfigDir ?? null;
+    this.sessionsDir = opts.sessionsDir ?? null;
+    this.buildEnv = opts.buildEnv ?? null;
+  }
+  /**
+   * Spawn the Pi process and set up JSON line parsing on stdout.
+   */
+  connect() {
+    if (this.process) {
+      this.destroy();
+    }
+    this.intentionallyDestroyed = false;
+    if (!this.piBinaryPath || this.piBinaryPath.trim() === "") {
+      throw new Error("Pi binary path is not configured. Please set the path in plugin settings.");
+    }
+    const baseEnv = this.buildEnv ? this.buildEnv() : { PATH: process.env.PATH || "/usr/bin:/bin" };
+    const env = { ...baseEnv };
+    for (const [envVarName, key] of Object.entries(this.apiKeys)) {
+      if (key?.trim()) {
+        env[envVarName] = key;
+      }
+    }
+    if (this.piConfigDir) {
+      env.PI_CODING_AGENT_DIR = this.piConfigDir;
+    }
+    if (this.sessionsDir) {
+      env.PI_SESSIONS_DIR = this.sessionsDir;
+    }
+    this.process = spawn(this.piBinaryPath, ["--mode", "rpc", ...this.extraArgs], {
+      cwd: this.cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+      env
+    });
+    this.connected = true;
+    const stderrBuffer = [];
+    if (this.process.stdout) {
+      this.readline = createInterface({
+        input: this.process.stdout,
+        crlfDelay: Number.POSITIVE_INFINITY
+      });
+      this.readline.on("line", (line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        try {
+          const event = JSON.parse(trimmed);
+          this.dispatch(event);
+        } catch {
+          console.warn("[Pi RPC] Non-JSON line from stdout:", trimmed);
+        }
+      });
+      this.readline.on("close", () => {
+        if (this.intentionallyDestroyed) return;
+      });
+    }
+    if (this.process.stderr) {
+      this.process.stderr.on("data", (data) => {
+        const text = data.toString();
+        stderrBuffer.push(text);
+        console.warn("[Pi RPC] stderr:", text);
+      });
+    }
+    this.process.on("exit", (code, signal) => {
+      if (this.intentionallyDestroyed) {
+        this.connected = false;
+        this.cleanup();
+        return;
+      }
+      if (code !== 0) {
+        console.warn("[Pi RPC] Process exited with code", code, "signal", signal);
+        if (stderrBuffer.length > 0) {
+          console.warn("[Pi RPC] stderr output:", stderrBuffer.join(""));
+        }
+      }
+      this.connected = false;
+      this.dispatch({
+        type: "error",
+        error: `Pi process exited (code=${code}, signal=${signal})`
+      });
+      this.cleanup();
+    });
+    this.process.on("error", (err) => {
+      this.connected = false;
+      console.error("[Pi RPC] Process error:", err.message);
+      if (stderrBuffer.length > 0) {
+        console.error("[Pi RPC] stderr output:", stderrBuffer.join(""));
+      }
+      this.dispatch({
+        type: "error",
+        error: `Pi process error: ${err.message}`
+      });
+      this.cleanup();
+    });
+  }
+  /**
+   * Send a command to Pi via stdin as a JSON line.
+   * Automatically injects a request ID and returns a Promise that resolves
+   * when Pi sends a matching response (type === "response" with same id).
+   * Streaming events still go to onEvent handlers.
+   */
+  send(command) {
+    if (!this.process || !this.process.stdin || !this.connected) {
+      throw new Error("Pi is not connected");
+    }
+    const id = `req-${this.requestId++}`;
+    const line = `${JSON.stringify({ ...command, id })}
+`;
+    return new Promise((resolve, reject) => {
+      const timeoutId = window.setTimeout(() => {
+        if (this.pendingRequests.has(id)) {
+          this.pendingRequests.delete(id);
+          reject(new Error(`Request ${id} timed out after ${this.timeout / 1e3}s`));
+        }
+      }, this.timeout);
+      this.pendingRequests.set(id, {
+        resolve: (value) => {
+          window.clearTimeout(timeoutId);
+          resolve(value);
+        },
+        reject: (reason) => {
+          window.clearTimeout(timeoutId);
+          reject(reason);
+        },
+        timeoutId
+      });
+      this.process?.stdin?.write(line);
+    });
+  }
+  /**
+   * Send a raw JSON line without request tracking.
+   * Used for extension UI responses in RPC mode.
+   */
+  sendRaw(command) {
+    if (!this.process || !this.process.stdin || !this.connected) {
+      throw new Error("Pi is not connected");
+    }
+    this.process.stdin.write(`${JSON.stringify(command)}
+`);
+  }
+  /**
+   * Register a handler for events received from Pi.
+   * Each JSON line parsed from stdout is dispatched to all handlers.
+   */
+  onEvent(handler) {
+    this.handlers.push(handler);
+  }
+  /**
+   * Remove a previously registered event handler.
+   */
+  offEvent(handler) {
+    const idx = this.handlers.indexOf(handler);
+    if (idx !== -1) {
+      this.handlers.splice(idx, 1);
+    }
+  }
+  /**
+   * Register a handler called when the Pi process disconnects unexpectedly.
+   */
+  onDisconnect(handler) {
+    this.disconnectHandler = handler;
+  }
+  /**
+   * Kill the child process and clean up.
+   */
+  destroy() {
+    this.intentionallyDestroyed = true;
+    this.disconnectHandler = null;
+    this.handlers = [];
+    if (this.readline) {
+      this.readline.close();
+      this.readline = null;
+    }
+    if (this.process) {
+      this.process.kill();
+    }
+    this.cleanup();
+  }
+  /**
+   * Check if the Pi process is alive.
+   */
+  isConnected() {
+    return this.connected;
+  }
+  /**
+   * Return the vault-scoped session directory override, if any.
+   */
+  getSessionsDir() {
+    return this.sessionsDir;
+  }
+  dispatch(event) {
+    if (this.intentionallyDestroyed) {
+      return;
+    }
+    if (event.type === "error" && this.intentionallyDestroyed) {
+      return;
+    }
+    if (event.type === "response" && typeof event.id === "string") {
+      const pending = this.pendingRequests.get(event.id);
+      if (pending) {
+        this.pendingRequests.delete(event.id);
+        if (event.success === false) {
+          pending.reject(new Error(String(event.error || "Request failed")));
+        } else {
+          pending.resolve(event);
+        }
+        return;
+      }
+    }
+    for (const handler of this.handlers) {
+      try {
+        handler(event);
+      } catch (err) {
+        console.error("[Pi RPC] Handler error:", err);
+      }
+    }
+  }
+  cleanup() {
+    const wasConnected = this.connected;
+    this.connected = false;
+    if (this.readline) {
+      this.readline.close();
+      this.readline = null;
+    }
+    this.process = null;
+    for (const [, pending] of this.pendingRequests) {
+      window.clearTimeout(pending.timeoutId);
+      pending.reject(new Error("Pi connection closed"));
+    }
+    this.pendingRequests.clear();
+    if (wasConnected && this.disconnectHandler) {
+      this.disconnectHandler();
+    }
+  }
+};
+
+// src/chat/vault-mind-chat-view.ts
+var import_promises = require("node:fs/promises");
+var import_obsidian13 = require("obsidian");
+
 // src/chat/arrow/input.ts
 var import_obsidian6 = require("obsidian");
 
@@ -4020,254 +4235,131 @@ function formatAttachmentSize(bytes) {
 function createChatReactiveState(initial = {}) {
   return reactive({
     model: initial.model ?? "",
+    currentModel: initial.currentModel ?? "",
+    fallbackNotice: initial.fallbackNotice ?? null,
     thinkingLevel: initial.thinkingLevel ?? "medium",
     streaming: initial.streaming ?? false,
     tokens: initial.tokens ?? 0,
     cost: initial.cost ?? 0,
+    messages: initial.messages ?? [],
     mentionables: initial.mentionables ?? [],
+    focusedMentionableIndex: initial.focusedMentionableIndex ?? null,
     sessionName: initial.sessionName ?? "",
     text: initial.text ?? "",
     placeholder: initial.placeholder ?? "",
     statusText: initial.statusText ?? ""
   });
 }
+function appendMessage(state, msg) {
+  state.messages = [...state.messages, msg];
+}
+function updateLastMessage(state, content) {
+  const last = state.messages[state.messages.length - 1];
+  if (last) {
+    last.content = content;
+  }
+}
+function clearMessages(state) {
+  state.messages = [];
+}
 function addMentionable(state, mentionable) {
   state.mentionables = [...state.mentionables, mentionable];
 }
 function removeMentionable(state, index2) {
+  const focused = state.focusedMentionableIndex;
   state.mentionables = state.mentionables.filter((_, i) => i !== index2);
+  if (focused === null) return;
+  if (focused === index2) {
+    state.focusedMentionableIndex = null;
+  } else if (focused > index2) {
+    state.focusedMentionableIndex = focused - 1;
+  }
 }
 function resetComposer(state) {
   state.mentionables = [];
+  state.focusedMentionableIndex = null;
   state.tokens = 0;
   state.cost = 0;
 }
+function setFocusedMentionableIndex(state, index2) {
+  state.focusedMentionableIndex = state.focusedMentionableIndex === index2 ? null : index2;
+}
+function clearFocusedMentionable(state) {
+  state.focusedMentionableIndex = null;
+}
 
 // src/chat/arrow/mentionable-badges.ts
-var activePreviewEl = null;
-var activeOutsideListener = null;
-function closePreview() {
-  if (activePreviewEl) {
-    activePreviewEl.remove();
-    activePreviewEl = null;
-  }
-  if (activeOutsideListener) {
-    document.removeEventListener("mousedown", activeOutsideListener);
-    activeOutsideListener = null;
-  }
+function openAttachmentFile(app, attachment) {
+  app.workspace.openLinkText(attachment.name, "", true);
 }
-function openPreview(attachment, anchor) {
-  closePreview();
-  const el = document.body.createDiv({ cls: "pi-mentionable-preview" });
-  el.setAttribute("role", "dialog");
-  el.setAttribute("aria-label", `Preview of ${attachment.name}`);
-  el.createDiv({ cls: "pi-mentionable-preview-title", text: attachment.name });
-  if (attachment.type === "image") {
-    const src = `data:${attachment.mimeType ?? "image/png"};base64,${attachment.content}`;
-    el.createEl("img", {
-      cls: "pi-mentionable-preview-image",
-      attr: { src, alt: attachment.name }
-    });
-  } else {
-    const body = el.createDiv({ cls: "pi-mentionable-preview-body" });
-    const lines = attachment.content.split(/\r?\n/).slice(0, 3);
-    for (const line of lines) {
-      body.createEl("p", { text: line });
-    }
-    if (lines.length === 0) {
-      body.createEl("p", { cls: "pi-mentionable-preview-empty", text: "(empty file)" });
-    }
-  }
-  document.body.appendChild(el);
-  const rect = anchor.getBoundingClientRect();
-  const gap = 4;
-  let top = rect.bottom + gap;
-  let left = rect.left;
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-  const previewRect = el.getBoundingClientRect();
-  if (left + previewRect.width > viewportWidth) {
-    left = Math.max(8, viewportWidth - previewRect.width - 8);
-  }
-  if (top + previewRect.height > viewportHeight) {
-    top = Math.max(8, rect.top - previewRect.height - gap);
-  }
-  el.style.position = "fixed";
-  el.style.left = `${left}px`;
-  el.style.top = `${top}px`;
-  el.style.zIndex = "1000";
-  activePreviewEl = el;
-  activeOutsideListener = (e) => {
-    if (!activePreviewEl?.contains(e.target)) {
-      closePreview();
-    }
-  };
-  document.addEventListener("mousedown", activeOutsideListener);
-}
-function handleChipClick(attachment, e) {
-  openPreview(attachment, e.currentTarget);
-}
-function handleRemove(state, index2, e) {
+function handleChipClick(props, attachment, index2, e) {
   e.stopPropagation();
-  removeMentionable(state, index2);
+  const state = props.state;
+  if (state.focusedMentionableIndex === index2) {
+    if (props.app) {
+      openAttachmentFile(props.app, attachment);
+    }
+    clearFocusedMentionable(state);
+  } else {
+    setFocusedMentionableIndex(state, index2);
+  }
+}
+function handleRemove(props, index2, e) {
+  e.stopPropagation();
+  removeMentionable(props.state, index2);
 }
 function MentionableBadges(props) {
   return html`<div class="pi-attachments">
-		${() => props.state.mentionables.length > 0 ? props.state.mentionables.map(
-    (attachment, index2) => html`<div
-							class="pi-attachment-chip pi-mentionable-chip"
+		${() => props.state.mentionables.length > 0 ? props.state.mentionables.map((attachment, index2) => {
+    const isFocused = () => props.state.focusedMentionableIndex === index2;
+    return html`<div
+							class="${() => isFocused() ? "pi-attachment-chip pi-mentionable-chip is-focused" : "pi-attachment-chip pi-mentionable-chip"}"
 							title="${() => attachment.name}"
-							@click="${(e) => handleChipClick(attachment, e)}"
+							@click="${(e) => handleChipClick(props, attachment, index2, e)}"
 						>
 							${() => attachment.type === "image" ? html`<img
 											class="pi-attachment-thumb"
 											src="data:${() => attachment.mimeType ?? "image/png"};base64,${() => attachment.content}"
 											alt="${() => attachment.name}"
 										/>` : ""}
-							<span class="pi-attachment-name">${() => attachment.name}</span>
-							${() => attachment.size != null ? html`<span class="pi-attachment-size"
-										> (${() => formatAttachmentSize(attachment.size)})</span
-									>` : ""}
-							<button
-								class="pi-attachment-remove"
-								type="button"
-								aria-label="Remove attachment"
-								@click="${(e) => handleRemove(props.state, index2, e)}"
-							>
-								×
-							</button>
-						</div>`.key(`${attachment.name}-${index2}`)
-  ) : ""}
+								<span class="pi-attachment-name">${() => attachment.name}</span>
+								${() => attachment.size != null ? html`<span class="pi-attachment-size"
+											> (${() => formatAttachmentSize(attachment.size)})</span
+										>` : ""}
+								<button
+									class="pi-attachment-remove"
+									type="button"
+									aria-label="Remove attachment"
+									@click="${(e) => handleRemove(props, index2, e)}"
+								>
+									×
+								</button>
+							</div>`.key(`${attachment.name}-${index2}`);
+  }) : ""}
 	</div>`;
 }
 
 // src/chat/arrow/model-select.ts
 var import_obsidian5 = require("obsidian");
-
-// src/chat/pi-config-reader.ts
-var import_obsidian4 = require("obsidian");
-var fs2;
-var os2;
-var path3;
-var JSON5;
-if (import_obsidian4.Platform.isDesktop) {
-  fs2 = require("node:fs");
-  os2 = require("node:os");
-  path3 = require("node:path");
-  JSON5 = require_lib();
-}
-function readPiModelsConfig(projectPath) {
-  if (!import_obsidian4.Platform.isDesktop) {
-    return { providers: [] };
-  }
-  const providers = {};
-  let error;
-  let configExists = false;
-  try {
-    const homeDir = os2.homedir();
-    const userModelsPath = path3.join(homeDir, ".pi", "agent", "models.json");
-    if (fs2.existsSync(userModelsPath)) {
-      configExists = true;
-      const content = fs2.readFileSync(userModelsPath, "utf-8");
-      const userConfig = JSON5.parse(content);
-      if (userConfig.providers) {
-        Object.assign(providers, userConfig.providers);
-      }
-    }
-  } catch (err) {
-    error = `Failed to read ~/.pi/agent/models.json: ${err instanceof Error ? err.message : String(err)}`;
-    console.warn("[Pi Plugin]", error);
-  }
-  if (projectPath) {
-    try {
-      const projectModelsPath = path3.join(projectPath, ".pi", "models.json");
-      if (fs2.existsSync(projectModelsPath)) {
-        configExists = true;
-        const content = fs2.readFileSync(projectModelsPath, "utf-8");
-        const projectConfig = JSON5.parse(content);
-        if (projectConfig.providers) {
-          Object.assign(providers, projectConfig.providers);
-        }
-      }
-    } catch (err) {
-      error = `Failed to read project models.json: ${err instanceof Error ? err.message : String(err)}`;
-      console.warn("[Pi Plugin]", error);
-    }
-  }
-  if (configExists && Object.keys(providers).length === 0 && error) {
-    return { providers: [], error };
-  }
-  const result = [];
-  for (const [providerName, config] of Object.entries(providers)) {
-    const models = (config.models || []).map((m) => ({
-      id: m.id,
-      name: m.name || m.id,
-      reasoning: m.reasoning,
-      contextWindow: m.contextWindow
-    }));
-    const rawApiKey = (config.apiKey || "").trim();
-    const envVarName = rawApiKey.startsWith("$") ? rawApiKey.slice(1) : rawApiKey;
-    result.push({
-      name: providerName,
-      envVarName,
-      baseUrl: config.baseUrl,
-      api: config.api,
-      models
-    });
-  }
-  result.sort((a, b) => a.name.localeCompare(b.name));
-  return { providers: result, error };
-}
-function readProviders(projectPath) {
-  return readPiModelsConfig(projectPath).providers;
-}
-
-// src/chat/arrow/model-select.ts
 function ModelSelect(props) {
   const local = reactive({
-    open: false,
-    loading: false,
-    models: [],
-    error: ""
+    open: false
   });
-  async function loadModels() {
-    if (local.models.length > 0) return;
-    local.loading = true;
-    local.error = "";
-    try {
-      const providers = readProviders(props.projectPath);
-      const flat = [];
-      for (const provider of providers) {
-        for (const model of provider.models) {
-          flat.push({ ...model, provider: provider.name });
-        }
-      }
-      flat.sort((a, b) => a.name.localeCompare(b.name));
-      local.models = flat;
-      if (flat.length === 0) {
-        local.error = t("notices.noModels");
-      }
-    } catch (err) {
-      local.error = t("notices.modelsFetchFailed", {
-        msg: err instanceof Error ? err.message : String(err)
-      }) || t("notices.noModels");
-      console.warn("[Pi Chat] Failed to load models:", err);
-    } finally {
-      local.loading = false;
-    }
-  }
-  async function selectModel(model) {
-    local.open = false;
+  async function handleSequenceChange(seq) {
+    if (seq.length === 0) return;
+    const newPrimary = seq[0];
+    if (newPrimary === props.state.model) return;
     const conn = props.connection;
+    const previousModel = props.state.model;
+    props.state.model = newPrimary;
     if (!conn?.isConnected()) {
       new import_obsidian5.Notice(t("notices.notConnected"));
+      props.state.model = previousModel;
       return;
     }
-    const previousModel = props.state.model;
-    props.state.model = model.name;
     try {
-      await conn.send({ type: "switch_model", model: model.id });
-      new import_obsidian5.Notice(t("notices.modelSwitched", { name: model.name }));
+      await conn.send({ type: "switch_model", model: newPrimary });
+      new import_obsidian5.Notice(t("notices.modelSwitched", { name: newPrimary }));
     } catch (err) {
       props.state.model = previousModel;
       const msg = err instanceof Error ? err.message : String(err);
@@ -4288,9 +4380,6 @@ function ModelSelect(props) {
       new import_obsidian5.Notice(t("notices.mobileUnsupported"));
       return;
     }
-    if (!local.open) {
-      void loadModels();
-    }
     local.open = !local.open;
   }
   return html`<div class="pi-model-select">
@@ -4298,26 +4387,21 @@ function ModelSelect(props) {
 			class="pi-model-chip"
 			type="button"
 			@click="${toggleOpen}"
-			disabled="${() => local.loading}"
-			aria-haspopup="listbox"
+			aria-haspopup="dialog"
 			aria-expanded="${() => local.open}"
 		>
 			${() => chipLabel()}
 			<span class="pi-model-chip-caret">▾</span>
 		</button>
-		${() => local.open ? html`<div class="pi-model-dropdown" role="listbox">
-						${() => local.error ? html`<div class="pi-model-dropdown-error">${() => local.error}</div>` : local.models.map(
-    (model) => html`<button
-												class="pi-model-dropdown-item"
-												type="button"
-												role="option"
-												@click="${() => selectModel(model)}"
-											>
-												<span class="pi-model-dropdown-name">${() => model.name}</span>
-												<span class="pi-model-dropdown-provider">${() => model.provider}</span>
-											</button>`.key(model.id)
-  )}
-				  </div>` : false}
+		${() => local.open ? html`<div class="pi-model-dropdown pi-model-dropdown--picker" role="dialog">
+						${ModelSequencePicker({
+    sequence: props.state.model ? [props.state.model] : [],
+    projectPath: props.projectPath,
+    onSequenceChange: (seq) => {
+      void handleSequenceChange(seq);
+    }
+  })}
+					</div>` : false}
 	</div>`;
 }
 
@@ -4326,6 +4410,7 @@ var MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 function buildChatInput(props) {
   let textareaEl = null;
   let isComposing = false;
+  let outsideCleanup = null;
   const fileInputId = `pi-composer-file-${Math.random().toString(36).slice(2)}`;
   function adjustHeight() {
     if (!textareaEl) return;
@@ -4353,6 +4438,13 @@ function buildChatInput(props) {
     props.state.text = target.value;
   }
   function handleKeydown(e) {
+    if (e.key === "Escape") {
+      if (props.state.focusedMentionableIndex != null) {
+        e.preventDefault();
+        clearFocusedMentionable(props.state);
+        return;
+      }
+    }
     if (props.state.streaming) return;
     if (e.key === "Enter" && !e.shiftKey && !isComposing) {
       e.preventDefault();
@@ -4432,11 +4524,71 @@ function buildChatInput(props) {
     };
     reader.readAsDataURL(file);
   }
+  function attachOutsideListener() {
+    if (outsideCleanup) return;
+    const handler = (e) => {
+      if (props.state.focusedMentionableIndex == null) return;
+      const target = e.target;
+      const previewEl = document.querySelector(".pi-mentionable-preview-panel");
+      const chipsEl = document.querySelector(".pi-attachments");
+      if (previewEl?.contains(target) || chipsEl?.contains(target)) {
+        return;
+      }
+      clearFocusedMentionable(props.state);
+    };
+    document.addEventListener("mousedown", handler, true);
+    outsideCleanup = () => document.removeEventListener("mousedown", handler, true);
+  }
+  function detachOutsideListener() {
+    outsideCleanup?.();
+    outsideCleanup = null;
+  }
+  function renderPreviewContent(attachment) {
+    if (attachment.type === "image") {
+      const src = `data:${attachment.mimeType ?? "image/png"};base64,${attachment.content}`;
+      return html`<img class="pi-mentionable-preview-image" src="${src}" alt="${attachment.name}" />`;
+    }
+    const body = attachment.content.split(/\r?\n/).slice(0, 10);
+    const trimmed = attachment.content.trim();
+    let hostname = "";
+    if (/^https?:\/\//.test(trimmed)) {
+      try {
+        hostname = new URL(trimmed).hostname;
+      } catch {
+      }
+    }
+    return html`<div class="pi-mentionable-preview-body">
+			${hostname ? html`<p class="pi-mentionable-preview-hostname">${hostname}</p>` : ""}
+			${body.length === 0 ? html`<p class="pi-mentionable-preview-empty">(empty file)</p>` : body.map((line) => html`<p>${line}</p>`)}
+		</div>`;
+  }
   const [, stopWatchingText] = watch(() => props.state.text, adjustHeight);
+  const [, stopWatchingFocus] = watch(
+    () => props.state.focusedMentionableIndex,
+    (index2) => {
+      if (index2 != null) attachOutsideListener();
+      else detachOutsideListener();
+    }
+  );
   const template = html`<div class="pi-composer" @paste="${handlePaste}">
 		<div class="pi-composer-attachments">
-			${MentionableBadges({ state: props.state })}
+			${MentionableBadges({ state: props.state, app: props.app })}
 		</div>
+
+		${() => {
+    const index2 = props.state.focusedMentionableIndex;
+    if (index2 == null) return "";
+    const attachment = props.state.mentionables[index2];
+    if (!attachment) return "";
+    return html`<div
+				class="pi-mentionable-preview-panel"
+				role="region"
+				aria-label="Mentionable preview"
+			>
+				<div class="pi-mentionable-preview-title">${attachment.name}</div>
+				${renderPreviewContent(attachment)}
+			</div>`;
+  }}
 
 		<textarea
 			class="${() => props.state.streaming ? "pi-composer-textarea pi-input-disabled" : "pi-composer-textarea"}"
@@ -4451,48 +4603,65 @@ function buildChatInput(props) {
 		></textarea>
 
 		<div class="pi-composer-controls">
-			<div class="pi-composer-left">
-				${ModelSelect({
+			${ModelSelect({
     state: props.state,
     connection: props.connection,
     projectPath: props.projectPath
   })}
-			</div>
-			<div class="pi-composer-right">
-				<input
-					id="${fileInputId}"
-					type="file"
-					accept="image/*"
-					class="pi-composer-file-input"
-					@change="${handleFileSelect}"
-				/>
-				<label
-					class="pi-composer-upload"
-					for="${fileInputId}"
-					aria-label="Attach image"
-					disabled="${() => props.state.streaming}"
-				>
-					🖼
-				</label>
-				${() => props.state.streaming ? html`<button
-								class="pi-composer-abort"
-								type="button"
-								aria-label="${t("view.abort")}"
-								@click="${() => props.onAbort?.()}"
-							>
-								${t("view.abort")}
-							</button>` : html`<button
-								class="pi-composer-send"
-								type="button"
-								disabled="${() => !canSend()}"
-								@click="${send}"
-							>
-								Send
-							</button>`}
-			</div>
+
+			<div class="pi-composer-spacer" style="flex: 1;"></div>
+
+			<input
+				id="${fileInputId}"
+				type="file"
+				accept="image/*"
+				class="pi-composer-file-input"
+				@change="${handleFileSelect}"
+			/>
+			<label
+				class="pi-composer-upload"
+				for="${fileInputId}"
+				aria-label="Attach image"
+			>
+				🖼
+			</label>
+
+			${() => props.state.streaming ? html`<button
+							class="pi-composer-abort"
+							type="button"
+							aria-label="${t("view.abort")}"
+							@click="${() => props.onAbort?.()}"
+						>
+							${t("view.abort")}
+						</button>` : html`<button
+							class="pi-composer-send"
+							type="button"
+							disabled="${() => !canSend()}"
+							@click="${send}"
+						>
+						Send
+					</button>`}
+
+			<button
+				class="pi-composer-vaultchat"
+				type="button"
+				disabled="${() => props.state.streaming}"
+				aria-label="Vault search mode"
+				title="Vault search mode"
+				@click="${() => props.onVaultChat?.()}"
+			>
+				⌘↑↵
+			</button>
 		</div>
 	</div>`;
-  return { template, stopWatch: stopWatchingText };
+  return {
+    template,
+    stopWatch: () => {
+      stopWatchingText();
+      stopWatchingFocus();
+      detachOutsideListener();
+    }
+  };
 }
 var ArrowChatInput = class {
   containerEl;
@@ -4530,6 +4699,9 @@ var ArrowChatInput = class {
     this.containerEl.empty();
   }
 };
+
+// src/chat/arrow/message-feed.ts
+var import_obsidian8 = require("obsidian");
 
 // src/chat/arrow/message-actions.ts
 var import_obsidian7 = require("obsidian");
@@ -4684,8 +4856,159 @@ function mountMessageActions(container, options) {
   };
 }
 
+// src/chat/arrow/message-feed.ts
+function MessageRow(msg, state, options) {
+  const roleClass = "vault-mind-message";
+  const steerClass = msg.isSteering ? " pi-message-steer" : "";
+  const toolErrorClass = msg.role === "tool" && msg.isError ? " pi-message-tool-error" : "";
+  const wrapperClass = `${roleClass}${steerClass}${toolErrorClass}`;
+  const shouldShowLabel = (index3) => {
+    if (index3 === 0) return true;
+    return state.messages[index3 - 1].role !== msg.role;
+  };
+  const index2 = state.messages.indexOf(msg);
+  return html`
+		<div class="${wrapperClass}">
+			${shouldShowLabel(index2) ? html`
+						<div class="vault-mind-message-role">
+							<span>
+								${msg.role === "user" ? msg.isSteering ? "You (steer)" : "You" : msg.role === "assistant" ? "Pi" : msg.role === "tool" ? `\u2699 ${msg.toolName || "tool"}` : "Unknown"}
+							</span>
+							${msg.role === "assistant" ? html`<span class="pi-message-action-row"></span>` : msg.role === "user" && options.onRewind ? html`<span class="pi-message-actions"></span>` : ""}
+						</div>
+					` : ""}
+			<div class="vault-mind-message-body"></div>
+		</div>
+	`;
+}
+function MessageFeed(container, state, app, options) {
+  const unmountResult = renderRows();
+  const unmountTemplate = typeof unmountResult === "function" ? unmountResult : () => {
+  };
+  const renderedComponents = /* @__PURE__ */ new Map();
+  const renderedContent = /* @__PURE__ */ new Map();
+  const renderMessageContent = (row, msg) => {
+    const contentEl = row.querySelector(".vault-mind-message-body");
+    if (!contentEl || !(contentEl instanceof HTMLElement)) return;
+    if (renderedContent.get(msg.id) === msg.content && msg.role !== "assistant") return;
+    if (msg.role === "assistant" && state.messages[state.messages.length - 1].id !== msg.id) {
+      if (renderedContent.get(msg.id) === msg.content) return;
+    }
+    const oldComponent = renderedComponents.get(msg.id);
+    if (oldComponent) {
+      oldComponent.unload();
+      renderedComponents.delete(msg.id);
+    }
+    contentEl.empty();
+    const component2 = new import_obsidian8.Component();
+    component2.load();
+    renderedComponents.set(msg.id, component2);
+    renderedContent.set(msg.id, msg.content);
+    if (msg.role === "user") {
+      contentEl.createEl("p", { text: msg.content });
+      if (options.onRewind) {
+        const actionBar = row.querySelector(".pi-message-actions");
+        if (actionBar && actionBar instanceof HTMLElement) {
+          const btn = actionBar.createEl("button", {
+            cls: "pi-message-rewind-btn",
+            text: t("view.rewind"),
+            attr: { title: t("renderer.rewindTooltip") }
+          });
+          btn.addEventListener("click", () => options.onRewind?.(msg));
+        }
+      }
+    } else if (msg.role === "assistant") {
+      if (msg.thinkingContent) {
+        const thinkingEl = contentEl.createEl("details", { cls: "pi-thinking" });
+        thinkingEl.createEl("summary", { text: t("renderer.thinkingSummary") });
+        const thinkingContentEl = thinkingEl.createDiv({ cls: "pi-thinking-content" });
+        import_obsidian8.MarkdownRenderer.render(app, msg.thinkingContent, thinkingContentEl, "", component2);
+      }
+      import_obsidian8.MarkdownRenderer.render(app, msg.content, contentEl, "", component2);
+      const actionRow = row.querySelector(".pi-message-action-row");
+      if (actionRow && actionRow instanceof HTMLElement) {
+        mountMessageActions(actionRow, {
+          content: msg.content,
+          tokens: msg.tokens ?? 0,
+          cost: msg.cost ?? 0,
+          model: msg.model ?? state.model,
+          onRewind: () => {
+          }
+        });
+      }
+    } else if (msg.role === "tool") {
+      const details = contentEl.createEl("details");
+      const summary = details.createEl("summary");
+      summary.createSpan({ text: `\u2699 ${msg.toolName || "tool"}`, cls: "pi-tool-name" });
+      if (msg.isError) summary.createSpan({ text: " \u2717", cls: "pi-tool-error-indicator" });
+      const body = details.createDiv({ cls: "pi-tool-body" });
+      const resultSection = body.createDiv({ cls: "pi-tool-result" });
+      resultSection.createEl("div", {
+        text: t("renderer.result"),
+        cls: "pi-tool-section-label"
+      });
+      const resultContent = resultSection.createDiv({ cls: "pi-tool-result-content" });
+      import_obsidian8.MarkdownRenderer.render(app, msg.content, resultContent, "", component2);
+    }
+  };
+  const syncMessages = () => {
+    const rows = container.querySelectorAll(".msg-row-wrapper");
+    let i = 0;
+    for (const row of rows) {
+      const msg = state.messages[i];
+      if (msg && row instanceof HTMLElement) {
+        renderMessageContent(row, msg);
+      }
+      i++;
+    }
+  };
+  function renderRows() {
+    const template = html`
+			<div class="vault-mind-messages">
+				${state.messages.map((msg) => {
+      return html`<div class="msg-row-wrapper" data-id="${msg.id}">
+						${MessageRow(msg, state, options)}
+					</div>`.key(msg.id);
+    })}
+			</div>
+		`;
+    return template(container);
+  }
+  const [, stopWatchMessages] = watch(
+    () => ({
+      len: state.messages.length,
+      lastRole: state.messages.at(-1)?.role
+    }),
+    () => {
+      renderRows();
+      syncMessages();
+    }
+  );
+  const [, stopWatchStreaming] = watch(
+    () => ({
+      len: state.messages.length,
+      contents: state.messages.map((m) => m.content).join("\0"),
+      streaming: state.streaming
+    }),
+    () => {
+      nextTick(syncMessages);
+    }
+  );
+  nextTick(syncMessages);
+  return {
+    unmount: () => {
+      unmountTemplate();
+      stopWatchMessages();
+      stopWatchStreaming();
+      for (const c of renderedComponents.values()) c.unload();
+      renderedComponents.clear();
+      renderedContent.clear();
+    }
+  };
+}
+
 // src/chat/arrow/modals.ts
-var import_obsidian8 = require("obsidian");
+var import_obsidian9 = require("obsidian");
 function moveFocusWithin(container, selector, direction) {
   const items = Array.from(container.querySelectorAll(selector));
   if (items.length === 0) return;
@@ -4696,7 +5019,7 @@ function moveFocusWithin(container, selector, direction) {
   if (next >= items.length) next = 0;
   items[next]?.focus();
 }
-var PermissionSelectModal = class extends import_obsidian8.Modal {
+var PermissionSelectModal = class extends import_obsidian9.Modal {
   titleText;
   options;
   onResponse;
@@ -4769,7 +5092,7 @@ var PermissionSelectModal = class extends import_obsidian8.Modal {
     }
   }
 };
-var PermissionConfirmModal = class extends import_obsidian8.Modal {
+var PermissionConfirmModal = class extends import_obsidian9.Modal {
   titleText;
   messageText;
   onResponse;
@@ -4835,7 +5158,7 @@ var PermissionConfirmModal = class extends import_obsidian8.Modal {
     this.onResponse({ confirmed: this.confirmed });
   }
 };
-var PermissionInputModal = class extends import_obsidian8.Modal {
+var PermissionInputModal = class extends import_obsidian9.Modal {
   titleText;
   messageText;
   placeholderText;
@@ -4940,17 +5263,17 @@ var PermissionInputModal = class extends import_obsidian8.Modal {
 };
 
 // src/chat/arrow/session-list-popover.ts
-var import_obsidian10 = require("obsidian");
+var import_obsidian11 = require("obsidian");
 
 // src/chat/session-scanner.ts
-var import_obsidian9 = require("obsidian");
+var import_obsidian10 = require("obsidian");
 var _readFile;
 var _readdir;
 var _stat;
 var _join;
 var _basename;
 var _homedir;
-if (import_obsidian9.Platform.isDesktop) {
+if (import_obsidian10.Platform.isDesktop) {
   const fsPromisesModule = require("node:fs/promises");
   const pathModule = require("node:path");
   const osModule = require("node:os");
@@ -4964,7 +5287,7 @@ if (import_obsidian9.Platform.isDesktop) {
 var SessionScanner = class {
   sessionsDir;
   constructor(sessionsDir) {
-    this.sessionsDir = sessionsDir || (import_obsidian9.Platform.isDesktop ? _join(_homedir(), ".pi", "agent", "sessions") : "");
+    this.sessionsDir = sessionsDir || (import_obsidian10.Platform.isDesktop ? _join(_homedir(), ".pi", "agent", "sessions") : "");
   }
   /**
    * Scan the sessions directory and return metadata for all sessions,
@@ -5349,7 +5672,7 @@ var SessionListPopover = class {
    * Re-scan the session directory and update the list.
    */
   async refreshSessions() {
-    if (!import_obsidian10.Platform.isDesktop) {
+    if (!import_obsidian11.Platform.isDesktop) {
       this.state.sessions = [];
       return;
     }
@@ -5466,7 +5789,7 @@ var SessionListPopover = class {
       this.close();
     } catch (err) {
       console.error("[SessionPopover] Failed to switch session:", err);
-      new import_obsidian10.Notice(t("notices.switchFailed"));
+      new import_obsidian11.Notice(t("notices.switchFailed"));
     }
   }
   async commitRename(session) {
@@ -5482,7 +5805,7 @@ var SessionListPopover = class {
       await this.refreshSessions();
     } catch (err) {
       console.error("[SessionPopover] Rename failed:", err);
-      new import_obsidian10.Notice(t("notices.renameFailed"));
+      new import_obsidian11.Notice(t("notices.renameFailed"));
     }
   }
   cancelRename() {
@@ -5493,14 +5816,14 @@ var SessionListPopover = class {
     try {
       await this.callbacks.onDelete(session);
       this.state.deleteConfirmPath = null;
-      new import_obsidian10.Notice(t("notices.deletedSession", { name: session.name }));
+      new import_obsidian11.Notice(t("notices.deletedSession", { name: session.name }));
       await this.refreshSessions();
       if (this.state.selectedIndex >= this.state.sessions.length) {
         this.state.selectedIndex = Math.max(0, this.state.sessions.length - 1);
       }
     } catch (err) {
       console.error("[SessionPopover] Delete failed:", err);
-      new import_obsidian10.Notice(t("notices.deleteFailed"));
+      new import_obsidian11.Notice(t("notices.deleteFailed"));
     }
   }
   cancelDelete() {
@@ -5512,12 +5835,8 @@ var SessionListPopover = class {
 function ChatStatusBar(state) {
   function renderText2() {
     const parts = [];
-    if (state.model) {
-      let modelText = state.model;
-      if (state.thinkingLevel && state.thinkingLevel !== "off") {
-        modelText += ` :${state.thinkingLevel}`;
-      }
-      parts.push(modelText);
+    if (state.thinkingLevel && state.thinkingLevel !== "off") {
+      parts.push(`:${state.thinkingLevel}`);
     }
     if (state.streaming) {
       parts.push(t("statusBar.streaming"));
@@ -5543,612 +5862,16 @@ function mountChatStatusBar(container, state) {
   return typeof unmount2 === "function" ? unmount2 : () => container.empty();
 }
 
-// src/chat/attachments.ts
-var import_obsidian11 = require("obsidian");
-var FileSuggestModal = class extends import_obsidian11.FuzzySuggestModal {
-  files;
-  onSelect;
-  constructor(app, files, onSelect) {
-    super(app);
-    this.files = files;
-    this.onSelect = onSelect;
-    this.setPlaceholder("Attach a file...");
-  }
-  getItems() {
-    return this.files;
-  }
-  getItemText(item) {
-    return item.path;
-  }
-  onChooseItem(item, _evt) {
-    this.onSelect(item);
-  }
-};
-var AttachmentPicker = class _AttachmentPicker {
-  app;
-  /** Extensions considered safe to read as text */
-  static TEXT_EXTENSIONS = /* @__PURE__ */ new Set([
-    "md",
-    "txt",
-    "json",
-    "js",
-    "ts",
-    "jsx",
-    "tsx",
-    "py",
-    "css",
-    "html",
-    "yaml",
-    "yml",
-    "xml",
-    "csv",
-    "toml",
-    "ini",
-    "cfg",
-    "sh",
-    "bash",
-    "zsh",
-    "java",
-    "c",
-    "cpp",
-    "h",
-    "hpp",
-    "rs",
-    "go",
-    "rb",
-    "php",
-    "sql",
-    "lua",
-    "r",
-    "swift",
-    "kt",
-    "scala",
-    "ex",
-    "exs",
-    "hs",
-    "ml",
-    "clj",
-    "env",
-    "gitignore",
-    "dockerfile",
-    "svg",
-    "log"
-  ]);
-  /** Max file size for attachments: 1MB */
-  static MAX_FILE_SIZE = 1024 * 1024;
-  constructor(app) {
-    this.app = app;
-  }
-  /**
-   * Open the file picker modal. On selection, reads the file and
-   * returns an Attachment via the callback.
-   * Only shows text files to avoid binary corruption.
-   */
-  trigger(onAttach) {
-    const allFiles = this.app.vault.getFiles();
-    const files = allFiles.filter(
-      (f) => _AttachmentPicker.TEXT_EXTENSIONS.has(f.extension.toLowerCase())
-    );
-    const modal = new FileSuggestModal(this.app, files, (file) => {
-      void this.handleFileSelection(file, onAttach);
-    });
-    modal.open();
-  }
-  async handleFileSelection(file, onAttach) {
-    try {
-      const stat = await this.app.vault.adapter.stat(file.path);
-      if (stat && stat.size > _AttachmentPicker.MAX_FILE_SIZE) {
-        const sizeMB = (stat.size / (1024 * 1024)).toFixed(1);
-        new import_obsidian11.Notice(t("notices.fileTooLarge", { size: sizeMB }));
-        return;
-      }
-      const content = await this.app.vault.cachedRead(file);
-      const attachment = {
-        type: "file",
-        name: file.name,
-        content,
-        size: stat?.size
-      };
-      onAttach(attachment);
-    } catch (err) {
-      console.error("[Pi Attachments] Failed to read file:", err);
-      new import_obsidian11.Notice(t("notices.fileReadFailed"));
-    }
-  }
-};
-
-// src/chat/commands.ts
-var import_obsidian12 = require("obsidian");
-var CommandSuggestModal = class extends import_obsidian12.FuzzySuggestModal {
-  commands;
-  onSelect;
-  constructor(app, commands, onSelect) {
-    super(app);
-    this.commands = commands;
-    this.onSelect = onSelect;
-    this.setPlaceholder(t("modals.selectCommand"));
-  }
-  getItems() {
-    return this.commands;
-  }
-  getItemText(item) {
-    return `/${item.name}`;
-  }
-  onChooseItem(item, _evt) {
-    this.onSelect(item);
-  }
-  renderSuggestion(item, el) {
-    const wrapper = el.createDiv({ cls: "pi-command-suggest-item" });
-    const header = wrapper.createDiv({ cls: "pi-command-header" });
-    header.createSpan({ text: `/${item.item.name}`, cls: "pi-command-name" });
-    if (item.item.source) {
-      header.createSpan({ text: item.item.source, cls: "pi-command-source" });
-    }
-    if (item.item.description) {
-      wrapper.createDiv({ text: item.item.description, cls: "pi-command-desc" });
-    }
-  }
-};
-var CommandSuggest = class {
-  app;
-  connection = null;
-  cachedCommands = null;
-  constructor(app) {
-    this.app = app;
-  }
-  /**
-   * Set the RPC connection used to fetch commands.
-   */
-  setConnection(connection) {
-    this.connection = connection;
-    this.cachedCommands = null;
-  }
-  /**
-   * Trigger the command suggest modal. Fetches commands from Pi and shows the picker.
-   * On selection, calls the callback with the full command string (e.g. "/plan ").
-   */
-  async trigger(onSelect) {
-    const commands = await this.fetchCommands();
-    if (commands.length === 0) {
-      return;
-    }
-    const modal = new CommandSuggestModal(this.app, commands, (cmd) => {
-      onSelect(`/${cmd.name} `);
-    });
-    modal.open();
-  }
-  /**
-   * Public access to fetch commands — used by command palette registration.
-   */
-  async getCommands() {
-    return this.fetchCommands();
-  }
-  /**
-   * Fetch commands from Pi. Uses cached list if available.
-   * Cache is invalidated on each trigger to stay fresh.
-   */
-  async fetchCommands() {
-    if (!this.connection || !this.connection.isConnected()) {
-      return [];
-    }
-    try {
-      const response = await this.connection.send({ type: "get_commands" });
-      const commands = response.data?.commands;
-      if (Array.isArray(commands)) {
-        this.cachedCommands = commands.map((cmd) => ({
-          name: typeof cmd.name === "string" ? cmd.name : "",
-          description: typeof cmd.description === "string" ? cmd.description : "",
-          source: typeof cmd.source === "string" ? cmd.source : ""
-        })).filter((cmd) => cmd.name.length > 0);
-        return this.cachedCommands;
-      }
-    } catch (err) {
-      console.warn("[Pi Commands] Failed to fetch commands:", err);
-    }
-    return this.cachedCommands ?? [];
-  }
-};
-
 // src/chat/message-types.ts
 function generateMessageId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
 // src/chat/notices.ts
-var import_obsidian13 = require("obsidian");
+var import_obsidian12 = require("obsidian");
 function showCriticalNotice(message) {
-  new import_obsidian13.Notice(message, 0);
+  new import_obsidian12.Notice(message, 0);
 }
-
-// src/chat/renderer.ts
-var import_obsidian14 = require("obsidian");
-var MessageRenderer = class {
-  app;
-  /** Debounce render error notices - only show once every 5 seconds */
-  lastRenderErrorTime = 0;
-  constructor(app) {
-    this.app = app;
-  }
-  /** Show render error notice if debounce allows */
-  showRenderError() {
-    const now = Date.now();
-    if (now - this.lastRenderErrorTime > 5e3) {
-      this.lastRenderErrorTime = now;
-      new import_obsidian14.Notice(t("notices.renderError"));
-    }
-  }
-  /**
-   * Render an assistant message as Obsidian-flavored markdown.
-   * Returns the wrapper element for use by streaming logic.
-   */
-  renderAssistantMessage(container, markdown, sourcePath, component2, thinkingContent, error, actions) {
-    const wrapper = container.createDiv({ cls: "pi-message pi-message-assistant" });
-    const label = wrapper.createDiv({ cls: "pi-message-label" });
-    label.createSpan({ text: "Pi", cls: "pi-message-label-text" });
-    const actionRow = label.createSpan({ cls: "pi-message-action-row" });
-    mountMessageActions(actionRow, {
-      content: markdown,
-      tokens: actions?.tokens ?? 0,
-      cost: actions?.cost ?? 0,
-      model: actions?.model ?? "",
-      onRewind: actions?.onRewind
-    });
-    if (error) {
-      const errorEl = wrapper.createDiv({ cls: "pi-message-error" });
-      errorEl.createEl("strong", { text: t("renderer.errorLabel") });
-      errorEl.createSpan({ text: error });
-    }
-    if (thinkingContent) {
-      const thinkingEl = wrapper.createEl("details", { cls: "pi-thinking" });
-      thinkingEl.createEl("summary", { text: t("renderer.thinkingSummary") });
-      const thinkingContentEl = thinkingEl.createDiv({ cls: "pi-thinking-content" });
-      import_obsidian14.MarkdownRenderer.render(
-        this.app,
-        thinkingContent,
-        thinkingContentEl,
-        sourcePath,
-        component2
-      ).catch((err) => {
-        console.error("[Pi Chat] Thinking render error:", err);
-        thinkingContentEl.setText(thinkingContent);
-        this.showRenderError();
-      });
-    }
-    const contentEl = wrapper.createDiv({ cls: "pi-message-content" });
-    if (markdown) {
-      import_obsidian14.MarkdownRenderer.render(this.app, markdown, contentEl, sourcePath, component2).catch((err) => {
-        console.error("[Pi Chat] Markdown rendering error:", err);
-        contentEl.setText(markdown);
-        this.showRenderError();
-      });
-    }
-    return wrapper;
-  }
-  /**
-   * Render a user message in a styled container.
-   * Optional actions parameter allows adding rewind button.
-   */
-  renderUserMessage(container, text, isSteering, actions) {
-    const cls = isSteering ? "pi-message pi-message-user pi-message-steer" : "pi-message pi-message-user";
-    const wrapper = container.createDiv({ cls });
-    const label = wrapper.createDiv({ cls: "pi-message-label" });
-    label.createSpan({
-      text: isSteering ? "You (steer)" : "You",
-      cls: "pi-message-label-text"
-    });
-    if (actions?.onRewind) {
-      const actionBar = label.createSpan({ cls: "pi-message-actions" });
-      this.addActionButton(actionBar, {
-        cls: "pi-message-rewind-btn",
-        text: t("view.rewind"),
-        title: actions.rewindTitle ?? t("renderer.rewindTooltip"),
-        disabled: actions.rewindDisabled,
-        onClick: actions.onRewind
-      });
-    }
-    const contentEl = wrapper.createDiv({ cls: "pi-message-content" });
-    contentEl.createEl("p", { text });
-    return wrapper;
-  }
-  /**
-   * Render a tool call/result in a collapsible <details> element.
-   * Shows the tool name in the summary, with args and result inside.
-   */
-  renderToolCall(container, toolName, args, result, isError, component2) {
-    const wrapper = container.createDiv({
-      cls: `pi-message pi-message-tool${isError ? " pi-message-tool-error" : ""}`
-    });
-    const details = wrapper.createEl("details");
-    const summary = details.createEl("summary");
-    summary.createSpan({ text: `\u2699 ${toolName}`, cls: "pi-tool-name" });
-    if (isError) {
-      summary.createSpan({ text: " \u2717", cls: "pi-tool-error-indicator" });
-    }
-    const body = details.createDiv({ cls: "pi-tool-body" });
-    if (args) {
-      const argsSection = body.createDiv({ cls: "pi-tool-args" });
-      argsSection.createEl("div", { text: t("renderer.arguments"), cls: "pi-tool-section-label" });
-      const argsCode = argsSection.createEl("pre");
-      argsCode.createEl("code", { text: args });
-    }
-    if (result) {
-      const resultSection = body.createDiv({ cls: "pi-tool-result" });
-      resultSection.createEl("div", { text: t("renderer.result"), cls: "pi-tool-section-label" });
-      const resultContent = resultSection.createDiv({ cls: "pi-tool-result-content" });
-      if (this.looksLikeMarkdown(result)) {
-        import_obsidian14.MarkdownRenderer.render(this.app, result, resultContent, "", component2).catch((err) => {
-          console.error("[Pi Chat] Tool result render error:", err);
-          const pre = resultContent.createEl("pre");
-          pre.createEl("code", { text: result });
-          this.showRenderError();
-        });
-      } else {
-        const pre = resultContent.createEl("pre");
-        pre.createEl("code", { text: result });
-      }
-    }
-    return wrapper;
-  }
-  addActionButton(actionBar, options) {
-    const btn = actionBar.createEl("button", {
-      cls: options.cls,
-      attr: {
-        "aria-label": options.title,
-        title: options.title,
-        type: "button"
-      }
-    });
-    btn.setText(options.text);
-    if (options.disabled) {
-      btn.setAttribute("disabled", "true");
-      btn.addClass("is-disabled");
-    } else if (options.onClick) {
-      btn.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        options.onClick?.();
-      });
-    }
-    return btn;
-  }
-  /**
-   * Simple heuristic to detect if content contains markdown.
-   * Falls back to code block rendering for plain text.
-   */
-  looksLikeMarkdown(text) {
-    return /```|^#{1,6}\s|^\s*[-*]\s|\[.*\]\(|!\[|> |^\|.*\|/m.test(text);
-  }
-};
-
-// src/chat/sessions.ts
-var SessionManager = class {
-  /**
-   * Save a conversation as a markdown note in the vault.
-   * Returns the vault-relative path of the saved file, or null if skipped.
-   */
-  async saveSession(messages, settings, vault) {
-    if (!settings.persistSessions) return null;
-    if (!messages.some((m) => m.role === "assistant")) {
-      return null;
-    }
-    const markdown = this.formatConversation(messages, settings);
-    const filePath = this.generateFilePath(settings);
-    await this.ensureDirectory(settings.sessionSaveDir, vault);
-    const maxAttempts = 5;
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const targetPath = attempt === 0 ? filePath : `${filePath.replace(/\.md$/, "")}-${Math.random().toString(36).slice(2, 6)}.md`;
-      try {
-        await vault.create(targetPath, markdown);
-        return targetPath;
-      } catch (err) {
-        if (err instanceof Error && err.message.includes("already exists")) {
-          if (attempt >= maxAttempts - 1) {
-            throw new Error(`Failed to save session after ${maxAttempts} attempts: file collision`);
-          }
-          continue;
-        }
-        throw err;
-      }
-    }
-    return null;
-  }
-  /**
-   * Load a saved session from a markdown note.
-   * Parses callout blocks back into ChatMessage array.
-   */
-  async loadSession(path6, vault) {
-    const content = await vault.adapter.read(path6);
-    return this.parseConversation(content);
-  }
-  /**
-   * Format messages as Obsidian-friendly markdown.
-   */
-  formatConversation(messages, settings) {
-    const now = (/* @__PURE__ */ new Date()).toISOString();
-    const model = settings.defaultModel || "unknown";
-    let md = "";
-    md += "---\n";
-    md += "pi-session: true\n";
-    md += `model: ${model}
-`;
-    md += `created: ${now}
-`;
-    md += "---\n\n";
-    for (const msg of messages) {
-      switch (msg.role) {
-        case "user":
-          md += this.formatUserMessage(msg);
-          break;
-        case "assistant":
-          md += this.formatAssistantMessage(msg);
-          break;
-        case "tool":
-          md += this.formatToolMessage(msg);
-          break;
-      }
-    }
-    return md;
-  }
-  /**
-   * Parse markdown content back into ChatMessage array.
-   */
-  parseConversation(content) {
-    const body = this.stripFrontmatter(content);
-    const lines = body.split("\n");
-    const messages = [];
-    let i = 0;
-    while (i < lines.length) {
-      const line = lines[i];
-      if (line.startsWith("> [!user]")) {
-        i++;
-        const contentLines = [];
-        while (i < lines.length && lines[i].startsWith(">")) {
-          const stripped = lines[i].startsWith("> ") ? lines[i].slice(2) : lines[i].slice(1);
-          contentLines.push(this.unescapeCalloutMarker(stripped));
-          i++;
-        }
-        if (i < lines.length && lines[i].trim() !== "" && !lines[i].startsWith("> [!")) {
-          console.warn(
-            `[Session Parser] Malformed user callout at line ${i + 1}: expected > prefix or blank line`
-          );
-        }
-        messages.push({
-          id: generateMessageId(),
-          role: "user",
-          content: contentLines.join("\n"),
-          timestamp: 0
-        });
-      } else if (line.startsWith("> [!tool]")) {
-        const toolName = this.parseToolName(line);
-        i++;
-        const contentLines = [];
-        while (i < lines.length && lines[i].startsWith(">")) {
-          const stripped = lines[i].startsWith("> ") ? lines[i].slice(2) : lines[i].slice(1);
-          contentLines.push(this.unescapeCalloutMarker(stripped));
-          i++;
-        }
-        if (i < lines.length && lines[i].trim() !== "" && !lines[i].startsWith("> [!")) {
-          console.warn(
-            `[Session Parser] Malformed tool callout at line ${i + 1}: expected > prefix or blank line`
-          );
-        }
-        messages.push({
-          id: generateMessageId(),
-          role: "tool",
-          content: contentLines.join("\n"),
-          timestamp: 0,
-          toolName
-        });
-      } else if (line.trim() === "") {
-        i++;
-      } else {
-        const contentLines = [];
-        while (i < lines.length && !lines[i].startsWith("> [!user]") && !lines[i].startsWith("> [!tool]")) {
-          contentLines.push(lines[i]);
-          i++;
-        }
-        while (contentLines.length > 0 && contentLines[contentLines.length - 1].trim() === "") {
-          contentLines.pop();
-        }
-        if (contentLines.length > 0) {
-          messages.push({
-            id: generateMessageId(),
-            role: "assistant",
-            content: contentLines.join("\n"),
-            timestamp: 0
-          });
-        }
-      }
-    }
-    return messages;
-  }
-  // --- Formatting helpers ---
-  formatUserMessage(msg) {
-    const lines = msg.content.split("\n");
-    const calloutBody = lines.map((l) => `> ${this.escapeCalloutMarker(l)}`).join("\n");
-    return `> [!user]
-${calloutBody}
-
-`;
-  }
-  formatAssistantMessage(msg) {
-    return `${msg.content}
-
-`;
-  }
-  formatToolMessage(msg) {
-    const name = msg.toolName || "tool";
-    const lines = msg.content.split("\n");
-    const calloutBody = lines.map((l) => `> ${this.escapeCalloutMarker(l)}`).join("\n");
-    return `> [!tool]- ${name}
-${calloutBody}
-
-`;
-  }
-  generateFilePath(settings) {
-    const dir = this.normalizeDir(settings.sessionSaveDir);
-    const now = /* @__PURE__ */ new Date();
-    const pad = (n) => String(n).padStart(2, "0");
-    const filename = `${[
-      now.getFullYear(),
-      pad(now.getMonth() + 1),
-      pad(now.getDate()),
-      pad(now.getHours()),
-      pad(now.getMinutes())
-    ].join("-")}.md`;
-    return `${dir}/${filename}`;
-  }
-  async ensureDirectory(dir, vault) {
-    const normalized = this.normalizeDir(dir);
-    if (!await vault.adapter.exists(normalized)) {
-      await vault.createFolder(normalized);
-    }
-  }
-  /**
-   * Normalize a vault-relative directory path: strip leading/trailing
-   * slashes and fall back to a default if empty.
-   */
-  normalizeDir(dir) {
-    return dir.replace(/^\/+|\/+$/g, "") || "Pi-Sessions";
-  }
-  stripFrontmatter(content) {
-    if (!content.startsWith("---")) return content;
-    const endIdx = content.indexOf("---", 3);
-    if (endIdx < 0) return content;
-    return content.slice(endIdx + 3).trim();
-  }
-  /**
-   * Parse tool name from callout header line.
-   * Handles: "> [!tool]- bash" and "> [!tool]- bash: `ls src/`"
-   */
-  parseToolName(line) {
-    const match = line.match(/> \[!tool\]-?\s*(\S+)/);
-    if (match) {
-      return match[1].replace(/:$/, "");
-    }
-    return "tool";
-  }
-  /**
-   * Escape lines that start with [! so they won't be parsed as callout
-   * boundaries when the content is reloaded. Uses \[! which is visible
-   * but unambiguous.
-   */
-  escapeCalloutMarker(line) {
-    if (line.startsWith("[!")) {
-      return `\\${line}`;
-    }
-    return line;
-  }
-  /**
-   * Reverse the escaping applied by escapeCalloutMarker.
-   */
-  unescapeCalloutMarker(line) {
-    if (line.startsWith("\\[!")) {
-      return line.slice(1);
-    }
-    return line;
-  }
-};
 
 // src/chat/stream-handler.ts
 var StreamHandler = class {
@@ -6177,6 +5900,27 @@ var StreamHandler = class {
       case "message_end":
         this.handleMessageEnd(event);
         break;
+      case "model_change": {
+        const provider = event.provider ?? "";
+        const modelId = event.modelId ?? "";
+        if (provider && modelId && this.callbacks.onModelChange) {
+          this.callbacks.onModelChange(`${provider}/${modelId}`);
+        }
+        break;
+      }
+      case "extension_ui_request": {
+        const method = event.method;
+        if (method === "notify" && this.callbacks.onNotice) {
+          const message = event.message ?? "";
+          if (message) {
+            this.callbacks.onNotice({
+              message,
+              notifyType: event.notifyType ?? "info"
+            });
+          }
+        }
+        break;
+      }
       case "tool_execution_start":
         this.handleToolExecutionStart(event);
         break;
@@ -6460,1153 +6204,133 @@ var StreamHandler = class {
   }
 };
 
-// src/chat/view.ts
-var VIEW_TYPE_PI_CHAT = "pi-chat-view";
-var PiChatView = class extends import_obsidian15.ItemView {
-  plugin;
-  renderer;
-  streamHandler;
-  sessionManager;
-  headerBar = null;
-  headerSessionName = null;
-  headerCwd = null;
-  isEditingName = false;
-  sessionPopover = null;
-  sessionsButton = null;
-  headerRightEl = null;
-  messagesContainer;
-  inputContainer;
-  chatInput = null;
-  commandSuggest;
-  attachmentPicker;
-  statusBarContainer;
-  statusBarUnmounted = null;
-  chatState;
-  projectPath;
-  readOnlyBanner = null;
-  messages = [];
-  readOnly = false;
-  streaming = false;
-  /** Current Pi session file path (for message store keying) */
-  currentSessionPath = null;
-  /** Return checkpoint for navigating back to original session after rewind */
-  returnCheckpoint = null;
-  /** Banner element showing "Return to latest" */
-  returnBannerEl = null;
-  /** Flag to prevent concurrent rewind operations */
-  rewindBusy = false;
-  /** Chat body element (for inserting return banner above it) */
-  chatBodyEl = null;
-  /** Currently streaming assistant message element, used for live re-rendering */
-  streamingMessageEl = null;
-  /** Action row handle for the streaming message, updated as stats arrive. */
-  streamingMessageActions = null;
-  /** "Thinking" indicator shown while waiting for Pi's first response */
-  thinkingIndicatorEl = null;
-  /** Component for the final markdown render after streaming completes */
-  streamingComponent = null;
-  /** Debounce timer for live markdown re-rendering during streaming */
-  streamRenderTimer = null;
-  /** Latest streamed content waiting to be rendered */
-  pendingStreamContent = null;
-  rpcEventHandler = null;
-  activeExtensionUiOwner = null;
-  pendingRewindUiRequestIds = /* @__PURE__ */ new Set();
-  constructor(leaf, plugin) {
-    super(leaf);
+// src/chat/vault-mind-chat-view.ts
+var VaultMindChatView = class extends import_obsidian13.Component {
+  constructor(container, plugin) {
+    super();
+    this.container = container;
     this.plugin = plugin;
-    this.renderer = new MessageRenderer(this.app);
-    this.sessionManager = new SessionManager();
-    this.commandSuggest = new CommandSuggest(this.app);
-    this.attachmentPicker = new AttachmentPicker(this.app);
-    this.chatState = createChatReactiveState();
+    this.state = createChatReactiveState();
     this.streamHandler = new StreamHandler({
-      onMessageUpdate: (msg) => this.handleStreamUpdate(msg),
-      onMessageComplete: (msg) => this.handleStreamComplete(msg),
-      onToolResult: (msg) => this.addMessage(msg),
-      onCompaction: () => new import_obsidian15.Notice(t("notices.compacted")),
-      onError: (err) => showCriticalNotice(t("notices.piError", { msg: err }))
-    });
-  }
-  getViewType() {
-    return VIEW_TYPE_PI_CHAT;
-  }
-  getDisplayText() {
-    return t("view.title");
-  }
-  getIcon() {
-    return "message-circle";
-  }
-  async onOpen(target) {
-    const container = target ?? this.contentEl;
-    container.empty();
-    container.addClass("pi-chat-container");
-    try {
-      const path6 = await import("node:path");
-      this.projectPath = path6.dirname(this.plugin.piConfigDir);
-    } catch {
-      this.projectPath = void 0;
-    }
-    this.headerBar = container.createDiv({ cls: "pi-header-bar" });
-    this.buildHeaderBar(this.headerBar);
-    const chatBody = container.createDiv({ cls: "pi-chat-body" });
-    this.chatBodyEl = chatBody;
-    if (this.headerRightEl && this.sessionsButton) {
-      this.sessionPopover = new SessionListPopover(
-        this.headerRightEl,
-        this.sessionsButton,
-        {
-          onSelect: (session) => this.switchToSession(session),
-          onDelete: (session) => this.deleteSession(session),
-          onRename: (session, newName) => this.renameSession(session, newName),
-          onExport: (session) => this.exportSession(session)
-        },
-        `${this.plugin.piConfigDir}/sessions`
-      );
-    }
-    this.messagesContainer = chatBody.createDiv({ cls: "pi-messages" });
-    this.inputContainer = container.createDiv({ cls: "pi-input-container" });
-    this.chatInput = new ArrowChatInput(this.inputContainer, {
-      state: this.chatState,
-      connection: this.plugin.connection,
-      projectPath: this.projectPath,
-      onSend: (text, attachments) => {
-        void this.sendMessage(text, attachments);
+      onMessageUpdate: (msg) => {
+        const last = this.state.messages[this.state.messages.length - 1];
+        if (last && last.id === msg.id) {
+          updateLastMessage(this.state, msg.content);
+          if (msg.thinkingContent) {
+            last.thinkingContent = msg.thinkingContent;
+          }
+        } else {
+          appendMessage(this.state, msg);
+        }
       },
-      onSlashTyped: () => {
-        void this.triggerCommandSuggest();
-      },
-      onAtTyped: () => {
-        void this.triggerFilePicker();
-      },
-      onAbort: () => this.abortStream()
-    });
-    this.statusBarContainer = container.createDiv({
-      cls: "pi-chat-statusbar-container"
-    });
-    this.statusBarUnmounted = mountChatStatusBar(this.statusBarContainer, this.chatState);
-    this.chatInput.focus();
-    this.messagesContainer.addEventListener("scroll", () => {
-      const el = this.messagesContainer;
-      const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-      this.userScrolledUp = distFromBottom > 100;
-    });
-    void this.connectToRpc();
-  }
-  async onClose() {
-    if (!this.readOnly) {
-      try {
-        await this.autoSave();
-      } catch (err) {
-        console.error("[Pi Chat] Failed to auto-save on close:", err);
-      }
-    }
-    this.streamHandler.reset();
-    this.removeThinkingIndicator();
-    if (this.streamRenderTimer) {
-      window.clearTimeout(this.streamRenderTimer);
-      this.streamRenderTimer = null;
-    }
-    this.pendingStreamContent = null;
-    if (this.streamingComponent) {
-      this.streamingComponent.unload();
-      this.streamingComponent = null;
-    }
-    if (this.chatInput) {
-      this.chatInput.destroy();
-      this.chatInput = null;
-    }
-    if (this.statusBarUnmounted) {
-      this.statusBarUnmounted();
-      this.statusBarUnmounted = null;
-    }
-    this.readOnlyBanner = null;
-    this.returnBannerEl = null;
-    this.headerBar = null;
-    this.headerSessionName = null;
-    this.headerCwd = null;
-    this.sessionsButton = null;
-    this.headerRightEl = null;
-    if (this.sessionPopover) {
-      this.sessionPopover.destroy();
-      this.sessionPopover = null;
-    }
-    this.chatBodyEl = null;
-    const conn = this.plugin.connection;
-    if (conn && this.rpcEventHandler) {
-      conn.offEvent(this.rpcEventHandler);
-    }
-    this.rpcEventHandler = null;
-    this.activeExtensionUiOwner = null;
-    this.pendingRewindUiRequestIds.clear();
-    this.messages = [];
-    this.readOnly = false;
-    this.streamingMessageEl = null;
-    this.streamingMessageActions?.unmount();
-    this.streamingMessageActions = null;
-    this.contentEl.empty();
-  }
-  /**
-   * Add a message to the chat and render it.
-   */
-  addMessage(msg) {
-    this.messages.push(msg);
-    this.renderMessage(msg);
-    this.scrollToBottom();
-    this.persistMessage(msg);
-  }
-  /**
-   * Get all messages in the conversation.
-   */
-  getMessages() {
-    return [...this.messages];
-  }
-  /**
-   * Get the messages container element (used by streaming logic to append live content).
-   */
-  getMessagesContainer() {
-    return this.messagesContainer;
-  }
-  /** Whether the user has manually scrolled away from the bottom */
-  userScrolledUp = false;
-  /**
-   * Scroll the messages container to the bottom unless the user has scrolled up.
-   */
-  scrollToBottom() {
-    if (this.userScrolledUp) return;
-    this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
-  }
-  /**
-   * Wire this view to a PiConnection's event stream.
-   *
-   * Synchronous: just installs handlers and schedules a deferred refresh.
-   * Kept as a regular method (not async) so the function shape doesn't lie
-   * about doing async work and satisfies @typescript-eslint/require-await.
-   */
-  connectToRpc() {
-    const conn = this.plugin.ensureConnection();
-    if (this.rpcEventHandler) {
-      conn.offEvent(this.rpcEventHandler);
-    }
-    this.rpcEventHandler = (event) => {
-      if (event.type === "extension_ui_request") {
-        this.handleExtensionUiRequest(event);
-        return;
-      }
-      this.streamHandler.handleEvent(event);
-      if (event.type === "agent_end") {
-        void this.refreshHeader();
-        void this.syncChatStats();
-        window.setTimeout(() => {
-          void this.syncForkStateAfterAgentEnd();
-        }, 0);
-      }
-    };
-    conn.onEvent(this.rpcEventHandler);
-    this.commandSuggest.setConnection(conn);
-    window.setTimeout(() => {
-      void this.refreshHeader();
-      void this.restoreSession();
-    }, 1e3);
-  }
-  /**
-   * Restore the current session's messages on startup.
-   * Tries the local store first (fast), falls back to get_messages RPC.
-   */
-  async restoreSession() {
-    const conn = this.plugin.connection;
-    if (!conn?.isConnected()) return;
-    try {
-      const response = await conn.send({ type: "get_state" });
-      const data = response.data;
-      const sessionFile = data?.sessionFile;
-      if (sessionFile) {
-        this.currentSessionPath = sessionFile;
-        this.plugin.messageStore.setLastSession(sessionFile);
-        this.plugin.scheduleStoreFlush();
-        this.sessionPopover?.setCurrentPath(sessionFile);
-        if (this.messages.length === 0) {
-          const stored = this.plugin.messageStore.getMessages(sessionFile);
-          if (stored.length > 0) {
-            this.displayMessages(stored, false);
-            await this.syncForkEntryIds();
-          } else {
-            await this.loadMessagesFromPi();
-            await this.syncForkEntryIds();
+      onMessageComplete: (msg) => {
+        this.state.streaming = false;
+        this.state.placeholder = "Message Pi\u2026 (/ for commands, @ for files)";
+        if (this.state.messages.length > 0) {
+          const last = this.state.messages[this.state.messages.length - 1];
+          if (last && last.id === msg.id) {
+            last.tokens = msg.tokens;
+            last.cost = msg.cost;
+            last.model = msg.model;
           }
         }
+      },
+      onToolResult: (msg) => appendMessage(this.state, msg),
+      onError: (err) => showCriticalNotice(t("notices.piError", { msg: err })),
+      onModelChange: (model) => {
+        this.state.currentModel = model;
+        if (this.state.fallbackNotice && this.state.model === model) {
+          this.state.fallbackNotice = null;
+          this.updateFallbackBanner();
+        }
+      },
+      onNotice: (notice) => {
+        const message = notice.message;
+        const isFallbackLike = message.toLowerCase().includes("fallback") || message.toLowerCase().includes("switched to") || message.toLowerCase().includes("rate limit") || message.toLowerCase().includes("auto-fallback");
+        if (!isFallbackLike) return;
+        this.state.fallbackNotice = message;
+        this.updateFallbackBanner();
+        window.setTimeout(() => {
+          if (this.state.fallbackNotice === message) {
+            this.state.fallbackNotice = null;
+            this.updateFallbackBanner();
+          }
+        }, 5e3);
       }
-    } catch {
-    }
+    });
+    this.setupUi();
   }
-  async syncForkStateAfterAgentEnd() {
-    try {
-      await this.updateCurrentSessionFromPi();
-      await this.syncForkEntryIds();
-    } catch (err) {
-      console.warn("[Pi Chat] Failed to sync fork ids after agent_end:", err);
-    }
-  }
-  /**
-   * Build the header bar contents: session name, model badge, cwd, new session button.
-   */
-  buildHeaderBar(container) {
-    const left = container.createDiv({ cls: "pi-header-left" });
-    this.headerSessionName = left.createSpan({
+  state;
+  streamHandler;
+  feed;
+  chatInput;
+  sessionPopover = null;
+  statusBarUnmount = null;
+  fallbackBanner = null;
+  setupUi() {
+    this.container.empty();
+    this.container.addClass("pi-chat-container");
+    const header = this.container.createDiv({ cls: "pi-header-bar" });
+    const left = header.createDiv({ cls: "pi-header-left" });
+    left.createSpan({
       cls: "pi-header-session-name",
       text: t("view.newSession")
     });
-    this.headerSessionName.setAttribute("title", t("view.sessionName.tooltip"));
-    this.headerSessionName.addEventListener("click", () => this.startEditingSessionName());
-    this.headerCwd = left.createSpan({
-      cls: "pi-header-cwd",
-      text: ""
-    });
-    const right = container.createDiv({ cls: "pi-header-right" });
-    this.headerRightEl = right;
-    const sessionsBtn = right.createEl("button", {
-      cls: "pi-header-sessions-btn",
-      attr: { "aria-label": t("view.sessionsBtn.tooltip") }
-    });
+    const right = header.createDiv({ cls: "pi-header-right" });
+    const sessionsBtn = right.createEl("button", { cls: "pi-header-sessions-btn" });
     sessionsBtn.setText("\u{1F4CB}");
-    sessionsBtn.addEventListener("click", () => this.sessionPopover?.toggle());
-    this.sessionsButton = sessionsBtn;
-    const newBtn = right.createEl("button", {
-      cls: "pi-header-new-btn",
-      attr: { "aria-label": t("view.newBtn.tooltip") }
-    });
-    newBtn.setText("+ new");
-    newBtn.addEventListener("click", () => {
-      void this.newSessionFromHeader();
-    });
-  }
-  /**
-   * Refresh the header bar with current session state from Pi.
-   */
-  async refreshHeader() {
-    const conn = this.plugin.connection;
-    if (!conn?.isConnected()) return;
-    try {
-      const response = await conn.send({ type: "get_state" });
-      const data = response.data;
-      if (!data) return;
-      const sessionName = data.sessionName;
-      const sessionFile = data.sessionFile;
-      if (this.headerSessionName && !this.isEditingName) {
-        const displayName = sessionName || (sessionFile ? sessionFile.replace(/^.*\//, "").replace(/\.jsonl$/, "") : null) || "New Session";
-        this.headerSessionName.setText(displayName);
-      }
-      this.chatState.sessionName = sessionName || "";
-      const model = data.model;
-      const modelName = model?.name;
-      const thinkingLevel = data.thinkingLevel;
-      this.chatState.model = modelName || "";
-      this.chatState.thinkingLevel = thinkingLevel || "off";
-      const cwd = data.cwd;
-      if (this.headerCwd) {
-        const shortCwd = cwd ? cwd.replace(/^.*\//, "") : "";
-        this.headerCwd.setText(shortCwd ? `\u{1F4C1} ${shortCwd}` : "");
-        this.headerCwd.classList.toggle("is-hidden", !shortCwd);
-        if (cwd) this.headerCwd.setAttribute("title", cwd);
-      }
-    } catch {
-    }
-  }
-  /**
-   * Pull token/cost stats from Pi and feed them into the reactive chat state.
-   */
-  async syncChatStats() {
-    const conn = this.plugin.connection;
-    if (!conn?.isConnected()) return;
-    try {
-      const response = await conn.send({ type: "get_session_stats" });
-      const data = response.data;
-      if (!data) return;
-      const tokens = data.tokens;
-      this.chatState.tokens = tokens?.total ?? 0;
-      this.chatState.cost = data.cost ?? 0;
-    } catch {
-    }
-  }
-  /**
-   * Start inline editing of the session name.
-   */
-  startEditingSessionName() {
-    if (this.isEditingName || !this.headerSessionName) return;
-    this.isEditingName = true;
-    const currentName = this.headerSessionName.getText();
-    this.headerSessionName.empty();
-    const input = this.headerSessionName.createEl("input", {
-      cls: "pi-header-name-input",
-      attr: { type: "text", value: currentName, "aria-label": t("view.sessionName.tooltip") }
-    });
-    input.focus();
-    input.select();
-    const commit = () => {
-      void this.commitSessionNameEdit(input, currentName);
-    };
-    input.addEventListener("blur", commit);
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        input.blur();
-      } else if (e.key === "Escape") {
-        this.isEditingName = false;
-        if (this.headerSessionName) {
-          this.headerSessionName.empty();
-          this.headerSessionName.setText(currentName);
-        }
-      }
-    });
-  }
-  /**
-   * Load messages from Pi's session via get_messages RPC and display them.
-   */
-  async commitSessionNameEdit(input, currentName) {
-    const newName = input.value.trim();
-    this.isEditingName = false;
-    if (this.headerSessionName) {
-      this.headerSessionName.empty();
-      this.headerSessionName.setText(newName || currentName);
-    }
-    if (!newName || newName === currentName) {
-      return;
-    }
-    try {
-      const conn = this.plugin.ensureConnection();
-      await conn.send({ type: "set_session_name", name: newName });
-    } catch (err) {
-      console.warn("[Pi Chat] Failed to rename session:", err);
-      new import_obsidian15.Notice(t("notices.renameFailed"));
-      if (this.headerSessionName) {
-        this.headerSessionName.setText(currentName);
-      }
-    }
-  }
-  async loadMessagesFromPi() {
-    const conn = this.plugin.connection;
-    if (!conn?.isConnected()) return;
-    try {
-      const response = await conn.send({ type: "get_messages" });
-      const data = response.data;
-      const rawMessages = data?.messages;
-      if (!Array.isArray(rawMessages) || rawMessages.length === 0) return;
-      const chatMessages = [];
-      for (const raw of rawMessages) {
-        const msg = this.convertAgentMessage(raw);
-        if (msg) chatMessages.push(msg);
-      }
-      if (chatMessages.length > 0) {
-        for (const msg of chatMessages) {
-          this.messages.push(msg);
-          this.renderMessage(msg);
-        }
-        this.scrollToBottom();
-        if (this.currentSessionPath) {
-          this.plugin.messageStore.setMessages(this.currentSessionPath, this.messages);
-          this.plugin.scheduleStoreFlush();
-        }
-      }
-    } catch (err) {
-      console.warn("[Pi Chat] get_messages failed:", err);
-    }
-  }
-  /**
-   * Convert a Pi AgentMessage to our ChatMessage format.
-   * AgentMessages have: { role: "user"|"assistant"|"toolResult", content, ... }
-   */
-  convertAgentMessage(raw) {
-    const role = raw.role;
-    const timestamp = raw.timestamp || Date.now();
-    if (role === "user") {
-      const text = this.extractMessageText(raw.content);
-      if (!text) return null;
-      return {
-        id: generateMessageId(),
-        role: "user",
-        content: text,
-        timestamp
-      };
-    }
-    if (role === "assistant") {
-      const content = raw.content;
-      if (!Array.isArray(content)) return null;
-      const text = content.filter((b) => b.type === "text" && b.text).map((b) => b.text).join("\n");
-      const thinking = content.filter((b) => b.type === "thinking" && b.thinking).map((b) => b.thinking).join("\n\n");
-      if (!text && !thinking) return null;
-      return {
-        id: generateMessageId(),
-        role: "assistant",
-        content: text,
-        timestamp,
-        thinkingContent: thinking || void 0
-      };
-    }
-    if (role === "toolResult") {
-      const text = this.extractMessageText(raw.content);
-      return {
-        id: generateMessageId(),
-        role: "tool",
-        content: text,
-        timestamp,
-        toolName: raw.toolName || "tool",
-        toolCallId: raw.toolCallId || void 0,
-        isError: raw.isError || void 0
-      };
-    }
-    return null;
-  }
-  /**
-   * Public API for starting a new session (used by command palette).
-   */
-  startNewSession() {
-    void this.newSessionFromHeader();
-  }
-  /**
-   * Create a new session from the header button.
-   */
-  async newSessionFromHeader() {
-    if (this.currentSessionPath && this.messages.length > 0) {
-      this.plugin.messageStore.setMessages(this.currentSessionPath, this.messages);
-    }
-    if (this.hasMessages()) {
-      try {
-        await this.autoSave();
-      } catch (err) {
-        console.error("[Pi Chat] Auto-save before new session failed:", err);
-      }
-    }
-    this.streamHandler.reset();
-    this.setStreamingState(false);
-    this.removeThinkingIndicator();
-    this.clearMessages();
-    this.currentSessionPath = null;
-    const conn = this.plugin.connection;
-    if (conn?.isConnected()) {
-      try {
-        const response = await conn.send({ type: "new_session" });
-        const data = response.data;
-        if (data?.cancelled) {
-          new import_obsidian15.Notice(t("notices.newSessionCancelled"));
-          return;
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error("[Pi Chat] new_session RPC failed:", err);
-        showCriticalNotice(t("notices.newSessionFailed", { msg }));
-        return;
-      }
-    }
-    try {
-      const conn2 = this.plugin.connection;
-      if (conn2?.isConnected()) {
-        const state = await conn2.send({ type: "get_state" });
-        const data = state.data;
-        const sessionFile = data?.sessionFile;
-        if (sessionFile) {
-          this.currentSessionPath = sessionFile;
-          this.plugin.messageStore.setLastSession(sessionFile);
-          this.plugin.scheduleStoreFlush();
-        }
-      }
-    } catch {
-    }
-    if (this.headerSessionName) this.headerSessionName.setText(t("view.newSession"));
-    this.sessionPopover?.setCurrentPath(this.currentSessionPath);
-    void this.plugin.statusBar?.refreshModel();
-    void this.refreshHeader();
-    new import_obsidian15.Notice(t("notices.newSession"));
-  }
-  /**
-   * Switch to a Pi session by path.
-   */
-  async switchToSession(session) {
-    if (this.currentSessionPath && this.messages.length > 0) {
-      this.plugin.messageStore.setMessages(this.currentSessionPath, this.messages);
-    }
-    if (this.hasMessages()) {
-      try {
-        await this.autoSave();
-      } catch (err) {
-        console.error("[Pi Chat] Auto-save before switch failed:", err);
-      }
-    }
-    this.streamHandler.reset();
-    this.setStreamingState(false);
-    this.clearMessages();
-    const conn = this.plugin.connection;
-    if (!conn?.isConnected()) {
-      new import_obsidian15.Notice(t("notices.notConnected"));
-      return;
-    }
-    try {
-      const response = await conn.send({ type: "switch_session", sessionPath: session.path });
-      const data = response.data;
-      if (data?.cancelled) {
-        new import_obsidian15.Notice(t("notices.switchCancelled"));
-        return;
-      }
-    } catch (err) {
-      console.warn("[Pi Chat] switch_session RPC failed:", err);
-      showCriticalNotice(t("notices.switchFailed"));
-      return;
-    }
-    this.currentSessionPath = session.path;
-    this.plugin.messageStore.setLastSession(session.path);
-    this.plugin.scheduleStoreFlush();
-    await this.loadMessagesFromPi();
-    if (this.headerSessionName) {
-      this.headerSessionName.setText(session.name);
-    }
-    this.sessionPopover?.setCurrentPath(session.path);
-    void this.plugin.statusBar?.refreshModel();
-    void this.plugin.statusBar?.refreshStats();
-    void this.syncChatStats();
-    new import_obsidian15.Notice(t("notices.switchedTo", { name: session.name }));
-    void this.refreshHeader();
-  }
-  /**
-   * Delete a Pi session file.
-   */
-  async deleteSession(session) {
-    const { unlink } = await import("node:fs/promises");
-    await unlink(session.path);
-  }
-  /**
-   * Rename a Pi session by updating its session_name entry in the .jsonl file.
-   */
-  async renameSession(session, newName) {
-    if (!newName || newName === session.name) return;
-    try {
-      const { readFile, writeFile } = await import("node:fs/promises");
-      const content = await readFile(session.path, "utf-8");
-      const lines = content.split("\n");
-      let replaced = false;
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-        try {
-          const entry = JSON.parse(line);
-          if (entry.type === "session_name") {
-            lines[i] = JSON.stringify({ type: "session_name", name: newName });
-            replaced = true;
-            break;
-          }
-        } catch {
-        }
-      }
-      if (!replaced) {
-        lines.splice(1, 0, JSON.stringify({ type: "session_name", name: newName }));
-      }
-      await writeFile(session.path, lines.join("\n"), "utf-8");
-      new import_obsidian15.Notice(t("notices.renamedSession", { name: newName }));
-      if (session.path === this.currentSessionPath && this.headerSessionName) {
-        this.headerSessionName.setText(newName);
-      }
-    } catch (err) {
-      console.error("[Pi Chat] Rename session failed:", err);
-      new import_obsidian15.Notice(t("notices.renameFailed"));
-      throw err;
-    }
-  }
-  /**
-   * Export a Pi session to the vault as a markdown note.
-   * Reads Pi's .jsonl format (typed entries with { type: "message", message: {...} } wrappers).
-   */
-  async exportSession(session) {
-    try {
-      const { readFile } = await import("node:fs/promises");
-      const content = await readFile(session.path, "utf-8");
-      const lines = content.split("\n").filter((l) => l.trim());
-      const messages = [];
-      for (const line of lines) {
-        try {
-          const entry = JSON.parse(line);
-          if (entry.type !== "message" || !entry.message) continue;
-          const msg = entry.message;
-          const text = this.extractMessageText(msg.content);
-          if (msg.role === "user" && text) {
-            messages.push({
-              id: generateMessageId(),
-              role: "user",
-              content: text,
-              timestamp: msg.timestamp || Date.now()
-            });
-          } else if (msg.role === "assistant" && text) {
-            messages.push({
-              id: generateMessageId(),
-              role: "assistant",
-              content: text,
-              timestamp: msg.timestamp || Date.now()
-            });
-          } else if (msg.role === "toolResult") {
-            const resultText = this.extractMessageText(msg.content);
-            if (resultText) {
-              messages.push({
-                id: generateMessageId(),
-                role: "tool",
-                content: resultText,
-                toolName: msg.toolName || "tool",
-                toolCallId: msg.toolCallId,
-                isError: msg.isError,
-                timestamp: msg.timestamp || Date.now()
-              });
-            }
-          }
-        } catch {
-        }
-      }
-      if (messages.length === 0) {
-        new import_obsidian15.Notice(t("notices.noExportMessages"));
-        return;
-      }
-      const path6 = await this.sessionManager.saveSession(
-        messages,
-        this.plugin.settings,
-        this.app.vault
-      );
-      if (path6) {
-        new import_obsidian15.Notice(t("notices.exportedTo", { path: path6 }));
-      } else {
-        new import_obsidian15.Notice(t("notices.exportFailed"));
-      }
-    } catch (err) {
-      console.error("[Pi Chat] Export failed:", err);
-      new import_obsidian15.Notice(t("notices.exportFailedGeneral"));
-    }
-  }
-  /**
-   * Extract plain text from a Pi message content field.
-   * Content can be a string or an array of content blocks.
-   */
-  extractMessageText(content) {
-    if (typeof content === "string") return content;
-    if (Array.isArray(content)) {
-      return content.filter((b) => b.type === "text" && b.text).map((b) => b.text).join("\n");
-    }
-    return "";
-  }
-  // --- Rewind/Return RPC Helpers ---
-  /**
-   * Get current Pi session state via get_state RPC.
-   */
-  async getPiState() {
-    const conn = this.plugin.connection;
-    if (!conn?.isConnected()) return null;
-    try {
-      const response = await conn.send({ type: "get_state" });
-      return response.data ?? null;
-    } catch {
-      return null;
-    }
-  }
-  /**
-   * Update currentSessionPath from Pi and sync to store/popover.
-   */
-  async updateCurrentSessionFromPi() {
-    const state = await this.getPiState();
-    if (!state?.sessionFile) return;
-    this.currentSessionPath = state.sessionFile;
-    this.plugin.messageStore.setLastSession(state.sessionFile);
-    this.plugin.scheduleStoreFlush();
-    this.sessionPopover?.setCurrentPath(state.sessionFile);
-    await this.refreshHeader();
-  }
-  /**
-   * Fetch forkable user messages from Pi via get_fork_messages RPC.
-   */
-  async fetchForkMessages() {
-    const conn = this.plugin.connection;
-    if (!conn?.isConnected()) {
-      return [];
-    }
-    try {
-      const response = await conn.send({ type: "get_fork_messages" });
-      const data = response.data;
-      return Array.isArray(data?.messages) ? data.messages : [];
-    } catch (err) {
-      console.warn("[Pi Chat] fetchForkMessages error:", err);
-      return [];
-    }
-  }
-  /**
-   * Normalize prompt text for comparison (strip whitespace and attachment markers).
-   */
-  normalizePromptText(text) {
-    return text.replace(/\s+/g, " ").replace(/\bAttached:.*$/i, "").replace(/\b\d+ image\(s\) attached\b/i, "").trim();
-  }
-  /**
-   * Sync fork entryIds from Pi to UI messages.
-   * Called after agent_end, restore, switch, reload to bind rewind capability.
-   */
-  async syncForkEntryIds() {
-    if (this.readOnly) {
-      return;
-    }
-    const forkMessages = await this.fetchForkMessages();
-    const userMessages = this.messages.filter((msg) => msg.role === "user" && !msg.isSteering);
-    if (forkMessages.length !== userMessages.length) {
-      console.warn("[Pi Chat] Fork message count mismatch", {
-        userMessageCount: userMessages.length,
-        forkMessageCount: forkMessages.length
-      });
-    }
-    for (let i = 0; i < userMessages.length; i++) {
-      const uiMsg = userMessages[i];
-      const forkMsg = forkMessages[i];
-      if (!forkMsg) {
-        uiMsg.piEntryId = void 0;
-        uiMsg.canRewind = false;
-        uiMsg.piForkText = void 0;
-        continue;
-      }
-      uiMsg.piEntryId = forkMsg.entryId;
-      uiMsg.canRewind = true;
-      uiMsg.piForkText = forkMsg.text;
-      const uiText = this.normalizePromptText(uiMsg.content);
-      const piText = this.normalizePromptText(forkMsg.text);
-      if (uiText && piText && uiText !== piText && !uiText.startsWith(piText) && !piText.startsWith(uiText)) {
-        console.debug("[Pi Chat] Fork text mismatch; using order mapping", {
-          index: i,
-          uiText,
-          piText
-        });
-      }
-    }
-    if (this.currentSessionPath) {
-      this.plugin.messageStore.setMessages(this.currentSessionPath, this.messages);
-      this.plugin.scheduleStoreFlush();
-    }
-    this.rerenderMessages();
-  }
-  /**
-   * Re-render all messages (used after syncForkEntryIds changes canRewind flags).
-   */
-  rerenderMessages() {
-    this.messagesContainer.empty();
-    for (const msg of this.messages) {
-      this.renderMessage(msg);
-    }
-    this.renderReturnBanner();
-    this.scrollToBottom();
-  }
-  updateRewindButtonState() {
-    const disabled = this.streaming || this.rewindBusy;
-    const buttons = this.messagesContainer.querySelectorAll(".pi-message-rewind-btn");
-    for (const button of buttons) {
-      button.disabled = disabled;
-      button.classList.toggle("is-disabled", disabled);
-    }
-  }
-  resetRewindState() {
-    this.returnCheckpoint = null;
-    this.activeExtensionUiOwner = null;
-    this.pendingRewindUiRequestIds.clear();
-    this.renderReturnBanner();
-  }
-  setRewindBusy(busy) {
-    if (this.rewindBusy === busy) return;
-    this.rewindBusy = busy;
-    this.updateRewindButtonState();
-  }
-  /**
-   * Reload messages from Pi (clear + reload), used after rewind/return/switch.
-   */
-  async reloadMessagesFromPi() {
-    const conn = this.plugin.connection;
-    if (!conn?.isConnected()) return;
-    try {
-      const response = await conn.send({ type: "get_messages" });
-      const data = response.data;
-      const rawMessages = data?.messages;
-      this.messages = [];
-      this.messagesContainer.empty();
-      if (Array.isArray(rawMessages)) {
-        for (const raw of rawMessages) {
-          const msg = this.convertAgentMessage(raw);
-          if (msg) this.messages.push(msg);
-        }
-      }
-      for (const msg of this.messages) {
-        this.renderMessage(msg);
-      }
-      if (this.currentSessionPath) {
-        this.plugin.messageStore.setMessages(this.currentSessionPath, this.messages);
-        this.plugin.scheduleStoreFlush();
-      }
-      await this.syncForkEntryIds();
-      this.renderReturnBanner();
-      this.scrollToBottom();
-    } catch (err) {
-      console.warn("[Pi Chat] get_messages failed:", err);
-      showCriticalNotice(t("notices.messagesLoadFailed"));
-    }
-  }
-  // --- Rewind/Return Core Logic ---
-  /**
-   * Rewind to a specific user message: fork before it and restore its text to input.
-   */
-  async rewindToMessage(msg) {
-    if (this.readOnly) {
-      new import_obsidian15.Notice(t("notices.cannotRewind"));
-      return;
-    }
-    if (this.streaming) {
-      new import_obsidian15.Notice(t("notices.waitRewind"));
-      return;
-    }
-    if (this.rewindBusy) {
-      return;
-    }
-    if (msg.role !== "user" || msg.isSteering) {
-      new import_obsidian15.Notice(t("notices.onlyUserRewind"));
-      return;
-    }
-    if (!msg.piEntryId) {
-      new import_obsidian15.Notice(t("notices.notRewindable"));
-      await this.syncForkEntryIds();
-      return;
-    }
-    const conn = this.plugin.connection;
-    if (!conn?.isConnected()) {
-      new import_obsidian15.Notice(t("notices.notConnected"));
-      return;
-    }
-    this.setRewindBusy(true);
-    this.activeExtensionUiOwner = "rewind";
-    this.pendingRewindUiRequestIds.clear();
-    let forkSucceeded = false;
-    try {
-      const before = await this.getPiState();
-      if (!before?.sessionFile) {
-        new import_obsidian15.Notice(t("notices.noSession"));
-        return;
-      }
-      this.returnCheckpoint = {
-        sessionPath: before.sessionFile,
-        sessionId: before.sessionId,
-        sessionName: before.sessionName,
-        createdAt: Date.now(),
-        fromMessageId: msg.id,
-        fromEntryId: msg.piEntryId
-      };
-      if (this.currentSessionPath && this.messages.length > 0) {
-        this.plugin.messageStore.setMessages(this.currentSessionPath, this.messages);
-        this.plugin.scheduleStoreFlush();
-      }
-      const response = await conn.send({
-        type: "fork",
-        entryId: msg.piEntryId
-      });
-      const data = response.data;
-      if (data?.cancelled) {
-        this.resetRewindState();
-        new import_obsidian15.Notice(t("notices.rewindCancelled"));
-        return;
-      }
-      forkSucceeded = true;
-      await this.updateCurrentSessionFromPi();
-      await this.reloadMessagesFromPi();
-      const restoredText = data?.text ?? msg.piForkText ?? msg.content;
-      if (restoredText) {
-        this.chatState.text = restoredText;
-        this.chatInput?.focus();
-      }
-      this.renderReturnBanner();
-      new import_obsidian15.Notice(t("notices.rewindSuccess"));
-    } catch (err) {
-      console.error("[Pi Chat] Rewind failed:", err);
-      if (!forkSucceeded) {
-        this.resetRewindState();
-      } else {
-        this.renderReturnBanner();
-      }
-      const message = err instanceof Error ? err.message : String(err);
-      showCriticalNotice(t("notices.rewindFailed", { msg: message }));
-    } finally {
-      this.activeExtensionUiOwner = null;
-      this.pendingRewindUiRequestIds.clear();
-      this.setRewindBusy(false);
-    }
-  }
-  /**
-   * Return to the original session before rewind.
-   */
-  async returnToLatest() {
-    if (!this.returnCheckpoint) return;
-    if (this.streaming) {
-      new import_obsidian15.Notice(t("notices.waitReturn"));
-      return;
-    }
-    if (this.rewindBusy) return;
-    const checkpoint = this.returnCheckpoint;
-    const conn = this.plugin.connection;
-    if (!conn?.isConnected()) {
-      new import_obsidian15.Notice(t("notices.notConnected"));
-      return;
-    }
-    this.setRewindBusy(true);
-    this.activeExtensionUiOwner = "return";
-    try {
-      const response = await conn.send({
-        type: "switch_session",
-        sessionPath: checkpoint.sessionPath
-      });
-      const data = response.data;
-      if (data?.cancelled) {
-        new import_obsidian15.Notice(t("notices.returnCancelled"));
-        return;
-      }
-      this.resetRewindState();
-      await this.updateCurrentSessionFromPi();
-      await this.reloadMessagesFromPi();
-      this.chatState.text = "";
-      this.chatInput?.focus();
-      this.renderReturnBanner();
-      new import_obsidian15.Notice(t("notices.returnSuccess"));
-    } catch (err) {
-      console.error("[Pi Chat] Return to latest failed:", err);
-      const message = err instanceof Error ? err.message : String(err);
-      showCriticalNotice(t("notices.returnFailed", { msg: message }));
-    } finally {
-      this.activeExtensionUiOwner = null;
-      this.setRewindBusy(false);
-    }
-  }
-  /**
-   * Handle extension UI requests that block RPC commands like fork().
-   */
-  handleExtensionUiRequest(event) {
-    if (this.activeExtensionUiOwner === "rewind" && event.title === "Restore Options") {
-      this.pendingRewindUiRequestIds.add(event.id);
-    }
-    switch (event.method) {
-      case "select":
-        this.respondToExtensionSelect(event);
-        break;
-      case "confirm":
-        this.respondToExtensionConfirm(event);
-        break;
-      case "input":
-      case "editor":
-        this.respondToExtensionInput(event);
-        break;
-    }
-  }
-  respondToExtensionSelect(event) {
-    const options = Array.isArray(event.options) ? event.options : [];
-    if (options.length === 0) {
-      this.cancelRewindAfterExtensionUi(event.id);
-      return;
-    }
-    const conversationOnly = options.find((option) => /^Conversation only\b/i.test(option));
-    if (event.title === "Restore Options" && conversationOnly) {
-      this.sendExtensionUiResponse(event.id, { value: conversationOnly });
-      return;
-    }
-    new PermissionSelectModal(this.app, event.title || "Choose an option", options, (response) => {
-      if (response.cancelled) {
-        this.cancelRewindAfterExtensionUi(event.id);
-      } else {
-        this.sendExtensionUiResponse(event.id, { value: response.value });
-      }
-    }).open();
-  }
-  respondToExtensionConfirm(event) {
-    new PermissionConfirmModal(
-      this.app,
-      event.title || "Confirm",
-      event.message || "",
-      (response) => {
-        this.sendExtensionUiResponse(event.id, { confirmed: response.confirmed ?? false });
-      }
-    ).open();
-  }
-  respondToExtensionInput(event) {
-    new PermissionInputModal(
-      this.app,
-      event.title || "Input",
-      event.message || "",
-      event.placeholder || "",
-      event.initialValue ?? "",
-      (response) => {
-        if (response.cancelled) {
-          this.cancelRewindAfterExtensionUi(event.id);
-        } else {
-          this.sendExtensionUiResponse(event.id, { value: response.value ?? "" });
-        }
+    this.sessionPopover = new SessionListPopover(
+      right,
+      sessionsBtn,
+      {
+        onSelect: (session) => this.switchToSession(session),
+        onDelete: (session) => this.deleteSession(session),
+        onRename: (session, newName) => this.renameSession(session, newName)
       },
-      event.method === "editor"
-    ).open();
-  }
-  cancelRewindAfterExtensionUi(requestId) {
-    this.sendExtensionUiResponse(requestId, { cancelled: true });
-    if (this.pendingRewindUiRequestIds.has(requestId)) {
-      this.pendingRewindUiRequestIds.delete(requestId);
-      this.resetRewindState();
-    }
-  }
-  sendExtensionUiResponse(id, payload) {
-    const conn = this.plugin.connection;
-    if (!conn?.isConnected()) return;
-    try {
-      conn.sendRaw({ type: "extension_ui_response", id, ...payload });
-    } catch (err) {
-      console.warn("[Pi Chat] Failed to answer extension UI request:", err);
-    }
-  }
-  /**
-   * Render the "Return to latest" banner above the messages area.
-   */
-  renderReturnBanner() {
-    if (this.returnBannerEl) {
-      this.returnBannerEl.remove();
-      this.returnBannerEl = null;
-    }
-    if (!this.returnCheckpoint) return;
-    this.returnBannerEl = this.contentEl.createDiv({
-      cls: "pi-return-banner"
+      this.plugin.sessionsDir
+    );
+    const chatBody = this.container.createDiv({ cls: "pi-chat-body" });
+    this.feed = MessageFeed(chatBody, this.state, this.plugin.app, {
+      onRewind: (msg) => this.rewindToMessage(msg)
     });
-    if (this.chatBodyEl) {
-      this.contentEl.insertBefore(this.returnBannerEl, this.chatBodyEl);
-    }
-    this.returnBannerEl.createSpan({
-      cls: "pi-return-banner-text",
-      text: t("view.returnBanner.text")
-    });
-    const btn = this.returnBannerEl.createEl("button", {
-      cls: "pi-return-latest-btn",
-      text: t("view.returnBanner.button"),
-      attr: {
-        type: "button",
-        "aria-label": t("view.returnBanner.tooltip"),
-        title: t("view.returnBanner.tooltip")
+    this.fallbackBanner = this.container.createDiv({ cls: "pi-fallback-banner is-hidden" });
+    const inputContainer = this.container.createDiv({ cls: "pi-input-container" });
+    this.chatInput = new ArrowChatInput(inputContainer, {
+      state: this.state,
+      connection: this.plugin.connection,
+      app: this.plugin.app,
+      onSend: (text, attachments) => {
+        void this.sendMessage(text, attachments);
+      },
+      onVaultChat: () => {
+        void this.handleVaultChat();
+      },
+      onAbort: () => {
+        void this.plugin.connection.send({ type: "abort" });
+        this.state.streaming = false;
+        this.state.placeholder = "Message Pi\u2026 (/ for commands, @ for files)";
       }
     });
-    btn.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      void this.returnToLatest();
-    });
+    const statusBarContainer = this.container.createDiv({ cls: "pi-chat-statusbar-container" });
+    this.statusBarUnmount = mountChatStatusBar(statusBarContainer, this.state);
   }
-  /**
-   * Send a user message to Pi, with optional attachments and images.
-   */
+  updateFallbackBanner() {
+    if (!this.fallbackBanner) return;
+    this.fallbackBanner.setText(this.state.fallbackNotice || "");
+    this.fallbackBanner.classList.toggle("is-hidden", !this.state.fallbackNotice);
+  }
   async sendMessage(text, attachments = []) {
-    if (this.readOnly) {
-      new import_obsidian15.Notice(t("notices.readOnly"));
+    if (!this.plugin.connection.isConnected()) {
+      new import_obsidian13.Notice(t("notices.notConnected"));
       return;
     }
-    this.userScrolledUp = false;
-    const isSteering = this.streaming;
-    const shouldClearReturnCheckpoint = !isSteering && this.returnCheckpoint !== null;
+    const isSteering = this.state.streaming;
     let displayText = text;
     const fileAttachments = attachments.filter((a) => a.type === "file");
     if (fileAttachments.length > 0) {
-      const names = fileAttachments.map((a) => a.name).join(", ");
       displayText += `
 
-\u{1F4CE} ${t("attachment.attached", { names })}`;
+\u{1F4CE} ${t("attachment.attached", { names: fileAttachments.map((a) => a.name).join(", ") })}`;
     }
     const imageAttachments = attachments.filter((a) => a.type === "image");
     if (imageAttachments.length > 0) {
@@ -7621,22 +6345,22 @@ var PiChatView = class extends import_obsidian15.ItemView {
       timestamp: Date.now(),
       isSteering: isSteering || void 0
     };
-    this.addMessage(userMsg);
+    appendMessage(this.state, userMsg);
     if (!isSteering) {
-      this.setStreamingState(true);
+      this.state.streaming = true;
+      this.state.placeholder = "Send a message to steer Pi\u2026";
     }
-    let message = text;
+    let rpcMessage = text;
     for (const att of fileAttachments) {
-      message += `
+      rpcMessage += `
 
 <file path="${att.name}">
 ${att.content}
 </file>`;
     }
-    const conn = this.plugin.ensureConnection();
     const command = {
       type: isSteering ? "steer" : "prompt",
-      message
+      message: rpcMessage
     };
     if (imageAttachments.length > 0) {
       command.images = imageAttachments.map((img) => ({
@@ -7646,465 +6370,127 @@ ${att.content}
       }));
     }
     try {
-      if (!isSteering) {
-        this.showThinkingIndicator();
-      }
-      await conn.send(command);
-      if (shouldClearReturnCheckpoint) {
-        this.resetRewindState();
-      }
+      await this.plugin.connection.send(command);
     } catch (err) {
-      console.error("[Pi Chat] Failed to send message:", err);
       showCriticalNotice(t("notices.sendFailed"));
-      this.removeThinkingIndicator();
-      if (!isSteering) {
-        this.setStreamingState(false);
-      }
+      this.state.streaming = false;
+      this.state.placeholder = "Message Pi\u2026 (/ for commands, @ for files)";
     }
   }
-  /**
-   * Persist a message to the message store (debounced flush).
-   */
-  persistMessage(msg) {
-    if (this.readOnly || !this.currentSessionPath) return;
-    this.plugin.messageStore.appendMessage(this.currentSessionPath, msg);
-    this.plugin.scheduleStoreFlush();
-  }
-  /**
-   * Check if the conversation has any messages worth saving.
-   */
-  hasMessages() {
-    return this.messages.some((m) => m.role === "assistant");
-  }
-  /**
-   * Auto-save the current conversation if it has content.
-   */
-  async autoSave() {
-    if (!this.hasMessages()) return null;
+  async handleVaultChat() {
+    const text = this.state.text.trim();
+    if (!text || this.state.streaming) return;
     try {
-      const path6 = await this.sessionManager.saveSession(
-        this.messages,
-        this.plugin.settings,
-        this.app.vault
-      );
-      return path6;
-    } catch (err) {
-      console.error("[Pi Chat] Failed to auto-save session:", err);
-      return null;
-    }
-  }
-  /**
-   * Clear all messages and reset the view for a new conversation.
-   */
-  clearMessages() {
-    this.messages = [];
-    this.readOnly = false;
-    this.streamHandler.reset();
-    this.resetRewindState();
-    this.removeThinkingIndicator();
-    if (this.streamingComponent) {
-      this.streamingComponent.unload();
-      this.streamingComponent = null;
-    }
-    this.streamingMessageEl = null;
-    this.streamingMessageActions?.unmount();
-    this.streamingMessageActions = null;
-    this.messagesContainer.empty();
-    if (this.readOnlyBanner) {
-      this.readOnlyBanner.remove();
-      this.readOnlyBanner = null;
-    }
-    this.setReadOnly(false);
-  }
-  /**
-   * Reset view state after an RPC disconnect during streaming.
-   * Re-enables input, clears streaming state, and annotates any
-   * partial assistant message with a connection-lost marker.
-   */
-  handleDisconnect() {
-    this.streamHandler.reset();
-    this.setStreamingState(false);
-    this.removeThinkingIndicator();
-    if (this.streamingComponent) {
-      this.streamingComponent.unload();
-      this.streamingComponent = null;
-    }
-    if (this.streamingMessageEl) {
-      const contentEl = this.streamingMessageEl.querySelector(".pi-message-content");
-      if (contentEl) {
-        const existing = contentEl.getText();
-        contentEl.setText(`${existing}
-
-*[Connection lost]*`);
-      }
-      this.streamingMessageEl = null;
-      this.streamingMessageActions?.unmount();
-      this.streamingMessageActions = null;
-    }
-    if (this.streamRenderTimer) {
-      window.clearTimeout(this.streamRenderTimer);
-      this.streamRenderTimer = null;
-    }
-    this.pendingStreamContent = null;
-  }
-  /**
-   * Display a list of messages (e.g. from a loaded session).
-   * Optionally marks the view as read-only.
-   */
-  displayMessages(messages, readOnly = false) {
-    this.clearMessages();
-    this.messages = [...messages];
-    this.readOnly = readOnly;
-    for (const msg of messages) {
-      this.renderMessage(msg);
-    }
-    if (readOnly) {
-      this.setReadOnly(true);
-    }
-    this.scrollToBottom();
-  }
-  /**
-   * Set read-only mode — disables input and shows a banner.
-   */
-  setReadOnly(readOnly) {
-    this.readOnly = readOnly;
-    if (this.chatInput) {
-      this.chatInput.setEnabled(!readOnly);
-    }
-    if (readOnly) {
-      if (!this.readOnlyBanner) {
-        this.readOnlyBanner = this.contentEl.createDiv({
-          cls: "pi-readonly-banner"
-        });
-        this.contentEl.insertBefore(this.readOnlyBanner, this.inputContainer);
-        this.readOnlyBanner.setText(t("view.readOnlyBanner"));
-      }
-    } else {
-      if (this.readOnlyBanner) {
-        this.readOnlyBanner.remove();
-        this.readOnlyBanner = null;
-      }
-    }
-  }
-  /**
-   * Show "thinking" indicator while waiting for Pi to start responding.
-   */
-  showThinkingIndicator() {
-    if (this.thinkingIndicatorEl || this.messages.length === 0) return;
-    this.thinkingIndicatorEl = this.messagesContainer.createDiv({
-      cls: "pi-thinking-indicator"
-    });
-    const label = this.thinkingIndicatorEl.createDiv({ cls: "pi-message-label" });
-    label.createSpan({ text: "Pi", cls: "pi-message-label-text" });
-    const content = this.thinkingIndicatorEl.createDiv({ cls: "pi-thinking-indicator-content" });
-    content.createSpan({ cls: "pi-thinking-dots" });
-    content.createSpan({ text: t("view.thinking"), cls: "pi-thinking-text" });
-    this.scrollToBottom();
-  }
-  /**
-   * Remove the thinking indicator (called when Pi starts responding or on error).
-   */
-  removeThinkingIndicator() {
-    if (this.thinkingIndicatorEl) {
-      this.thinkingIndicatorEl.remove();
-      this.thinkingIndicatorEl = null;
-    }
-  }
-  /**
-   * Toggle streaming state — shows/hides abort button, updates placeholder.
-   * Input stays enabled so the user can send steering messages.
-   */
-  setStreamingState(streaming) {
-    this.streaming = streaming;
-    this.chatState.streaming = streaming;
-    this.chatState.placeholder = streaming ? "Send a message to steer Pi\u2026" : "Message Pi\u2026 (/ for commands, @ for files)";
-    this.updateRewindButtonState();
-  }
-  /**
-   * Abort the current stream by sending abort command to Pi.
-   */
-  abortStream() {
-    try {
-      const conn = this.plugin.connection;
-      if (conn) {
-        void conn.send({ type: "abort" });
-      }
-    } catch (err) {
-      console.warn("[Pi Chat] Failed to send abort:", err);
-      new import_obsidian15.Notice(t("notices.abortConnectionLost"));
-    } finally {
-      this.setStreamingState(false);
-    }
-  }
-  /**
-   * Trigger the `/` command suggest modal.
-   */
-  triggerCommandSuggest() {
-    try {
-      const conn = this.plugin.connection;
-      if (conn) {
-        this.commandSuggest.setConnection(conn);
-      }
-    } catch {
-    }
-    void this.commandSuggest.trigger((commandText) => {
-      this.chatState.text = commandText;
-      this.chatInput?.focus();
-    });
-  }
-  /**
-   * Trigger the `@` file picker modal.
-   */
-  triggerFilePicker() {
-    this.attachmentPicker.trigger((attachment) => {
-      const current = this.chatState.text;
-      if (current.endsWith("@")) {
-        this.chatState.text = current.slice(0, -1);
-      }
-      addMentionable(this.chatState, attachment);
-      this.chatInput?.focus();
-    });
-  }
-  /**
-   * Handle streaming text update — debounced live markdown rendering.
-   */
-  handleStreamUpdate(msg) {
-    this.removeThinkingIndicator();
-    if (!this.streamingMessageEl) {
-      this.streamingMessageEl = this.messagesContainer.createDiv({
-        cls: "pi-message pi-message-assistant"
+      this.state.statusText = "Searching vault\u2026";
+      const token = await resolveToken(this.plugin.app);
+      const client = new VaultMindClient({
+        host: this.plugin.settings.host,
+        port: this.plugin.settings.port,
+        token
       });
-      const label = this.streamingMessageEl.createDiv({ cls: "pi-message-label" });
-      label.createSpan({ text: "Pi", cls: "pi-message-label-text" });
-      const actionRow = label.createSpan({ cls: "pi-message-action-row" });
-      this.streamingMessageActions = mountMessageActions(actionRow, {
-        content: msg.content,
-        tokens: this.chatState.tokens,
-        cost: this.chatState.cost,
-        model: this.chatState.model,
-        onRewind: () => {
-          const target = this.findLastRewindableUserMessage();
-          if (target) {
-            void this.rewindToMessage(target);
-          } else {
-            new import_obsidian15.Notice(t("notices.notRewindable"));
+      const result = await client.search(text, "main", 5);
+      for (const hit of result.hits) {
+        const record = hit;
+        const name = String(record.title ?? record.source ?? record.path ?? "Vault result");
+        const content = String(record.content ?? record.text ?? record.snippet ?? "");
+        addMentionable(this.state, { type: "file", name: `\u{1F50D} ${name}`, content });
+      }
+      this.state.statusText = "";
+      await this.sendMessage(text, [...this.state.mentionables]);
+      resetComposer(this.state);
+      this.state.text = "";
+    } catch (err) {
+      this.state.statusText = "";
+      new import_obsidian13.Notice(`Vault search failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  async __handleRpcEvent(event) {
+    if (event.type === "extension_ui_request") {
+      const req = event;
+      const dialogMethods = {
+        select: true,
+        confirm: true,
+        input: true,
+        editor: true
+      };
+      if (dialogMethods[req.method]) {
+        this.handleExtensionUiRequest(req);
+        return;
+      }
+    }
+    this.streamHandler.handleEvent(event);
+    if (event.type === "agent_end") {
+    }
+  }
+  handleExtensionUiRequest(event) {
+    switch (event.method) {
+      case "select": {
+        const options = Array.isArray(event.options) ? event.options : [];
+        new PermissionSelectModal(this.plugin.app, event.title || "Choose", options, (res) => {
+          this.sendUiResponse(event.id, res.cancelled ? { cancelled: true } : { value: res.value });
+        }).open();
+        break;
+      }
+      case "confirm": {
+        new PermissionConfirmModal(
+          this.plugin.app,
+          event.title || "Confirm",
+          event.message || "",
+          (res) => {
+            this.sendUiResponse(event.id, { confirmed: res.confirmed });
           }
-        }
-      });
-      this.streamingMessageEl.createDiv({ cls: "pi-message-content" });
-    }
-    const contentEl = this.streamingMessageEl.querySelector(".pi-message-content");
-    if (!contentEl) return;
-    if (msg.content) {
-      const liveThinking = this.streamingMessageEl.querySelector(".pi-thinking-live");
-      if (liveThinking?.instanceOf(HTMLDetailsElement)) {
-        liveThinking.open = false;
-        liveThinking.removeClass("pi-thinking-live");
+        ).open();
+        break;
       }
-      this.pendingStreamContent = msg.content;
-      if (!this.streamRenderTimer) {
-        this.streamRenderTimer = window.setTimeout(() => {
-          this.streamRenderTimer = null;
-          this.renderStreamingMarkdown();
-        }, 100);
-      }
-    } else if (msg.thinkingContent) {
-      let thinkingEl = this.streamingMessageEl.querySelector(".pi-thinking-live");
-      if (!thinkingEl?.instanceOf(HTMLDetailsElement)) {
-        thinkingEl = createEl("details", { cls: "pi-thinking pi-thinking-live" });
-        this.streamingMessageEl.insertBefore(thinkingEl, contentEl);
-      }
-      if (thinkingEl.instanceOf(HTMLDetailsElement)) {
-        thinkingEl.open = true;
-        if (!thinkingEl.querySelector("summary")) {
-          thinkingEl.createEl("summary", { text: t("view.thinking") });
-        }
-        if (!thinkingEl.querySelector(".pi-thinking-content")) {
-          thinkingEl.createDiv({ cls: "pi-thinking-content" });
-        }
-      }
-      const thinkingContentEl = thinkingEl.querySelector(".pi-thinking-content");
-      if (thinkingContentEl) {
-        thinkingContentEl.setText(msg.thinkingContent);
+      case "input":
+      case "editor": {
+        new PermissionInputModal(
+          this.plugin.app,
+          event.title || "Input",
+          event.message || "",
+          event.placeholder || "",
+          event.initialValue || "",
+          (res) => {
+            this.sendUiResponse(
+              event.id,
+              res.cancelled ? { cancelled: true } : { value: res.value }
+            );
+          },
+          event.method === "editor"
+        ).open();
+        break;
       }
     }
-    this.scrollToBottom();
   }
-  /**
-   * Render the latest streamed content as markdown.
-   * Called on a debounce timer to avoid thrashing on every delta.
-   */
-  renderStreamingMarkdown() {
-    if (!this.streamingMessageEl || !this.pendingStreamContent) return;
-    const contentEl = this.streamingMessageEl.querySelector(".pi-message-content");
-    if (!contentEl) return;
-    if (this.streamingComponent) {
-      this.streamingComponent.unload();
-    }
-    this.streamingComponent = new import_obsidian15.Component();
-    this.streamingComponent.load();
-    const safeContent = this.pendingStreamContent.replace(
-      /```(mermaid|dataview|dataviewjs|query)/g,
-      "```$1-preview"
-    );
-    contentEl.empty();
-    import_obsidian15.MarkdownRenderer.render(
-      this.app,
-      safeContent,
-      contentEl,
-      "",
-      this.streamingComponent
-    ).catch((err) => {
-      console.error("[Pi Chat] Streaming markdown render error:", err);
-      contentEl.setText(this.pendingStreamContent ?? "");
-    });
-    this.scrollToBottom();
+  sendUiResponse(id, payload) {
+    void this.plugin.connection.sendRaw({ type: "extension_ui_response", id, ...payload });
   }
-  /**
-   * Handle stream completion — do full markdown render and finalize the message.
-   */
-  handleStreamComplete(msg) {
-    this.setStreamingState(false);
-    if (this.chatInput) {
-      this.chatInput.focus();
-    }
-    if (this.streamRenderTimer) {
-      window.clearTimeout(this.streamRenderTimer);
-      this.streamRenderTimer = null;
-    }
-    this.pendingStreamContent = null;
-    if (this.streamingMessageEl) {
-      if (this.streamingComponent) {
-        this.streamingComponent.unload();
-        this.streamingComponent = null;
-      }
-      const contentEl = this.streamingMessageEl.querySelector(".pi-message-content");
-      if (contentEl) {
-        contentEl.empty();
-        if (msg.content) {
-          this.streamingComponent = new import_obsidian15.Component();
-          this.streamingComponent.load();
-          import_obsidian15.MarkdownRenderer.render(
-            this.app,
-            msg.content,
-            contentEl,
-            "",
-            this.streamingComponent
-          ).catch((err) => {
-            console.error("[Pi Chat] Markdown rendering error:", err);
-            contentEl.setText(msg.content);
-          });
-        }
-      }
-      const liveThinking = this.streamingMessageEl.querySelector(".pi-thinking-live, .pi-thinking");
-      if (liveThinking) liveThinking.remove();
-      if (msg.thinkingContent) {
-        if (!this.streamingComponent) {
-          this.streamingComponent = new import_obsidian15.Component();
-          this.streamingComponent.load();
-        }
-        const thinkingEl = createEl("details", { cls: "pi-thinking" });
-        thinkingEl.createEl("summary", { text: t("renderer.thinkingSummary") });
-        const thinkingContentEl = thinkingEl.createDiv({ cls: "pi-thinking-content" });
-        import_obsidian15.MarkdownRenderer.render(
-          this.app,
-          msg.thinkingContent,
-          thinkingContentEl,
-          "",
-          this.streamingComponent
-        ).catch((err) => {
-          console.error("[Pi Chat] Thinking render error:", err);
-          thinkingContentEl.setText(msg.thinkingContent ?? "");
-        });
-        this.streamingMessageEl.insertBefore(thinkingEl, contentEl);
-      }
-      this.streamingMessageActions?.update({
-        content: msg.content,
-        tokens: this.chatState.tokens,
-        cost: this.chatState.cost,
-        model: this.chatState.model
-      });
-      this.streamingMessageEl = null;
-      this.streamingMessageActions = null;
-    }
-    msg.tokens = this.chatState.tokens;
-    msg.cost = this.chatState.cost;
-    msg.model = this.chatState.model;
-    this.messages.push(msg);
-    this.scrollToBottom();
-    this.persistMessage(msg);
-  }
-  findLastRewindableUserMessage() {
-    for (let i = this.messages.length - 1; i >= 0; i--) {
-      const candidate = this.messages[i];
-      if (candidate.role === "user" && !candidate.isSteering && candidate.piEntryId) {
-        return candidate;
-      }
-    }
-    return null;
-  }
-  findRewindTarget(msg) {
-    const index2 = this.messages.findIndex((m) => m.id === msg.id);
-    if (index2 < 0) return null;
-    for (let i = index2 - 1; i >= 0; i--) {
-      const candidate = this.messages[i];
-      if (candidate.role === "user" && !candidate.isSteering && candidate.piEntryId) {
-        return candidate;
-      }
-    }
-    return null;
-  }
-  renderMessage(msg) {
+  async rewindToMessage(msg) {
     try {
-      switch (msg.role) {
-        case "user": {
-          const canShowRewind = !this.readOnly && !msg.isSteering && !!msg.piEntryId;
-          this.renderer.renderUserMessage(this.messagesContainer, msg.content, msg.isSteering, {
-            onRewind: canShowRewind ? () => {
-              void this.rewindToMessage(msg);
-            } : void 0,
-            rewindDisabled: this.streaming || this.rewindBusy,
-            rewindTitle: msg.piEntryId ? t("renderer.rewindTooltip") : t("notices.notRewindable")
-          });
-          break;
-        }
-        case "assistant": {
-          const rewindTarget = !this.readOnly ? this.findRewindTarget(msg) : null;
-          this.renderer.renderAssistantMessage(
-            this.messagesContainer,
-            msg.content,
-            "",
-            this,
-            msg.thinkingContent,
-            msg.error,
-            {
-              onRewind: rewindTarget ? () => {
-                void this.rewindToMessage(rewindTarget);
-              } : void 0,
-              tokens: msg.tokens ?? 0,
-              cost: msg.cost ?? 0,
-              model: msg.model ?? this.chatState.model
-            }
-          );
-          break;
-        }
-        case "tool":
-          this.renderer.renderToolCall(
-            this.messagesContainer,
-            msg.toolName ?? "tool",
-            "",
-            msg.content,
-            msg.isError ?? false,
-            this
-          );
-          break;
-      }
+      await this.plugin.connection.send({ type: "fork", entryId: msg.piEntryId });
+      this.state.text = msg.content;
     } catch (err) {
-      console.error("[Pi Chat] Message render error:", err);
-      const errorEl = this.messagesContainer.createDiv({ cls: "pi-message pi-render-error" });
-      errorEl.createEl("p", { text: t("notices.renderError") });
-      errorEl.createEl("pre", { text: msg.content });
+      new import_obsidian13.Notice("Rewind failed");
     }
+  }
+  async switchToSession(session) {
+    await this.plugin.connection.send({ type: "switch_session", sessionPath: session.path });
+    clearMessages(this.state);
+    this.sessionPopover?.setCurrentPath(session.path);
+  }
+  async deleteSession(_session) {
+    await (0, import_promises.unlink)(_session.path);
+  }
+  async renameSession(session, newName) {
+    await this.plugin.connection.send({ type: "set_session_name", name: newName });
+  }
+  destroy() {
+    this.feed.unmount();
+    this.chatInput.destroy();
+    this.statusBarUnmount?.();
+    this.sessionPopover?.destroy();
+    this.plugin.connection.destroy();
+    super.unload();
   }
 };
 
@@ -8122,10 +6508,13 @@ var ChatTab = class {
     const { deps } = this;
     const piBinary = detectPiBinary(deps.settings.piBinaryPath, deps.vaultPath) ?? deps.settings.piBinaryPath;
     const token = await resolveToken(deps.app);
+    const path6 = await import("node:path");
+    const sessionsDir = path6.join(deps.piConfigDir, "sessions");
     this.connection = new PiConnection({
       piBinaryPath: piBinary,
       cwd: deps.vaultPath,
       piConfigDir: deps.piConfigDir,
+      sessionsDir,
       buildEnv: () => buildExecEnv(),
       apiKeys: {
         PVM_API_TOKEN: token
@@ -8133,7 +6522,6 @@ var ChatTab = class {
     });
     const pluginRef = {
       app: deps.app,
-      settings: deps.settings,
       connection: this.connection,
       ensureConnection: () => {
         if (!this.connection) {
@@ -8141,6 +6529,7 @@ var ChatTab = class {
             piBinaryPath: piBinary,
             cwd: deps.vaultPath,
             piConfigDir: deps.piConfigDir,
+            sessionsDir,
             buildEnv: () => buildExecEnv(),
             apiKeys: {
               PVM_API_TOKEN: token
@@ -8157,10 +6546,16 @@ var ChatTab = class {
         void deps.onStoreFlush?.();
       },
       statusBar: null,
-      piConfigDir: deps.piConfigDir
+      piConfigDir: deps.piConfigDir,
+      sessionsDir,
+      settings: { host: deps.host, port: deps.port }
     };
-    this.view = new PiChatView(deps.leaf, pluginRef);
-    await this.view.onOpen(container);
+    this.view = new VaultMindChatView(container, pluginRef);
+    this.view.load();
+    this.connection?.onEvent((e) => void this.view.__handleRpcEvent(e));
+    if (this.connection && !this.connection.isConnected()) {
+      this.connection.connect();
+    }
     if (deps.initialCommand && this.connection) {
       const cmd = deps.initialCommand;
       const conn = this.connection;
@@ -8168,30 +6563,142 @@ var ChatTab = class {
       const waitAndSend = async () => {
         try {
           await conn.send({ type: "get_state" });
-          activeWindow.setTimeout(() => {
+          window.setTimeout(() => {
             if (view) void view.sendMessage(cmd, []);
           }, 3e3);
         } catch {
-          activeWindow.setTimeout(() => void waitAndSend(), 2e3);
+          window.setTimeout(() => void waitAndSend(), 2e3);
         }
       };
-      activeWindow.setTimeout(() => void waitAndSend(), 3e3);
+      window.setTimeout(() => void waitAndSend(), 3e3);
     }
   }
   destroy() {
-    if (this.view) {
-      void this.view.onClose();
-      this.view = null;
+    this.view?.destroy();
+    this.connection = null;
+    this.view = null;
+  }
+};
+
+// src/tabs/collection-tab.ts
+var import_obsidian14 = require("obsidian");
+var CollectionTab = class {
+  deps;
+  client = null;
+  root = null;
+  listEl = null;
+  collections = [];
+  expandedName = null;
+  constructor(deps) {
+    this.deps = deps;
+  }
+  async mount(container) {
+    const token = await resolveToken(this.deps.app);
+    const port = readServerPort(this.deps.vaultPath) ?? this.deps.settings.port;
+    this.client = new VaultMindClient({
+      host: this.deps.settings.host,
+      port,
+      token: token ?? ""
+    });
+    this.root = container.createEl("div", { cls: "vault-mind-container" });
+    this.renderShell();
+    await this.refresh();
+  }
+  destroy() {
+    this.client = null;
+    this.root = null;
+    this.listEl = null;
+    this.collections = [];
+    this.expandedName = null;
+  }
+  renderShell() {
+    if (!this.root) return;
+    this.root.empty();
+    const header = this.root.createEl("div", { cls: "vault-mind-status-bar" });
+    header.createEl("span", { cls: "vault-mind-status-dot" });
+    header.createEl("span", { text: "Collections" });
+    const refreshBtn = header.createEl("button", { title: "Refresh" });
+    (0, import_obsidian14.setIcon)(refreshBtn, "refresh-cw");
+    refreshBtn.addEventListener("click", () => {
+      void this.refresh();
+    });
+    this.listEl = this.root.createEl("div", { cls: "vault-mind-collection-list" });
+  }
+  async refresh() {
+    if (!this.client || !this.listEl) return;
+    this.listEl.empty();
+    this.listEl.createEl("p", {
+      cls: "vault-mind-collection-loading",
+      text: "Loading\u2026"
+    });
+    try {
+      const result = await this.client.vmStats();
+      this.collections = result.collections;
+      this.renderList();
+    } catch (err) {
+      if (!this.listEl) return;
+      this.listEl.empty();
+      this.listEl.createEl("p", {
+        cls: "vault-mind-error",
+        text: `Failed to load collections: ${String(err)}`
+      });
     }
-    if (this.connection) {
-      this.connection.destroy();
-      this.connection = null;
+  }
+  renderList() {
+    if (!this.listEl) return;
+    this.listEl.empty();
+    if (this.collections.length === 0) {
+      this.listEl.createEl("p", {
+        cls: "vault-mind-empty",
+        text: "No collections configured."
+      });
+      return;
     }
+    for (const col of this.collections) {
+      this.renderCollectionRow(col);
+    }
+  }
+  renderCollectionRow(col) {
+    if (!this.listEl) return;
+    const isExpanded = this.expandedName === col.name;
+    const card = this.listEl.createEl("div", { cls: "vault-mind-collection-card" });
+    if (isExpanded) card.addClass("is-expanded");
+    const rowEl = card.createEl("div", { cls: "vault-mind-collection-row" });
+    const chevron = rowEl.createEl("span", { cls: "vault-mind-collection-chevron" });
+    (0, import_obsidian14.setIcon)(chevron, isExpanded ? "chevron-down" : "chevron-right");
+    rowEl.createEl("span", { cls: "vault-mind-collection-name", text: col.name });
+    const badge = rowEl.createEl("span", { cls: "vault-mind-count-chip" });
+    badge.setText(String(col.count));
+    badge.title = `${col.count} entries`;
+    if (col.malformed > 0) {
+      const warn = rowEl.createEl("span", { cls: "vault-mind-count-chip vault-mind-chip-warn" });
+      warn.setText(`${col.malformed} malformed`);
+    }
+    const detail = card.createEl("div", { cls: "vault-mind-collection-detail" });
+    detail.style.display = isExpanded ? "" : "none";
+    if (isExpanded) this.populateDetail(detail, col);
+    rowEl.addEventListener("click", () => {
+      const nowExpanded = this.expandedName === col.name;
+      this.expandedName = nowExpanded ? null : col.name;
+      this.renderList();
+    });
+  }
+  populateDetail(el, col) {
+    const dl = el.createEl("dl", { cls: "vault-mind-collection-dl" });
+    const addRow = (label, value) => {
+      dl.createEl("dt", { text: label });
+      dl.createEl("dd", { text: value });
+    };
+    addRow("Path", col.path);
+    addRow("Entries", String(col.count));
+    addRow("Size", col.size > 0 ? `${col.size.toLocaleString()} bytes` : "empty");
+    if (col.malformed > 0) addRow("Malformed", String(col.malformed));
+    addRow("Schema", col.schema.length > 0 ? col.schema.join(", ") : "(none)");
   }
 };
 
 // src/tabs/queue-tab.ts
-var import_obsidian16 = require("obsidian");
+var import_obsidian15 = require("obsidian");
 var QueueTab = class {
   deps;
   client = null;
@@ -8223,7 +6730,7 @@ var QueueTab = class {
     header.createEl("span", { cls: "vault-mind-status-dot" });
     header.createEl("span", { text: "Queue" });
     const refresh = header.createEl("button", { title: "Refresh" });
-    (0, import_obsidian16.setIcon)(refresh, "refresh-cw");
+    (0, import_obsidian15.setIcon)(refresh, "refresh-cw");
     refresh.addEventListener("click", () => this.refresh());
     this.chips = this.root.createEl("div", { cls: "vault-mind-count-chips" });
     this.list = this.root.createEl("ul", { cls: "vault-mind-queue-list" });
@@ -8309,7 +6816,7 @@ var QueueTab = class {
         break;
       }
       case "job-notification":
-        new import_obsidian16.Notice(`Vault Mind job ${event.jobId}: ${event.status} \u2014 ${event.message}`);
+        new import_obsidian15.Notice(`Vault Mind job ${event.jobId}: ${event.status} \u2014 ${event.message}`);
         break;
       case "vault-edit-proposed":
         break;
@@ -8350,7 +6857,7 @@ var QueueTab = class {
           title: "Retry now",
           attr: { "aria-label": "Retry connection" }
         });
-        (0, import_obsidian16.setIcon)(retryBtn, "refresh-cw");
+        (0, import_obsidian15.setIcon)(retryBtn, "refresh-cw");
         retryBtn.addEventListener("click", () => this.connect());
       }
       return;
@@ -8360,7 +6867,7 @@ var QueueTab = class {
         cls: "vault-mind-empty vault-mind-queue-reconnecting-state"
       });
       const spinner = li.createEl("span", { cls: "vault-mind-spinner" });
-      (0, import_obsidian16.setIcon)(spinner, "loader");
+      (0, import_obsidian15.setIcon)(spinner, "loader");
       li.createEl("span", { text: "Reconnecting..." });
       return;
     }
@@ -8492,7 +6999,7 @@ var QueueTab = class {
           await this.client?.approveEntry(item.id, item.collection, "approve");
           await this.refresh();
         } catch (err) {
-          new import_obsidian16.Notice(`Vault Mind: ${err.message}`);
+          new import_obsidian15.Notice(`Vault Mind: ${err.message}`);
         }
       });
       const rejectBtn = actions.createEl("button", {
@@ -8504,19 +7011,19 @@ var QueueTab = class {
           await this.client?.approveEntry(item.id, item.collection, "reject");
           await this.refresh();
         } catch (err) {
-          new import_obsidian16.Notice(`Vault Mind: ${err.message}`);
+          new import_obsidian15.Notice(`Vault Mind: ${err.message}`);
         }
       });
     }
   }
   showContextMenu(evt, job) {
-    const menu = new import_obsidian16.Menu();
+    const menu = new import_obsidian15.Menu();
     menu.addItem(
       (item) => item.setTitle("Retry").setIcon("rotate-cw").onClick(async () => {
         try {
           await this.client?.retryJob(job.id);
         } catch (err) {
-          new import_obsidian16.Notice(`Vault Mind: ${err.message}`);
+          new import_obsidian15.Notice(`Vault Mind: ${err.message}`);
         }
       })
     );
@@ -8525,7 +7032,7 @@ var QueueTab = class {
         try {
           await this.client?.cancelJob(job.id);
         } catch (err) {
-          new import_obsidian16.Notice(`Vault Mind: ${err.message}`);
+          new import_obsidian15.Notice(`Vault Mind: ${err.message}`);
         }
       })
     );
@@ -8538,7 +7045,7 @@ var QueueTab = class {
     if (!this.list) return;
     this.list.empty();
     this.renderList();
-    new import_obsidian16.Notice(`Vault Mind: ${message}`);
+    new import_obsidian15.Notice(`Vault Mind: ${message}`);
   }
 };
 
@@ -8711,7 +7218,7 @@ var SearchTab = class {
 
 // src/tabs/status-tab.ts
 var import_node_child_process2 = require("node:child_process");
-var import_obsidian17 = require("obsidian");
+var import_obsidian16 = require("obsidian");
 function shellQuote(value) {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
@@ -8733,12 +7240,13 @@ var StatusTab = class {
   unsubEvents = null;
   discoveredConfig = null;
   embeddingConfigEl = null;
+  syncStatusEl = null;
   component = null;
   constructor(deps) {
     this.deps = deps;
   }
   async mount(container) {
-    this.component = new import_obsidian17.Component();
+    this.component = new import_obsidian16.Component();
     this.component.load();
     this.root = container.createEl("div", { cls: "vault-mind-container" });
     this.render();
@@ -8774,8 +7282,16 @@ var StatusTab = class {
     const configSection = this.root.createEl("div", { cls: "vault-mind-config-section" });
     configSection.createEl("div", { cls: "vault-mind-config-heading", text: "Embedding config" });
     this.embeddingConfigEl = configSection.createEl("div", { cls: "vault-mind-config-details" });
+    const cloudSection = this.root.createEl("div", { cls: "vault-mind-config-section" });
+    cloudSection.createEl("div", { cls: "vault-mind-config-heading", text: "Cloud / Sync" });
+    this.syncStatusEl = cloudSection.createEl("div", { cls: "vault-mind-config-details" });
+    const reindexBtn = cloudSection.createEl("button", {
+      text: "Remote reindex",
+      attr: { "aria-label": "Rebuild the remote index" }
+    });
+    reindexBtn.addEventListener("click", () => this.triggerRemoteReindex());
     const launchBtn = this.root.createEl("button", {
-      text: import_obsidian17.Platform.isMacOS ? "Open in Terminal" : "Open in Console",
+      text: import_obsidian16.Platform.isMacOS ? "Open in Terminal" : "Open in Console",
       attr: { "aria-label": "Open pi TUI in external terminal" }
     });
     launchBtn.addEventListener("click", () => this.launchPiTui());
@@ -8789,7 +7305,7 @@ var StatusTab = class {
       title: "Search",
       attr: { "aria-label": "Search vault" }
     });
-    (0, import_obsidian17.setIcon)(searchBtn, "search");
+    (0, import_obsidian16.setIcon)(searchBtn, "search");
     searchBtn.addEventListener("click", () => this.runSearch(input.value));
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") this.runSearch(input.value);
@@ -8842,22 +7358,22 @@ var StatusTab = class {
   handleEvent(event) {
     switch (event.type) {
       case "vault-edit-proposed": {
-        new import_obsidian17.Notice(`Vault Mind: proposed edit for ${event.path}`);
+        new import_obsidian16.Notice(`Vault Mind: proposed edit for ${event.path}`);
         const file = this.deps.app.vault.getAbstractFileByPath(event.path);
         if (file) {
           new DiffModal(
             this.deps.app,
             { path: event.path, old: event.oldContent, new: event.newContent },
             async () => {
-              if (!(file instanceof import_obsidian17.TFile)) {
-                new import_obsidian17.Notice(`Vault Mind: file not found: ${event.path}`);
+              if (!(file instanceof import_obsidian16.TFile)) {
+                new import_obsidian16.Notice(`Vault Mind: file not found: ${event.path}`);
                 return;
               }
               try {
                 await this.deps.app.vault.modify(file, event.newContent);
-                new import_obsidian17.Notice(`Vault Mind: accepted changes to ${event.path}`);
+                new import_obsidian16.Notice(`Vault Mind: accepted changes to ${event.path}`);
               } catch (err) {
-                new import_obsidian17.Notice(`Vault Mind: failed to write ${event.path}: ${err.message}`);
+                new import_obsidian16.Notice(`Vault Mind: failed to write ${event.path}: ${err.message}`);
               }
             }
           ).open();
@@ -8865,7 +7381,7 @@ var StatusTab = class {
         break;
       }
       case "job-notification":
-        new import_obsidian17.Notice(`Vault Mind job ${event.jobId}: ${event.status} \u2014 ${event.message}`);
+        new import_obsidian16.Notice(`Vault Mind job ${event.jobId}: ${event.status} \u2014 ${event.message}`);
         break;
       case "context-request":
         break;
@@ -8908,11 +7424,28 @@ var StatusTab = class {
       this.embeddingConfigEl.createEl("span", { text: `Local: ${localUrl}` });
       this.embeddingConfigEl.createEl("span", { text: `Server: ${serverText}` });
     }
+    if (this.syncStatusEl) {
+      this.syncStatusEl.empty();
+      const statusRecord = status;
+      const sync = statusRecord.sync;
+      const remote = statusRecord.remote;
+      const dot = this.syncStatusEl.createEl("span", { cls: "vault-mind-status-dot" });
+      const label = this.syncStatusEl.createEl("span", { text: "Sync: \u2014" });
+      if (sync !== void 0 && sync !== null) {
+        dot.classList.add("connected");
+        label.textContent = `Sync: ${typeof sync === "object" ? JSON.stringify(sync) : String(sync)}`;
+      } else if (remote !== void 0 && remote !== null) {
+        dot.classList.add("connected");
+        label.textContent = `Remote: ${typeof remote === "object" ? JSON.stringify(remote) : String(remote)}`;
+      } else {
+        label.textContent = "Sync: not configured";
+      }
+    }
   }
   setError(message) {
     this.resultsBox?.empty();
     this.resultsBox?.createEl("p", { cls: "vault-mind-empty", text: message });
-    new import_obsidian17.Notice(`Vault Mind: ${message}`);
+    new import_obsidian16.Notice(`Vault Mind: ${message}`);
   }
   async refreshTokenSource() {
     const token = await resolveToken(this.deps.app);
@@ -8944,7 +7477,7 @@ var StatusTab = class {
       const markdown = source ? `[[${source}|${display}]]` : display || JSON.stringify(hit);
       const li = list.createEl("li");
       if (this.component) {
-        await import_obsidian17.MarkdownRenderer.render(this.deps.app, markdown, li, "", this.component);
+        await import_obsidian16.MarkdownRenderer.render(this.deps.app, markdown, li, "", this.component);
       }
     }
   }
@@ -8952,15 +7485,18 @@ var StatusTab = class {
     if (!this.client) return;
     try {
       const res = await this.client.toggleWatcher();
-      new import_obsidian17.Notice(`Vault Mind: watcher ${res.watcher ? "started" : "stopped"}`);
+      new import_obsidian16.Notice(`Vault Mind: watcher ${res.watcher ? "started" : "stopped"}`);
       await this.refreshStatus();
     } catch (err) {
       this.setError(`Watcher toggle failed: ${err.message}`);
     }
   }
+  triggerRemoteReindex() {
+    new import_obsidian16.Notice("Run /vm reindex in chat to rebuild the remote index");
+  }
   launchPiTui() {
-    if (!import_obsidian17.Platform.isDesktop) {
-      new import_obsidian17.Notice("Vault Mind: TUI launcher is only available on desktop");
+    if (!import_obsidian16.Platform.isDesktop) {
+      new import_obsidian16.Notice("Vault Mind: TUI launcher is only available on desktop");
       return;
     }
     const cwd = this.deps.vaultPath;
@@ -8968,21 +7504,21 @@ var StatusTab = class {
     const piBinary = this.deps.piBinaryPath;
     const env = { ...process.env, PI_CODING_AGENT_DIR: piConfigDir };
     try {
-      if (import_obsidian17.Platform.isMacOS) {
+      if (import_obsidian16.Platform.isMacOS) {
         const script = `cd ${shellQuote(cwd)} && export PI_CODING_AGENT_DIR=${shellQuote(piConfigDir)} && ${piBinary} --cwd ${shellQuote(cwd)}`;
         const appleScript = `tell application "Terminal" to do script "${script.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
         (0, import_node_child_process2.spawn)("osascript", ["-e", appleScript]);
-      } else if (import_obsidian17.Platform.isLinux) {
+      } else if (import_obsidian16.Platform.isLinux) {
         const cmd = `cd ${shellQuote(cwd)} && export PI_CODING_AGENT_DIR=${shellQuote(piConfigDir)} && ${piBinary} --cwd ${shellQuote(cwd)}`;
         (0, import_node_child_process2.spawn)("x-terminal-emulator", ["-e", "bash", "-c", cmd], { env });
-      } else if (import_obsidian17.Platform.isWin) {
+      } else if (import_obsidian16.Platform.isWin) {
         const cmd = `cd /d ${winQuote(cwd)} && set PI_CODING_AGENT_DIR=${winQuote(piConfigDir)} && ${piBinary} --cwd ${winQuote(cwd)}`;
         (0, import_node_child_process2.spawn)("cmd", ["/c", "start", "cmd", "/k", cmd], { env, shell: false });
       } else {
-        new import_obsidian17.Notice("Vault Mind: unsupported platform for TUI launcher");
+        new import_obsidian16.Notice("Vault Mind: unsupported platform for TUI launcher");
       }
     } catch (err) {
-      new import_obsidian17.Notice(`Vault Mind: failed to launch pi TUI: ${err.message}`);
+      new import_obsidian16.Notice(`Vault Mind: failed to launch pi TUI: ${err.message}`);
     }
   }
 };
@@ -8993,12 +7529,22 @@ var TAB_CONFIG = [
   { id: "chat", label: "Chat", icon: "message-circle" },
   { id: "queue", label: "Queue", icon: "list" },
   { id: "status", label: "Status", icon: "activity" },
-  { id: "search", label: "Search", icon: "search" }
+  { id: "search", label: "Search", icon: "search" },
+  { id: "collections", label: "Collections", icon: "layers" }
 ];
-var VaultMindPanel = class extends import_obsidian18.ItemView {
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function openPluginSettingsTab(app, tabId) {
+  const host = app;
+  host.setting.open();
+  host.setting.openTabById(tabId);
+}
+var VaultMindPanel = class extends import_obsidian17.ItemView {
   deps;
   tabs = [];
   activeTab = "chat";
+  personalized = true;
   constructor(leaf, deps) {
     super(leaf);
     this.deps = deps;
@@ -9035,7 +7581,7 @@ var VaultMindPanel = class extends import_obsidian18.ItemView {
           role: "tab"
         }
       });
-      (0, import_obsidian18.setIcon)(button, cfg.icon);
+      (0, import_obsidian17.setIcon)(button, cfg.icon);
       button.createEl("span", { text: cfg.label });
       const entry = {
         id: cfg.id,
@@ -9051,6 +7597,7 @@ var VaultMindPanel = class extends import_obsidian18.ItemView {
         void this.switchTab(cfg.id);
       });
     }
+    this.personalized = await this.checkPersonalized();
     await this.switchTab(this.activeTab);
   }
   async onClose() {
@@ -9076,6 +7623,11 @@ var VaultMindPanel = class extends import_obsidian18.ItemView {
       entry.button.classList.toggle("is-active", isActive);
       entry.button.setAttribute("aria-selected", String(isActive));
       if (isActive && !entry.mounted) {
+        if (entry.id === "chat" && !this.personalized) {
+          this.renderPersonalizationPrompt(entry.container);
+          entry.mounted = true;
+          continue;
+        }
         entry.tab = this.createTab(entry.id);
         await entry.tab.mount(entry.container);
         entry.mounted = true;
@@ -9090,10 +7642,81 @@ var VaultMindPanel = class extends import_obsidian18.ItemView {
     });
     const btn = prompt.createEl("button", { text: "Open Settings", cls: "mod-cta" });
     btn.addEventListener("click", () => {
-      const setting = this.app.setting;
-      setting.open();
-      setting.openTabById(this.deps.plugin.manifest.id);
+      openPluginSettingsTab(this.app, this.deps.plugin.manifest.id);
     });
+  }
+  renderPersonalizationPrompt(container) {
+    container.empty();
+    const prompt = container.createEl("div", { cls: "vault-mind-personalization-prompt" });
+    prompt.createEl("h3", { text: "Vault Mind" });
+    prompt.createEl("p", {
+      text: "Run `/vm personalize` in Settings to finish setup."
+    });
+    const btn = prompt.createEl("button", { text: "Open Settings", cls: "mod-cta" });
+    btn.addEventListener("click", () => {
+      openPluginSettingsTab(this.app, this.deps.plugin.manifest.id);
+    });
+  }
+  /**
+   * Determine whether the vault has completed personalization.
+   *
+   * Sources are checked in order. The default is `true` (allow chat) so that
+   * existing vaults are not locked out while the backend personalization flow
+   * is still rolling out. Only an explicit `personalizationComplete: false`
+   * or a status field saying `false` will gate the chat tab. The tab bar is
+   * rendered synchronously before this async check runs, so a slow or down
+   * server does not freeze the whole panel.
+   */
+  async checkPersonalized() {
+    const configPath = import_node_path2.default.join(this.deps.vaultPath, "pi-vault-mind.config.json");
+    try {
+      const raw = (0, import_node_fs2.readFileSync)(configPath, "utf-8");
+      const cfg = JSON.parse(raw);
+      if (isRecord(cfg)) {
+        const extensionCompatibility = cfg.extensionCompatibility;
+        if (isRecord(extensionCompatibility)) {
+          const piContext = extensionCompatibility["pi-context"];
+          if (isRecord(piContext) && "personalizationComplete" in piContext) {
+            if (piContext.personalizationComplete === false) return false;
+            if (piContext.personalizationComplete === true) return true;
+          }
+        }
+      }
+    } catch {
+    }
+    const markerPath = import_node_path2.default.join(this.deps.piConfigDir, ".personalized");
+    if ((0, import_node_fs2.existsSync)(markerPath)) return true;
+    const statusPersonalized = await this.fetchPersonalizationStatus();
+    if (statusPersonalized === true) return true;
+    if (statusPersonalized === false) return false;
+    return true;
+  }
+  async fetchPersonalizationStatus() {
+    const token = await resolveToken(this.app);
+    const { host, port } = this.deps.settings;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 1500);
+    try {
+      const headers = { "Content-Type": "application/json" };
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const response = await fetch(`http://${host}:${port}/vm/status`, {
+        headers,
+        signal: controller.signal
+      });
+      if (!response.ok) return null;
+      const data = await response.json();
+      if (!isRecord(data)) return null;
+      if ("personalized" in data && data.personalized === true) return true;
+      if ("personalization_complete" in data && data.personalization_complete === true) return true;
+      if ("personalized" in data && data.personalized === false) return false;
+      if ("personalization_complete" in data && data.personalization_complete === false)
+        return false;
+      return null;
+    } catch {
+      return null;
+    } finally {
+      window.clearTimeout(timeout);
+    }
   }
   createTab(id) {
     const { deps } = this;
@@ -9107,6 +7730,8 @@ var VaultMindPanel = class extends import_obsidian18.ItemView {
           vaultPath: deps.vaultPath,
           piConfigDir: deps.piConfigDir,
           settings: deps.chatSettings,
+          host: deps.settings.host,
+          port: deps.settings.port,
           messageStore: deps.messageStore,
           onStoreFlush: () => deps.plugin.flushMessageStore(),
           initialCommand: initialCommand ?? void 0
@@ -9136,6 +7761,12 @@ var VaultMindPanel = class extends import_obsidian18.ItemView {
           settings: deps.settings,
           vaultPath: deps.vaultPath
         });
+      case "collections":
+        return new CollectionTab({
+          app: this.app,
+          settings: deps.settings,
+          vaultPath: deps.vaultPath
+        });
     }
   }
 };
@@ -9148,12 +7779,12 @@ var MODAL_APP_BASE_URL_SUFFIX = "--pi-vault-mind-embed-embeddingservice-fastapi-
 function defaultModelRouterChoices() {
   const isMacOS = process.platform === "darwin";
   return {
-    primary: isMacOS ? "ollama/gemma4:12b-mlx" : "ollama/gemma4:12b",
+    primary: "ollama/gemma4:31b-cloud",
     fallbackSequence: isMacOS ? ["ollama/gemma4:e4b", "ollama/gemma4:12b-mlx", "ollama/gemma3:4b", "ollama/*"] : ["ollama/gemma4:e4b", "ollama/gemma4:12b", "ollama/gemma3:4b", "ollama/*"]
   };
 }
 var modalRemoteUrlForWorkspace = (workspace) => `https://${workspace}${MODAL_APP_BASE_URL_SUFFIX}`;
-var isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+var isRecord2 = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 var VAULT_MIND_ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z"/><path d="M9 21h6"/><path d="M10 9a2 2 0 0 1 4 0"/><path d="M8 12h1"/><path d="M15 12h1"/><circle cx="12" cy="6" r="1"/></svg>`;
 var DEFAULT_SETTINGS = {
   host: "127.0.0.1",
@@ -9165,11 +7796,161 @@ var DEFAULT_SETTINGS = {
   includeSlashCommands: true,
   resumeSession: true
 };
-var VaultMindSettingTab = class extends import_obsidian19.PluginSettingTab {
+var VaultMindSettingTab = class extends import_obsidian18.PluginSettingTab {
   plugin;
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
+  }
+  renderReconfigureForm(containerEl) {
+    const configPath = import_node_path3.default.join(this.plugin.vaultPath, "pi-vault-mind.config.json");
+    if (!(0, import_node_fs3.existsSync)(configPath)) return;
+    const config = JSON.parse((0, import_node_fs3.readFileSync)(configPath, "utf-8"));
+    const vaultMind = isRecord2(config.vaultMind) ? config.vaultMind : {};
+    const embedding = isRecord2(vaultMind.embedding) ? vaultMind.embedding : {};
+    new import_obsidian18.Setting(containerEl).setName("Vault Mind").setHeading();
+    let provider = embedding.remoteUrl || embedding.localUrl ? embedding.remoteUrl ? "modal" : "ollama" : "skip";
+    let ollamaUrl = embedding.localUrl || DEFAULT_OLLAMA_EMBEDDING_URL;
+    let ollamaModel = embedding.model || DEFAULT_EMBEDDING_MODEL;
+    let modalWorkspace = "";
+    let modalRemoteUrl = embedding.remoteUrl || "";
+    let modalToken = "";
+    if (provider === "modal") {
+      const modal = isRecord2(embedding.modal) ? embedding.modal : {};
+      modalWorkspace = modal.workspace || "";
+      if (modalWorkspace) modalRemoteUrl = modalRemoteUrlForWorkspace(modalWorkspace);
+    }
+    const extensionCompatibility = isRecord2(config.extensionCompatibility) ? config.extensionCompatibility : {};
+    const piContext = isRecord2(extensionCompatibility["pi-context"]) ? extensionCompatibility["pi-context"] : {};
+    let enableContextAutomation = piContext.enabled ?? true;
+    const vaultKey = import_node_path3.default.basename(this.plugin.vaultPath);
+    const vaults = isRecord2(config.vaults) ? config.vaults : {};
+    const vaultCfg = isRecord2(vaults[vaultKey]) ? vaults[vaultKey] : {};
+    let autoStart = vaultCfg.autoStart ?? false;
+    const routerPath = import_node_path3.default.join(this.plugin.vaultPath, ".pi", "model-router.json");
+    let primaryModel;
+    let fallbackSequence;
+    if ((0, import_node_fs3.existsSync)(routerPath)) {
+      const router = JSON.parse((0, import_node_fs3.readFileSync)(routerPath, "utf-8"));
+      const profiles = isRecord2(router.profiles) ? router.profiles : {};
+      const auto = isRecord2(profiles.auto) ? profiles.auto : {};
+      const medium = isRecord2(auto.medium) ? auto.medium : {};
+      primaryModel = medium.model || defaultModelRouterChoices().primary;
+      const rf = isRecord2(router.rateLimitFallback) ? router.rateLimitFallback : {};
+      fallbackSequence = Array.isArray(rf.fallbackSequence) ? rf.fallbackSequence : defaultModelRouterChoices().fallbackSequence;
+    } else {
+      const defaults = defaultModelRouterChoices();
+      primaryModel = defaults.primary;
+      fallbackSequence = [...defaults.fallbackSequence];
+    }
+    const providerFields = containerEl.createEl("div", { cls: "vault-mind-init-config-fields" });
+    const renderProviderFields = () => {
+      providerFields.empty();
+      if (provider === "ollama") {
+        new import_obsidian18.Setting(providerFields).setName("Ollama").setDesc("Local OpenAI-compatible endpoint and embedding model.").addText(
+          (text) => text.setValue(ollamaUrl).onChange((v) => {
+            ollamaUrl = v;
+          })
+        ).addText(
+          (text) => text.setValue(ollamaModel).onChange((v) => {
+            ollamaModel = v;
+          })
+        );
+      } else if (provider === "modal") {
+        new import_obsidian18.Setting(providerFields).setName("Workspace").setDesc("Your Modal workspace slug.").addText((text) => {
+          text.setValue(modalWorkspace).onChange((v) => {
+            modalWorkspace = v;
+            modalRemoteUrl = v.trim() ? modalRemoteUrlForWorkspace(v.trim()) : "";
+          });
+        });
+        new import_obsidian18.Setting(providerFields).setName("API Token").addText((text) => {
+          text.inputEl.type = "password";
+          text.setValue(modalToken).onChange((v) => {
+            modalToken = v;
+          });
+        });
+      } else {
+        providerFields.createEl("p", {
+          cls: "setting-item-description",
+          text: "Embedding setup is skipped."
+        });
+      }
+    };
+    new import_obsidian18.Setting(containerEl).setName("Embedding provider").addDropdown((dropdown) => {
+      dropdown.addOption("ollama", "Local Ollama");
+      dropdown.addOption("modal", "Modal (cloud)");
+      dropdown.addOption("skip", "Skip for now");
+      dropdown.setValue(provider);
+      dropdown.onChange((v) => {
+        provider = v;
+        renderProviderFields();
+      });
+    });
+    containerEl.appendChild(providerFields);
+    renderProviderFields();
+    new import_obsidian18.Setting(containerEl).setName("Chat models").setHeading();
+    const modelPickerEl = containerEl.createEl("div", { cls: "vault-mind-init-model-picker" });
+    ModelSequencePicker({
+      sequence: [primaryModel, ...fallbackSequence],
+      projectPath: this.plugin.vaultPath,
+      onSequenceChange: (seq) => {
+        if (seq.length === 0) {
+          const defaults = defaultModelRouterChoices();
+          primaryModel = defaults.primary;
+          fallbackSequence = [...defaults.fallbackSequence];
+        } else {
+          primaryModel = seq[0];
+          fallbackSequence = seq.slice(1);
+        }
+      }
+    })(modelPickerEl);
+    new import_obsidian18.Setting(containerEl).setName("Context automation").addToggle((toggle) => {
+      toggle.setValue(enableContextAutomation).onChange((v) => {
+        enableContextAutomation = v;
+      });
+    });
+    new import_obsidian18.Setting(containerEl).setName("Auto-start").setDesc("Automatically start Vault Mind for this vault on plugin load.").addToggle((toggle) => {
+      toggle.setValue(autoStart).onChange((v) => {
+        autoStart = v;
+      });
+    });
+    new import_obsidian18.Setting(containerEl).addButton(
+      (btn) => btn.setButtonText("Save configuration").setCta().onClick(async () => {
+        btn.setDisabled(true);
+        try {
+          await this.writeInitEmbeddingConfig({
+            provider,
+            ollamaUrl,
+            ollamaModel,
+            modalWorkspace,
+            modalRemoteUrl,
+            modalToken,
+            enableContextAutomation
+          });
+          this.writeModelRouterConfig(this.plugin.vaultPath, primaryModel, fallbackSequence);
+          const finalConfig = JSON.parse((0, import_node_fs3.readFileSync)(configPath, "utf-8"));
+          const vaults2 = isRecord2(finalConfig.vaults) ? finalConfig.vaults : {};
+          const vaultCfg2 = isRecord2(vaults2[vaultKey]) ? vaults2[vaultKey] : {};
+          vaultCfg2.autoStart = autoStart;
+          vaults2[vaultKey] = vaultCfg2;
+          (0, import_node_fs3.writeFileSync)(configPath, `${JSON.stringify(finalConfig, null, 2)}
+`, "utf-8");
+          this.plugin.showNotice("Configuration saved");
+        } catch (err) {
+          this.plugin.showNotice(
+            `Failed to save config: ${err instanceof Error ? err.message : String(err)}`
+          );
+        } finally {
+          btn.setDisabled(false);
+        }
+      })
+    );
+    new import_obsidian18.Setting(containerEl).setName("Personalize vault").setDesc("Run /vm personalize to finish vault setup.").addButton(
+      (btn) => btn.setButtonText("Personalize vault").onClick(() => {
+        this.plugin.pendingChatMessage = "/vm personalize";
+        void this.plugin.openPanel("chat");
+      })
+    );
   }
   display() {
     const { containerEl } = this;
@@ -9179,84 +7960,82 @@ var VaultMindSettingTab = class extends import_obsidian19.PluginSettingTab {
       import_node_path3.default.join(piDir, "agent", "npm", "node_modules", "pi-vault-mind")
     );
     this.renderInitSection(containerEl, hasExtensions);
-    new import_obsidian19.Setting(containerEl).setName("Connection").setHeading();
-    new import_obsidian19.Setting(containerEl).setName("Host").setDesc("HTTP server host").addText(
-      (text) => text.setPlaceholder("127.0.0.1").setValue(this.plugin.settings.host).onChange(async (value) => {
-        this.plugin.settings.host = value;
+    new import_obsidian18.Setting(containerEl).setName("Connection").setHeading();
+    new import_obsidian18.Setting(containerEl).setName("Host").setDesc("HTTP server host").addText(
+      (text) => text.setValue(this.plugin.settings.host).onChange(async (v) => {
+        this.plugin.settings.host = v;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian19.Setting(containerEl).setName("Port").setDesc("HTTP server port").addText(
-      (text) => text.setPlaceholder("11435").setValue(String(this.plugin.settings.port)).onChange(async (value) => {
-        const n = Number.parseInt(value, 10);
+    new import_obsidian18.Setting(containerEl).setName("Port").setDesc("HTTP server port").addText(
+      (text) => text.setValue(String(this.plugin.settings.port)).onChange(async (v) => {
+        const n = Number.parseInt(v, 10);
         this.plugin.settings.port = Number.isNaN(n) ? 11435 : n;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian19.Setting(containerEl).setName("Pi binary path").setDesc("Path to the pi executable for the chat view").addText(
-      (text) => text.setPlaceholder("pi").setValue(this.plugin.settings.piBinaryPath).onChange(async (value) => {
-        this.plugin.settings.piBinaryPath = value;
+    new import_obsidian18.Setting(containerEl).setName("Pi binary path").setDesc("Path to the pi executable for the chat view").addText(
+      (text) => text.setValue(this.plugin.settings.piBinaryPath).onChange(async (v) => {
+        this.plugin.settings.piBinaryPath = v;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian19.Setting(containerEl).setName("Check extension on startup").setDesc("Detect whether pi-vault-mind is installed in your pi session when Obsidian starts").addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.checkExtensionOnStartup).onChange(async (value) => {
-        this.plugin.settings.checkExtensionOnStartup = value;
+    new import_obsidian18.Setting(containerEl).setName("Check extension on startup").setDesc("Detect whether pi-vault-mind is installed in your pi session when Obsidian starts").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.checkExtensionOnStartup).onChange(async (v) => {
+        this.plugin.settings.checkExtensionOnStartup = v;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian19.Setting(containerEl).setName("Include editor context").setDesc("Send the active note path and selection with chat messages").addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.includeEditorContext).onChange(async (value) => {
-        this.plugin.settings.includeEditorContext = value;
+    new import_obsidian18.Setting(containerEl).setName("Include editor context").setDesc("Send the active note path and selection with chat messages").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.includeEditorContext).onChange(async (v) => {
+        this.plugin.settings.includeEditorContext = v;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian19.Setting(containerEl).setName("Include file picker").setDesc("Allow @ references in the chat input to attach vault files as context").addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.includeFilePicker).onChange(async (value) => {
-        this.plugin.settings.includeFilePicker = value;
+    new import_obsidian18.Setting(containerEl).setName("Include file picker").setDesc("Allow @ references in the chat input to attach vault files as context").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.includeFilePicker).onChange(async (v) => {
+        this.plugin.settings.includeFilePicker = v;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian19.Setting(containerEl).setName("Include slash commands").setDesc("Allow / references in the chat input to run Pi commands").addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.includeSlashCommands).onChange(async (value) => {
-        this.plugin.settings.includeSlashCommands = value;
+    new import_obsidian18.Setting(containerEl).setName("Include slash commands").setDesc("Allow / references in the chat input to run Pi commands").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.includeSlashCommands).onChange(async (v) => {
+        this.plugin.settings.includeSlashCommands = v;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian19.Setting(containerEl).setName("Resume session on startup").setDesc("Automatically resume the last chat session when opening the panel").addToggle(
-      (toggle) => toggle.setValue(this.plugin.settings.resumeSession).onChange(async (value) => {
-        this.plugin.settings.resumeSession = value;
+    new import_obsidian18.Setting(containerEl).setName("Resume session on startup").setDesc("Automatically resume the last chat session when opening the panel").addToggle(
+      (toggle) => toggle.setValue(this.plugin.settings.resumeSession).onChange(async (v) => {
+        this.plugin.settings.resumeSession = v;
         await this.plugin.saveSettings();
       })
     );
-    new import_obsidian19.Setting(containerEl).setName("Folder layout").setHeading();
-    new import_obsidian19.Setting(containerEl).setName("Inbox").setDesc("Agent input folder (default: Agent/Inbox)").addText(
-      (text) => text.setPlaceholder("Agent/Inbox").onChange(async (value) => {
-        await this.saveFolderSetting("inbox", value);
-      })
+    new import_obsidian18.Setting(containerEl).setName("Folder layout").setHeading();
+    new import_obsidian18.Setting(containerEl).setName("Inbox").setDesc("Agent input folder (default: Agent/Inbox)").addText(
+      (text) => text.setPlaceholder("Agent/Inbox").onChange(async (v) => await this.saveFolderSetting("inbox", v))
     );
-    new import_obsidian19.Setting(containerEl).setName("Library").setDesc("Knowledge output folder (default: Agent/Library)").addText(
-      (text) => text.setPlaceholder("Agent/Library").onChange(async (value) => {
-        await this.saveFolderSetting("library", value);
-      })
+    new import_obsidian18.Setting(containerEl).setName("Library").setDesc("Knowledge output folder (default: Agent/Library)").addText(
+      (text) => text.setPlaceholder("Agent/Library").onChange(async (v) => await this.saveFolderSetting("library", v))
     );
-    new import_obsidian19.Setting(containerEl).setName("Presentations").setDesc("Broadcaster output folder (default: Agent/Presentations)").addText(
-      (text) => text.setPlaceholder("Agent/Presentations").onChange(async (value) => {
-        await this.saveFolderSetting("presentations", value);
-      })
+    new import_obsidian18.Setting(containerEl).setName("Presentations").setDesc("Broadcaster output folder (default: Agent/Presentations)").addText(
+      (text) => text.setPlaceholder("Agent/Presentations").onChange(async (v) => await this.saveFolderSetting("presentations", v))
     );
-    new import_obsidian19.Setting(containerEl).setName("Journal").setDesc("Audit/checkpoint trail folder (default: Agent/Journal)").addText(
-      (text) => text.setPlaceholder("Agent/Journal").onChange(async (value) => {
-        await this.saveFolderSetting("journal", value);
-      })
+    new import_obsidian18.Setting(containerEl).setName("Journal").setDesc("Audit/checkpoint trail folder (default: Agent/Journal)").addText(
+      (text) => text.setPlaceholder("Agent/Journal").onChange(async (v) => await this.saveFolderSetting("journal", v))
     );
-    new import_obsidian19.Setting(containerEl).setName("Token storage").setHeading();
-    const tokenStatus = new import_obsidian19.Setting(containerEl).setName("API token").setDesc("Checking token source...");
-    void this.getTokenSourceDescription().then((description) => {
-      tokenStatus.setDesc(description);
-    }).catch(() => {
-      tokenStatus.setDesc("Not configured.");
-    });
+    new import_obsidian18.Setting(containerEl).setName("Token storage").setHeading();
+    const tokenStatus = new import_obsidian18.Setting(containerEl).setName("API token").setDesc("Checking token source...");
+    void this.getTokenSourceDescription().then((d) => tokenStatus.setDesc(d)).catch(() => tokenStatus.setDesc("Not configured."));
+    if (hasExtensions) {
+      this.renderReconfigureForm(containerEl);
+    } else {
+      new import_obsidian18.Setting(containerEl).setName("Vault Mind").setDesc("Vault not initialized. Run the init flow from the panel first.").addButton(
+        (btn) => btn.setButtonText("Open Vault Mind panel").setIcon("layout-template").onClick(async () => {
+          this.app.setting?.close();
+          await this.plugin.openPanel("chat");
+        })
+      );
+    }
   }
   async saveFolderSetting(key, value) {
     const token = await resolveToken(this.app);
@@ -9309,7 +8088,7 @@ var VaultMindSettingTab = class extends import_obsidian19.PluginSettingTab {
     }
   }
   renderInitSection(containerEl, configured) {
-    new import_obsidian19.Setting(containerEl).setName("Vault initialization").setHeading();
+    new import_obsidian18.Setting(containerEl).setName("Vault initialization").setHeading();
     const piBinary = detectPiBinary(this.plugin.settings.piBinaryPath, this.plugin.vaultPath);
     if (!configured && !piBinary) {
       containerEl.createEl("p", {
@@ -9352,7 +8131,7 @@ var VaultMindSettingTab = class extends import_obsidian19.PluginSettingTab {
     if (configured) {
       const version = this.getInstalledExtensionVersion();
       const statusDesc = version ? `\u2713 Initialized \u2014 extensions installed (pi-vault-mind v${version})` : "\u2713 Initialized \u2014 extensions installed";
-      new import_obsidian19.Setting(initSection).setName("Vault status").setDesc(statusDesc).addButton((btn) => {
+      new import_obsidian18.Setting(initSection).setName("Vault status").setDesc(statusDesc).addButton((btn) => {
         btn.setButtonText("Reinitialize").setIcon("refresh-cw").onClick(async () => {
           await runInitialization(btn);
         });
@@ -9364,7 +8143,7 @@ var VaultMindSettingTab = class extends import_obsidian19.PluginSettingTab {
       });
       return;
     }
-    new import_obsidian19.Setting(initSection).setName("Initialize vault").setDesc(
+    new import_obsidian18.Setting(initSection).setName("Initialize vault").setDesc(
       "Install pi-vault-mind and pi-context extensions, scaffold config, and write the system prompt."
     ).addButton((btn) => {
       btn.setButtonText("Initialize vault").setIcon("plus-circle").setCta().onClick(async () => {
@@ -9391,7 +8170,7 @@ var VaultMindSettingTab = class extends import_obsidian19.PluginSettingTab {
     const renderProviderFields = () => {
       providerFields.empty();
       if (provider === "ollama") {
-        new import_obsidian19.Setting(providerFields).setName("Ollama").setDesc("Local OpenAI-compatible endpoint and embedding model.").addText(
+        new import_obsidian18.Setting(providerFields).setName("Ollama").setDesc("Local OpenAI-compatible endpoint and embedding model.").addText(
           (text) => text.setPlaceholder(DEFAULT_OLLAMA_EMBEDDING_URL).setValue(ollamaUrl).onChange((value) => {
             ollamaUrl = value;
           })
@@ -9408,7 +8187,7 @@ var VaultMindSettingTab = class extends import_obsidian19.PluginSettingTab {
           text: "Detecting Modal CLI..."
         });
         let workspaceSetting = null;
-        new import_obsidian19.Setting(providerFields).setName("Workspace").setDesc("Your Modal workspace slug (auto-detected if modal CLI is available).").addText((text) => {
+        new import_obsidian18.Setting(providerFields).setName("Workspace").setDesc("Your Modal workspace slug (auto-detected if modal CLI is available).").addText((text) => {
           workspaceSetting = text;
           text.setPlaceholder("workspace-slug").setValue(modalWorkspace).onChange((value) => {
             modalWorkspace = value;
@@ -9420,7 +8199,7 @@ var VaultMindSettingTab = class extends import_obsidian19.PluginSettingTab {
           cls: "setting-item-description vault-mind-modal-app-status",
           text: ""
         });
-        new import_obsidian19.Setting(providerFields).setName("").addButton(
+        new import_obsidian18.Setting(providerFields).setName("").addButton(
           (btn) => btn.setButtonText("Test connection").onClick(async () => {
             const url = modalRemoteUrl || (modalWorkspace.trim() ? modalRemoteUrlForWorkspace(modalWorkspace.trim()) : "");
             if (!url) {
@@ -9511,6 +8290,8 @@ var VaultMindSettingTab = class extends import_obsidian19.PluginSettingTab {
             tokenSection.empty();
             const existingEnvToken = process.env.PVM_API_TOKEN;
             const existingResolvedToken = await resolveToken(this.app);
+            const env1passPath = import_node_path3.default.join(this.plugin.vaultPath, ".pi", "agent", ".env.1pass");
+            const hasEnvFile = (0, import_node_fs3.existsSync)(env1passPath);
             if (existingEnvToken) {
               tokenSection.createEl("p", {
                 cls: "setting-item-description vault-mind-status-ok",
@@ -9521,7 +8302,7 @@ var VaultMindSettingTab = class extends import_obsidian19.PluginSettingTab {
                 cls: "setting-item-description vault-mind-status-ok",
                 text: "\u2713 Token stored in Obsidian keychain."
               });
-              new import_obsidian19.Setting(tokenSection).setName("Replace token").setDesc(
+              new import_obsidian18.Setting(tokenSection).setName("Replace token").setDesc(
                 "Enter a new token to replace the stored one, or leave blank. op:// references are resolved via 1Password and stored in the Obsidian keychain; raw tokens are stored directly in the keychain."
               ).addText((text) => {
                 text.inputEl.type = "password";
@@ -9546,7 +8327,7 @@ var VaultMindSettingTab = class extends import_obsidian19.PluginSettingTab {
               );
               const pi1passInstalled = (0, import_node_fs3.existsSync)(pi1passDir);
               if (opBin) {
-                new import_obsidian19.Setting(tokenSection).setName("API token").setDesc(
+                new import_obsidian18.Setting(tokenSection).setName("API token").setDesc(
                   pi1passInstalled ? "Enter an op:// reference and it will be resolved via 1Password, with the actual token stored in the Obsidian keychain. Paste a raw PVM_API_TOKEN to store it directly in the keychain." : "1Password CLI detected. op:// references will be resolved and the token stored in the Obsidian keychain; raw tokens are stored directly. If 1Password is unavailable, the op:// reference falls back to .env.1pass."
                 ).addText((text) => {
                   text.inputEl.type = "password";
@@ -9555,7 +8336,7 @@ var VaultMindSettingTab = class extends import_obsidian19.PluginSettingTab {
                   });
                 });
               } else {
-                new import_obsidian19.Setting(tokenSection).setName("API token").setDesc(
+                new import_obsidian18.Setting(tokenSection).setName("API token").setDesc(
                   "Paste your PVM_API_TOKEN. Stored in Obsidian's secure keychain \u2014 never written to disk in plaintext."
                 ).addText((text) => {
                   text.inputEl.type = "password";
@@ -9567,7 +8348,7 @@ var VaultMindSettingTab = class extends import_obsidian19.PluginSettingTab {
             }
           } catch {
             tokenSection.empty();
-            new import_obsidian19.Setting(tokenSection).setName("API token").setDesc("Paste your PVM_API_TOKEN.").addText((text) => {
+            new import_obsidian18.Setting(tokenSection).setName("API token").setDesc("Paste your PVM_API_TOKEN.").addText((text) => {
               text.inputEl.type = "password";
               text.setPlaceholder("PVM_API_TOKEN").setValue(modalToken).onChange((v) => {
                 modalToken = v;
@@ -9582,7 +8363,7 @@ var VaultMindSettingTab = class extends import_obsidian19.PluginSettingTab {
         text: "Embedding setup will be skipped for now."
       });
     };
-    new import_obsidian19.Setting(configSection).setName("Embedding provider").setDesc("Choose where Vault Mind should send embedding requests.").addDropdown((dropdown) => {
+    new import_obsidian18.Setting(configSection).setName("Embedding provider").setDesc("Choose where Vault Mind should send embedding requests.").addDropdown((dropdown) => {
       dropdown.addOption("ollama", "Local Ollama");
       dropdown.addOption("modal", "Modal (cloud)");
       dropdown.addOption("skip", "Skip for now");
@@ -9594,24 +8375,25 @@ var VaultMindSettingTab = class extends import_obsidian19.PluginSettingTab {
     });
     configSection.appendChild(providerFields);
     renderProviderFields();
-    new import_obsidian19.Setting(configSection).setName("Chat models").setHeading();
-    new import_obsidian19.Setting(configSection).setName("Primary chat model").setDesc(
-      "Default model the model router will use for chat. Examples: ollama/gemma4:12b-mlx, ollama/gemma4:31b-cloud."
-    ).addText(
-      (text) => text.setPlaceholder(defaultPrimaryModel).setValue(primaryModel).onChange((value) => {
-        primaryModel = value.trim() || defaultPrimaryModel;
-      })
-    );
-    new import_obsidian19.Setting(configSection).setName("Fallback model sequence").setDesc(
-      "Comma-separated fallback models used when the primary model is rate-limited or unavailable. The wildcard ollama/* means any available Ollama model."
-    ).addTextArea((text) => {
-      text.setPlaceholder(defaultFallbackSequence.join(", "));
-      text.setValue(fallbackSequence.join(", "));
-      text.onChange((value) => {
-        fallbackSequence = value.split(",").map((m) => m.trim()).filter(Boolean);
-      });
+    new import_obsidian18.Setting(configSection).setName("Chat models").setHeading();
+    const modelPickerEl = configSection.createEl("div", {
+      cls: "vault-mind-init-model-picker"
     });
-    new import_obsidian19.Setting(configSection).setName("Context automation").setDesc("Enable pi-context ACM after setup.").addToggle(
+    ModelSequencePicker({
+      sequence: [primaryModel, ...fallbackSequence],
+      projectPath: this.plugin.vaultPath,
+      onSequenceChange: (seq) => {
+        if (seq.length === 0) {
+          const defaults = defaultModelRouterChoices();
+          primaryModel = defaults.primary;
+          fallbackSequence = [...defaults.fallbackSequence];
+        } else {
+          primaryModel = seq[0];
+          fallbackSequence = seq.slice(1);
+        }
+      }
+    })(modelPickerEl);
+    new import_obsidian18.Setting(configSection).setName("Context automation").setDesc("Enable pi-context ACM after setup.").addToggle(
       (toggle) => toggle.setValue(enableContextAutomation).onChange((value) => {
         enableContextAutomation = value;
       })
@@ -9646,7 +8428,7 @@ var VaultMindSettingTab = class extends import_obsidian19.PluginSettingTab {
   async writeInitEmbeddingConfig(options) {
     const configPath = import_node_path3.default.join(this.plugin.vaultPath, "pi-vault-mind.config.json");
     const config = (0, import_node_fs3.existsSync)(configPath) ? JSON.parse((0, import_node_fs3.readFileSync)(configPath, "utf-8")) : {};
-    const vaultMind = isRecord(config.vaultMind) ? config.vaultMind : {};
+    const vaultMind = isRecord2(config.vaultMind) ? config.vaultMind : {};
     const embedding = {};
     if (options.provider === "ollama") {
       embedding.localUrl = options.ollamaUrl.trim() || DEFAULT_OLLAMA_EMBEDDING_URL;
@@ -9669,8 +8451,8 @@ var VaultMindSettingTab = class extends import_obsidian19.PluginSettingTab {
     }
     vaultMind.embedding = embedding;
     config.vaultMind = vaultMind;
-    const extensionCompatibility = isRecord(config.extensionCompatibility) ? config.extensionCompatibility : {};
-    const currentPiContext = isRecord(extensionCompatibility["pi-context"]) ? extensionCompatibility["pi-context"] : {};
+    const extensionCompatibility = isRecord2(config.extensionCompatibility) ? config.extensionCompatibility : {};
+    const currentPiContext = isRecord2(extensionCompatibility["pi-context"]) ? extensionCompatibility["pi-context"] : {};
     extensionCompatibility["pi-context"] = {
       tagPatterns: [],
       enhanceInjectors: false,
@@ -9849,14 +8631,14 @@ var VaultMindSettingTab = class extends import_obsidian19.PluginSettingTab {
     const configPath = import_node_path3.default.join(vaultPath, ".pi", "model-router.json");
     if (!(0, import_node_fs3.existsSync)(configPath)) return;
     const config = JSON.parse((0, import_node_fs3.readFileSync)(configPath, "utf-8"));
-    const profiles = isRecord(config.profiles) ? config.profiles : {};
-    const auto = isRecord(profiles.auto) ? profiles.auto : {};
-    const medium = isRecord(auto.medium) ? auto.medium : {};
+    const profiles = isRecord2(config.profiles) ? config.profiles : {};
+    const auto = isRecord2(profiles.auto) ? profiles.auto : {};
+    const medium = isRecord2(auto.medium) ? auto.medium : {};
     medium.model = primaryModel;
     auto.medium = medium;
     profiles.auto = auto;
     config.profiles = profiles;
-    const rateLimitFallback = isRecord(config.rateLimitFallback) ? config.rateLimitFallback : {};
+    const rateLimitFallback = isRecord2(config.rateLimitFallback) ? config.rateLimitFallback : {};
     rateLimitFallback.fallbackSequence = fallbackSequence;
     config.rateLimitFallback = rateLimitFallback;
     (0, import_node_fs3.writeFileSync)(configPath, `${JSON.stringify(config, null, 2)}
@@ -9890,17 +8672,17 @@ var VaultMindSettingTab = class extends import_obsidian19.PluginSettingTab {
     });
     const iconEl = step.createEl("span", { cls: "vault-mind-init-step-icon" });
     const icon = status === "done" ? "check" : status === "error" ? "x" : "loader";
-    (0, import_obsidian19.setIcon)(iconEl, icon);
+    (0, import_obsidian18.setIcon)(iconEl, icon);
     step.createEl("span", { text });
     return step;
   }
   markDone(step) {
     step.classList.replace("vault-mind-init-step-active", "vault-mind-init-step-done");
     const icon = step.querySelector(".vault-mind-init-step-icon");
-    if (icon) (0, import_obsidian19.setIcon)(icon, "check");
+    if (icon) (0, import_obsidian18.setIcon)(icon, "check");
   }
 };
-var VaultMindPlugin = class extends import_obsidian19.Plugin {
+var VaultMindPlugin = class extends import_obsidian18.Plugin {
   editorContext = { filePath: null, cursor: null, selection: null };
   connectionState = { connected: false, error: false };
   statusBarItem = null;
@@ -9909,7 +8691,7 @@ var VaultMindPlugin = class extends import_obsidian19.Plugin {
   activeNotices = [];
   contextPushTimer = null;
   async onload() {
-    (0, import_obsidian19.addIcon)("vault-mind", VAULT_MIND_ICON);
+    (0, import_obsidian18.addIcon)("vault-mind", VAULT_MIND_ICON);
     for (const staleType of [
       "pi-chat-view",
       "vault-mind-chat",
@@ -9929,15 +8711,15 @@ var VaultMindPlugin = class extends import_obsidian19.Plugin {
     await this.loadSettings();
     const rawData = await this.loadData() ?? {};
     const savedData = this.withoutLegacyToken(rawData);
-    if (isRecord(rawData) && "token" in rawData) {
+    if (isRecord2(rawData) && "token" in rawData) {
       await this.saveData(savedData);
     }
     this.messageStore = new MessageStore();
     this.messageStore.load(savedData.messages ?? null);
     this.registerEditorExtension(
-      import_view2.EditorView.updateListener.of((update) => {
+      import_view.EditorView.updateListener.of((update) => {
         if (!update.selectionSet) return;
-        const info = update.state.field(import_obsidian19.editorInfoField, false);
+        const info = update.state.field(import_obsidian18.editorInfoField, false);
         const activeFile = this.app.workspace.getActiveFile();
         if (!info?.file || activeFile?.path !== info.file.path) {
           return;
@@ -9951,7 +8733,7 @@ var VaultMindPlugin = class extends import_obsidian19.Plugin {
     );
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
-        const active = this.app.workspace.getActiveViewOfType(import_obsidian19.MarkdownView);
+        const active = this.app.workspace.getActiveViewOfType(import_obsidian18.MarkdownView);
         if (!active?.file) {
           this.editorContext.filePath = null;
           this.editorContext.cursor = null;
@@ -10018,7 +8800,7 @@ var VaultMindPlugin = class extends import_obsidian19.Plugin {
         void this.openPanel("chat");
       }
     });
-    (0, import_obsidian19.setIcon)(ribbonIconEl, "vault-mind");
+    (0, import_obsidian18.setIcon)(ribbonIconEl, "vault-mind");
     this.addCommand({
       id: "open-panel",
       name: "Open panel",
@@ -10049,6 +8831,11 @@ var VaultMindPlugin = class extends import_obsidian19.Plugin {
       name: "Scan current file for @agent markers",
       callback: () => void this.runScanCurrentFile()
     });
+    this.addCommand({
+      id: "ingest-current-note",
+      name: "Ingest current note into vault collection",
+      callback: () => void this.runIngestCurrentNote()
+    });
     this.addSettingTab(new VaultMindSettingTab(this.app, this));
     registerVaultMindProtocolHandlers(this);
   }
@@ -10059,7 +8846,7 @@ var VaultMindPlugin = class extends import_obsidian19.Plugin {
   }
   /** Create a Notice tracked for cleanup. Auto-dismisses after timeout (default 5s). */
   showNotice(message, timeout = 5e3) {
-    const notice = new import_obsidian19.Notice(`Vault Mind: ${message}`, timeout);
+    const notice = new import_obsidian18.Notice(`Vault Mind: ${message}`, timeout);
     this.activeNotices.push(notice);
     activeWindow.setTimeout(() => {
       const idx = this.activeNotices.indexOf(notice);
@@ -10187,8 +8974,28 @@ var VaultMindPlugin = class extends import_obsidian19.Plugin {
       this.showNotice(`Found ${result.groups} @agent group(s): ${roles}`);
     }
   }
+  async runIngestCurrentNote() {
+    const activeFile = this.app.workspace.getActiveFile();
+    if (!activeFile) {
+      this.showNotice("No active file");
+      return;
+    }
+    const content = await this.app.vault.cachedRead(activeFile);
+    if (!content.trim()) {
+      this.showNotice("Active note is empty");
+      return;
+    }
+    const source = content.slice(0, 8e3);
+    const path6 = activeFile.path;
+    this.pendingChatMessage = `Ingest the following note into the vault collection "main" using vm_ingest:
+
+<file path="${path6}">
+${source}
+</file>`;
+    await this.openPanel("chat");
+  }
   withoutLegacyToken(data) {
-    if (!isRecord(data)) return {};
+    if (!isRecord2(data)) return {};
     const existing = {};
     for (const [key, value] of Object.entries(data)) {
       if (key !== "token") existing[key] = value;

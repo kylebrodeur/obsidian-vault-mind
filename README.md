@@ -88,9 +88,10 @@ from the plugin directory.
 - Plugin scaffold patterns inspired by
   [`RAIT-09/obsidian-agent-client`](https://github.com/RAIT-09/obsidian-agent-client)
   (Apache-2.0).
-- Chat view forked from
+- Chat view originally forked from
   [`gengyabc/obsidian-pi-plugin`](https://github.com/gengyabc/obsidian-pi-plugin)
-  (MIT). See `THIRD_PARTY_NOTICES.md`.
+  (MIT). See `THIRD_PARTY_NOTICES.md`. **This renderer is being replaced in P1.7**
+  with an Arrow-native implementation; the RPC/session backend from this fork is retained.
 
 ## License
 
