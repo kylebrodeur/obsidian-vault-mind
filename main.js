@@ -36,6 +36,30 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 function getEnv1PassPath(vaultPath) {
   return import_node_path.default.join(vaultPath, ".vault-mind", ".env.1pass");
 }
+function getVaultMindConfigPath(vaultPath) {
+  return import_node_path.default.join(vaultPath, ".vault-mind", "vault-mind.config.json");
+}
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function readVaultMindConfig(vaultPath) {
+  const configPath = getVaultMindConfigPath(vaultPath);
+  try {
+    if (!(0, import_node_fs.existsSync)(configPath)) return void 0;
+    const raw = (0, import_node_fs.readFileSync)(configPath, "utf-8");
+    const parsed = JSON.parse(raw);
+    return isRecord(parsed) ? parsed : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function getServerStatePath(vaultPath) {
+  const cfg = readVaultMindConfig(vaultPath);
+  const vaultMind = cfg && isRecord(cfg.vaultMind) ? cfg.vaultMind : void 0;
+  const files = vaultMind && isRecord(vaultMind.files) ? vaultMind.files : void 0;
+  const configured = files && typeof files.serverState === "string" ? files.serverState : void 0;
+  return import_node_path.default.join(vaultPath, configured || DEFAULT_SERVER_STATE_REL);
+}
 function resolveOpEnvArgs(vaultPath) {
   if (!(0, import_node_fs.existsSync)(getEnv1PassPath(vaultPath))) return [];
   const pi1passDir = import_node_path.default.join(
@@ -48,7 +72,7 @@ function resolveOpEnvArgs(vaultPath) {
   return ["--op-env", ENV_1PASS_REL];
 }
 function readServerPort(vaultPath) {
-  const serverJsonPath = import_node_path.default.join(vaultPath, ".vault-mind", "server.json");
+  const serverJsonPath = getServerStatePath(vaultPath);
   try {
     const raw = (0, import_node_fs.readFileSync)(serverJsonPath, "utf-8");
     const data = JSON.parse(raw);
@@ -58,31 +82,32 @@ function readServerPort(vaultPath) {
     return void 0;
   }
 }
-var import_node_fs, import_node_path, ENV_1PASS_REL, resolvePluginAgentDir;
+var import_node_fs, import_node_path, ENV_1PASS_REL, resolvePluginAgentDir, DEFAULT_SERVER_STATE_REL;
 var init_config = __esm({
   "src/config.ts"() {
     import_node_fs = require("node:fs");
     import_node_path = __toESM(require("node:path"), 1);
     ENV_1PASS_REL = ".vault-mind/.env.1pass";
     resolvePluginAgentDir = (vaultPath) => import_node_path.default.join(vaultPath, ".vault-mind", ".pi", "agent");
+    DEFAULT_SERVER_STATE_REL = ".vault-mind/server.json";
   }
 });
 
 // src/pi-detect.ts
 function resolvePnpmHome() {
   if (process.env.PNPM_HOME) return process.env.PNPM_HOME;
-  if (process.platform === "darwin") return path2.join(os.homedir(), "Library", "pnpm");
-  return path2.join(os.homedir(), ".local", "share", "pnpm");
+  if (process.platform === "darwin") return path3.join(os.homedir(), "Library", "pnpm");
+  return path3.join(os.homedir(), ".local", "share", "pnpm");
 }
 function detectFnm() {
-  const fnmRoot = path2.join(os.homedir(), ".local", "share", "fnm");
-  if (!fs.existsSync(fnmRoot)) return null;
-  const binDir = path2.join(fnmRoot, "aliases", "default", "bin");
-  const node = path2.join(binDir, "node");
-  if (!fs.existsSync(node)) return null;
+  const fnmRoot = path3.join(os.homedir(), ".local", "share", "fnm");
+  if (!fs2.existsSync(fnmRoot)) return null;
+  const binDir = path3.join(fnmRoot, "aliases", "default", "bin");
+  const node = path3.join(binDir, "node");
+  if (!fs2.existsSync(node)) return null;
   return {
     node,
-    pnpm: fs.existsSync(path2.join(binDir, "pnpm")) ? path2.join(binDir, "pnpm") : null,
+    pnpm: fs2.existsSync(path3.join(binDir, "pnpm")) ? path3.join(binDir, "pnpm") : null,
     binDir,
     source: "fnm",
     pnpmHome: resolvePnpmHome()
@@ -90,13 +115,13 @@ function detectFnm() {
 }
 function resolveNvmDir() {
   if (process.env.NVM_DIR) return process.env.NVM_DIR;
-  if (process.env.XDG_CONFIG_HOME) return path2.join(process.env.XDG_CONFIG_HOME, "nvm");
-  return path2.join(os.homedir(), ".nvm");
+  if (process.env.XDG_CONFIG_HOME) return path3.join(process.env.XDG_CONFIG_HOME, "nvm");
+  return path3.join(os.homedir(), ".nvm");
 }
 function detectNvm() {
   const nvmDir = resolveNvmDir();
-  const nvmScript = path2.join(nvmDir, "nvm.sh");
-  if (!fs.existsSync(nvmScript)) return null;
+  const nvmScript = path3.join(nvmDir, "nvm.sh");
+  if (!fs2.existsSync(nvmScript)) return null;
   try {
     const node = (0, import_node_child_process.execFileSync)(
       "/bin/bash",
@@ -113,11 +138,11 @@ function detectNvm() {
         timeout: 5e3
       }
     ).trim();
-    if (!node || !path2.isAbsolute(node) || !fs.existsSync(node)) return null;
-    const binDir = path2.dirname(node);
+    if (!node || !path3.isAbsolute(node) || !fs2.existsSync(node)) return null;
+    const binDir = path3.dirname(node);
     return {
       node,
-      pnpm: fs.existsSync(path2.join(binDir, "pnpm")) ? path2.join(binDir, "pnpm") : null,
+      pnpm: fs2.existsSync(path3.join(binDir, "pnpm")) ? path3.join(binDir, "pnpm") : null,
       binDir,
       source: "nvm",
       pnpmHome: resolvePnpmHome(),
@@ -130,9 +155,9 @@ function detectNvm() {
 }
 function detectFallback() {
   const pnpmHome = resolvePnpmHome();
-  if (fs.existsSync(path2.join(pnpmHome, "pnpm")) || fs.existsSync(path2.join(pnpmHome, "pi"))) {
+  if (fs2.existsSync(path3.join(pnpmHome, "pnpm")) || fs2.existsSync(path3.join(pnpmHome, "pi"))) {
     return {
-      pnpm: path2.join(pnpmHome, "pnpm"),
+      pnpm: path3.join(pnpmHome, "pnpm"),
       node: null,
       binDir: pnpmHome,
       source: "PNPM_HOME",
@@ -155,7 +180,7 @@ function buildExecPath() {
   }
   const pnpmHome = resolvePnpmHome();
   if (!dirs.includes(pnpmHome)) dirs.push(pnpmHome);
-  const homeLocalBin = path2.join(os.homedir(), ".local", "bin");
+  const homeLocalBin = path3.join(os.homedir(), ".local", "bin");
   dirs.push(
     homeLocalBin,
     "/opt/homebrew/bin",
@@ -183,47 +208,47 @@ function buildExecEnv() {
 }
 function detectOpBinary() {
   const candidates = [
-    path2.join(os.homedir(), ".local", "bin", "op"),
+    path3.join(os.homedir(), ".local", "bin", "op"),
     "/opt/homebrew/bin/op",
     "/usr/local/bin/op",
     "/usr/bin/op"
   ];
   for (const c of candidates) {
-    if (fs.existsSync(c)) return c;
+    if (fs2.existsSync(c)) return c;
   }
   return findInPath("op");
 }
 function detectPiBinary(configured, vaultPath) {
-  if (path2.isAbsolute(configured) && fs.existsSync(configured)) {
+  if (path3.isAbsolute(configured) && fs2.existsSync(configured)) {
     return configured;
   }
   const pathHit = findInPath("pi");
   if (pathHit) return pathHit;
   const home = os.homedir();
-  const pnpmHome = process.env.PNPM_HOME || (process.platform === "darwin" ? path2.join(home, "Library", "pnpm") : path2.join(home, ".local", "share", "pnpm"));
+  const pnpmHome = process.env.PNPM_HOME || (process.platform === "darwin" ? path3.join(home, "Library", "pnpm") : path3.join(home, ".local", "share", "pnpm"));
   const candidates = [
     // System npm global installs (base case — no version manager)
     "/usr/local/bin/pi",
     "/opt/homebrew/bin/pi",
-    path2.join(home, ".npm-global", "bin", "pi"),
-    path2.join(home, ".local", "bin", "pi"),
+    path3.join(home, ".npm-global", "bin", "pi"),
+    path3.join(home, ".local", "bin", "pi"),
     // pnpm global (PNPM_HOME)
-    path2.join(pnpmHome, "pi")
+    path3.join(pnpmHome, "pi")
   ];
   const runtimeBin = detectRuntime()?.binDir ?? null;
   const nodeBin = runtimeBin;
   if (nodeBin && nodeBin !== "/usr/local/bin" && nodeBin !== "/opt/homebrew/bin") {
-    candidates.push(path2.join(nodeBin, "pi"));
+    candidates.push(path3.join(nodeBin, "pi"));
   }
   candidates.push(
     // Less common locations
-    path2.join(home, ".pi", "bin", "pi")
+    path3.join(home, ".pi", "bin", "pi")
   );
   if (vaultPath) {
-    candidates.unshift(path2.join(vaultPath, "node_modules", ".bin", "pi"));
+    candidates.unshift(path3.join(vaultPath, "node_modules", ".bin", "pi"));
   }
   for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) {
+    if (fs2.existsSync(candidate)) {
       return candidate;
     }
   }
@@ -232,22 +257,22 @@ function detectPiBinary(configured, vaultPath) {
 function findInPath(name) {
   const suffix = process.platform === "win32" ? ".exe" : "";
   const fullName = `${name}${suffix}`;
-  for (const dir of buildExecPath().split(path2.delimiter)) {
+  for (const dir of buildExecPath().split(path3.delimiter)) {
     if (!dir) continue;
-    const candidate = path2.join(dir, fullName);
-    if (fs.existsSync(candidate)) {
+    const candidate = path3.join(dir, fullName);
+    if (fs2.existsSync(candidate)) {
       return candidate;
     }
   }
   return null;
 }
-var import_node_child_process, fs, os, path2;
+var import_node_child_process, fs2, os, path3;
 var init_pi_detect = __esm({
   "src/pi-detect.ts"() {
     import_node_child_process = require("node:child_process");
-    fs = __toESM(require("node:fs"), 1);
+    fs2 = __toESM(require("node:fs"), 1);
     os = __toESM(require("node:os"), 1);
-    path2 = __toESM(require("node:path"), 1);
+    path3 = __toESM(require("node:path"), 1);
   }
 });
 
@@ -22372,7 +22397,7 @@ var init_bootstrap = __esm({
     init_config();
     init_extension_packages();
     init_pi_detect();
-    BUNDLED_PROJECT_VERSION = true ? "0.16.3" : projectPackage.version;
+    BUNDLED_PROJECT_VERSION = true ? "0.16.5" : projectPackage.version;
     VaultBootstrap = class {
       vaultPath;
       piBinaryPath;
@@ -22408,7 +22433,7 @@ var init_bootstrap = __esm({
         return text.replace(/([a-zA-Z0-9]{20,})/g, "[REDACTED]").replace(/Users\/[a-zA-Z0-9.-]+\//g, "USER_HOME/");
       }
       async installPackage(id, source, signal) {
-        const { promise, resolve, reject } = Promise.withResolvers();
+        const { promise, resolve: resolve2, reject } = Promise.withResolvers();
         const child = (0, import_node_child_process2.spawn)(this.piBinaryPath, ["install", source], {
           env: this.getEnv(),
           cwd: this.vaultPath
@@ -22424,7 +22449,7 @@ var init_bootstrap = __esm({
         });
         child.on("exit", (code) => {
           if (code === 0) {
-            resolve();
+            resolve2();
           } else {
             reject(new Error(`pi install exited with code ${code}: ${this.redact(stderr)}`));
           }
@@ -22798,7 +22823,7 @@ var PiConnection = class {
     const id = `req-${this.requestId++}`;
     const line = `${JSON.stringify({ ...command, id })}
 `;
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve2, reject) => {
       const timeoutId = window.setTimeout(() => {
         if (this.pendingRequests.has(id)) {
           this.pendingRequests.delete(id);
@@ -22808,7 +22833,7 @@ var PiConnection = class {
       this.pendingRequests.set(id, {
         resolve: (value) => {
           window.clearTimeout(timeoutId);
-          resolve(value);
+          resolve2(value);
         },
         reject: (reason) => {
           window.clearTimeout(timeoutId);
@@ -22909,8 +22934,8 @@ var PiConnection = class {
     }
     const restartGeneration = ++this.restartGeneration;
     this.intentionallyDestroyed = true;
-    const { promise, resolve } = Promise.withResolvers();
-    const resolveAfterCleanup = () => resolve();
+    const { promise, resolve: resolve2 } = Promise.withResolvers();
+    const resolveAfterCleanup = () => resolve2();
     childProcess.once("exit", resolveAfterCleanup);
     childProcess.once("error", resolveAfterCleanup);
     childProcess.kill();
@@ -23046,8 +23071,8 @@ var PiConnection = class {
 // src/chat/startFreshRuntime.ts
 var defaultDelayer = {
   wait(ms) {
-    const { promise, resolve } = Promise.withResolvers();
-    globalThis.setTimeout(resolve, ms);
+    const { promise, resolve: resolve2 } = Promise.withResolvers();
+    globalThis.setTimeout(resolve2, ms);
     return promise;
   }
 };
@@ -23076,6 +23101,292 @@ async function startFreshRuntime(connection, delayer = defaultDelayer, options =
     }
   }
   await connection.send({ type: "prompt", message: "/vm server start" });
+}
+
+// src/chat/ensureVaultRuntime.ts
+var fs = __toESM(require("node:fs"), 1);
+var path2 = __toESM(require("node:path"), 1);
+init_config();
+async function canonicalizeVaultPath(p) {
+  try {
+    return await fs.promises.realpath(p);
+  } catch {
+    return path2.resolve(p);
+  }
+}
+async function ensureVaultRuntime(deps) {
+  const promise = (async () => {
+    await deps.acquireLock();
+    const canonicalVaultPath = await canonicalizeVaultPath(deps.vaultPath);
+    try {
+      const discovery = await deps.readDiscovery();
+      if (discovery) {
+        const alive = await deps.isProcessAlive();
+        if (alive) {
+          const health = await deps.probe({
+            port: discovery.port,
+            token: discovery.token
+          });
+          if (health.ok && health.vaultPath) {
+            const healthVaultPath = await canonicalizeVaultPath(health.vaultPath);
+            if (healthVaultPath === canonicalVaultPath) {
+              const pid = health.pid ?? discovery.pid;
+              const port = health.port ?? discovery.port;
+              return { adopted: true, port, pid };
+            }
+            throw new Error(
+              `Discovery conflict: existing runtime serves ${health.vaultPath} but this vault is ${deps.vaultPath}`
+            );
+          }
+        }
+      }
+      await deps.spawnAndStart();
+      const deadline = Date.now() + 5e3;
+      while (Date.now() < deadline) {
+        const latest = await deps.readDiscovery();
+        if (latest && latest.port && latest.pid) {
+          const health = await deps.probe({
+            port: latest.port,
+            token: latest.token
+          });
+          if (health.ok && health.vaultPath) {
+            const healthVaultPath = await canonicalizeVaultPath(health.vaultPath);
+            if (healthVaultPath === canonicalVaultPath) {
+              return {
+                adopted: false,
+                port: latest.port,
+                pid: latest.pid
+              };
+            }
+            throw new Error(
+              `Discovery conflict: runtime at ${latest.port} serves ${health.vaultPath} but this vault is ${deps.vaultPath}`
+            );
+          }
+        }
+        const { promise: promise2, resolve: resolve2 } = Promise.withResolvers();
+        setTimeout(resolve2, 100);
+        await promise2;
+      }
+      throw new Error(
+        `Spawned runtime for ${deps.vaultPath} did not become healthy within 5s`
+      );
+    } finally {
+      await deps.releaseLock();
+    }
+  })();
+  return promise;
+}
+function createVaultRuntimeLock(vaultPath, options = {}) {
+  const retryDelayMs = options.retryDelayMs ?? 100;
+  const timeoutMs = options.timeoutMs ?? 3e4;
+  const staleThresholdMs = options.staleThresholdMs ?? 5e3;
+  const lockDir = path2.join(vaultPath, ".vault-mind", "runtime-lock");
+  const ownerPath = path2.join(lockDir, "owner.json");
+  const recoveryDir = path2.join(vaultPath, ".vault-mind", "runtime-lock-recovery");
+  const recoveryOwnerPath = path2.join(recoveryDir, "owner.json");
+  let heldToken;
+  const ownerState = async () => {
+    try {
+      const raw = await fs.promises.readFile(ownerPath, "utf-8");
+      const data = JSON.parse(raw);
+      if (!data.pid) return "malformed-metadata";
+      if (data.pid === process.pid) return "live-same-process";
+      try {
+        process.kill(data.pid, 0);
+        return "live-other-process";
+      } catch {
+        return "dead";
+      }
+    } catch {
+      return "missing-metadata";
+    }
+  };
+  const directoryIsStale = async () => {
+    try {
+      const stat = await fs.promises.stat(lockDir);
+      return Date.now() - stat.mtimeMs > staleThresholdMs;
+    } catch {
+      return true;
+    }
+  };
+  const withRecoveryLock = async (operation) => {
+    await fs.promises.mkdir(path2.dirname(recoveryDir), { recursive: true });
+    let acquired = false;
+    const recoveryDeadline = Date.now() + timeoutMs;
+    while (Date.now() < recoveryDeadline) {
+      try {
+        await fs.promises.mkdir(recoveryDir);
+        const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        await fs.promises.writeFile(
+          recoveryOwnerPath,
+          JSON.stringify({ pid: process.pid, token, acquiredAt: Date.now() }),
+          { encoding: "utf-8", mode: 384 }
+        );
+        acquired = true;
+        break;
+      } catch (err) {
+        const code = err.code;
+        if (code !== "EEXIST") throw err;
+        let recoveryStale = false;
+        try {
+          const raw = await fs.promises.readFile(recoveryOwnerPath, "utf-8");
+          const data = JSON.parse(raw);
+          if (!data.pid) {
+            recoveryStale = true;
+          } else if (data.pid === process.pid) {
+            recoveryStale = false;
+          } else {
+            try {
+              process.kill(data.pid, 0);
+              recoveryStale = false;
+            } catch {
+              recoveryStale = true;
+            }
+          }
+        } catch {
+          recoveryStale = true;
+        }
+        if (recoveryStale) {
+          try {
+            await fs.promises.rm(recoveryDir, { recursive: true, force: true });
+          } catch {
+          }
+          continue;
+        }
+        const { promise, resolve: resolve2 } = Promise.withResolvers();
+        setTimeout(resolve2, retryDelayMs);
+        await promise;
+      }
+    }
+    if (!acquired) {
+      throw new Error(`Timed out acquiring recovery lock at ${recoveryDir}`);
+    }
+    try {
+      await operation();
+    } finally {
+      try {
+        await fs.promises.rm(recoveryDir, { recursive: true, force: true });
+      } catch {
+      }
+    }
+  };
+  const breakStaleLock = async () => {
+    await withRecoveryLock(async () => {
+      const currentState = await ownerState();
+      if (currentState === "live-same-process" || currentState === "live-other-process") {
+        return;
+      }
+      if (currentState === "missing-metadata" || currentState === "malformed-metadata") {
+        if (!await directoryIsStale()) {
+          return;
+        }
+      }
+      const tombstone = `${lockDir}.stale.${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      try {
+        await fs.promises.rename(lockDir, tombstone);
+        await fs.promises.rm(tombstone, { recursive: true, force: true });
+      } catch (err) {
+        const code = err.code;
+        if (code === "ENOENT") {
+          return;
+        }
+      }
+    });
+  };
+  const acquire = async () => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      try {
+        await fs.promises.mkdir(path2.dirname(lockDir), { recursive: true });
+        await fs.promises.mkdir(lockDir);
+        const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        heldToken = token;
+        await fs.promises.writeFile(
+          ownerPath,
+          JSON.stringify({ pid: process.pid, token, acquiredAt: Date.now() }),
+          { encoding: "utf-8", mode: 384 }
+        );
+        return;
+      } catch (err) {
+        const code = err.code;
+        if (code === "EEXIST") {
+          const state = await ownerState();
+          if (state === "dead") {
+            await breakStaleLock();
+            continue;
+          }
+          if (state === "live-same-process" || state === "live-other-process") {
+            const { promise: promise2, resolve: resolve3 } = Promise.withResolvers();
+            setTimeout(resolve3, retryDelayMs);
+            await promise2;
+            continue;
+          }
+          if (await directoryIsStale()) {
+            await breakStaleLock();
+            continue;
+          }
+          const { promise, resolve: resolve2 } = Promise.withResolvers();
+          setTimeout(resolve2, retryDelayMs);
+          await promise;
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error(`Timed out acquiring vault runtime lock at ${lockDir}`);
+  };
+  const release = async () => {
+    const token = heldToken;
+    heldToken = void 0;
+    if (!token) return;
+    try {
+      const raw = await fs.promises.readFile(ownerPath, "utf-8");
+      const data = JSON.parse(raw);
+      if (data.token === token) {
+        await fs.promises.unlink(ownerPath);
+        await fs.promises.rmdir(lockDir).catch(() => {
+        });
+      }
+    } catch {
+    }
+  };
+  return { acquire, release };
+}
+async function readVaultDiscovery(vaultPath) {
+  const serverJsonPath = getServerStatePath(vaultPath);
+  try {
+    const raw = await fs.promises.readFile(serverJsonPath, "utf-8");
+    const data = JSON.parse(raw);
+    const port = typeof data.port === "number" && Number.isFinite(data.port) ? data.port : void 0;
+    const pid = typeof data.pid === "number" && Number.isFinite(data.pid) ? data.pid : void 0;
+    if (port === void 0 || pid === void 0) return void 0;
+    return {
+      port,
+      pid,
+      token: typeof data.token === "string" ? data.token : void 0
+    };
+  } catch {
+    return void 0;
+  }
+}
+async function probeVaultHealth(args) {
+  const url = new URL("/vm/status", `http://${args.host}:${args.port}`);
+  try {
+    const response = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${args.token}` }
+    });
+    if (!response.ok) {
+      return { ok: false };
+    }
+    const body = await response.json();
+    const vaultPath = typeof body.vaultPath === "string" ? body.vaultPath : void 0;
+    const pid = typeof body.pid === "number" ? body.pid : void 0;
+    const server = body.server;
+    const port = typeof server === "object" && server !== null && typeof server.port === "number" ? server.port : args.port;
+    return { ok: body.ok === true, vaultPath, pid, port };
+  } catch {
+    return { ok: false };
+  }
 }
 
 // src/client.ts
@@ -23183,8 +23494,8 @@ var VaultMindClient = class {
     }, this.reconnectDelay);
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, 3e4);
   }
-  async httpJson(method, path7, body) {
-    const res = await fetch(`${this.baseUrl}${path7}`, {
+  async httpJson(method, path8, body) {
+    const res = await fetch(`${this.baseUrl}${path8}`, {
       method,
       headers: this.authHeaders,
       body: body ? JSON.stringify(body) : void 0
@@ -23492,9 +23803,9 @@ var DiffModal = class extends import_obsidian3.Modal {
   oldContent;
   newContent;
   onAccept;
-  constructor(app, { path: path7, old, new: newContent }, onAccept) {
+  constructor(app, { path: path8, old, new: newContent }, onAccept) {
     super(app);
-    this.path = path7;
+    this.path = path8;
     this.oldContent = old;
     this.newContent = newContent;
     this.onAccept = onAccept;
@@ -23523,32 +23834,32 @@ var DiffModal = class extends import_obsidian3.Modal {
 };
 function registerVaultMindProtocolHandlers(plugin) {
   plugin.registerObsidianProtocolHandler("vault-mind/open-file", (params) => {
-    const path7 = params?.path;
-    if (!isString(path7)) {
+    const path8 = params?.path;
+    if (!isString(path8)) {
       new import_obsidian3.Notice("Vault Mind: missing path parameter");
       return;
     }
-    plugin.app.workspace.openLinkText(path7, "", true);
+    plugin.app.workspace.openLinkText(path8, "", true);
   });
   plugin.registerObsidianProtocolHandler("vault-mind/show-diff", (params) => {
-    const path7 = params?.path;
+    const path8 = params?.path;
     const oldContent = params?.old;
     const newContent = params?.new;
-    if (!isString(path7) || !isString(oldContent) || !isString(newContent)) {
+    if (!isString(path8) || !isString(oldContent) || !isString(newContent)) {
       new import_obsidian3.Notice("Vault Mind: missing path, old, or new parameter");
       return;
     }
-    new DiffModal(plugin.app, { path: path7, old: oldContent, new: newContent }, async () => {
-      const file = plugin.app.vault.getAbstractFileByPath(path7);
+    new DiffModal(plugin.app, { path: path8, old: oldContent, new: newContent }, async () => {
+      const file = plugin.app.vault.getAbstractFileByPath(path8);
       if (!(file instanceof import_obsidian3.TFile)) {
-        new import_obsidian3.Notice(`Vault Mind: file not found: ${path7}`);
+        new import_obsidian3.Notice(`Vault Mind: file not found: ${path8}`);
         return;
       }
       try {
         await plugin.app.vault.modify(file, newContent);
-        new import_obsidian3.Notice(`Vault Mind: accepted changes to ${path7}`);
+        new import_obsidian3.Notice(`Vault Mind: accepted changes to ${path8}`);
       } catch (err) {
-        new import_obsidian3.Notice(`Vault Mind: failed to write ${path7}: ${err.message}`);
+        new import_obsidian3.Notice(`Vault Mind: failed to write ${path8}: ${err.message}`);
       }
     }).open();
   });
@@ -23612,9 +23923,9 @@ var queueStack = [];
 var nextTicks = [];
 var cleanupCollector = null;
 function nextTick(fn) {
-  return !queueStack.length ? Promise.resolve(fn?.()) : new Promise((resolve) => nextTicks.push(() => {
+  return !queueStack.length ? Promise.resolve(fn?.()) : new Promise((resolve2) => nextTicks.push(() => {
     fn?.();
-    resolve();
+    resolve2();
   }));
 }
 function isTpl(template) {
@@ -25281,23 +25592,23 @@ function adoptRenderedValue(value, capture, map, visited) {
 function createPaths(dom) {
   const pathTape = [];
   const attrNames = [];
-  const path7 = [];
+  const path8 = [];
   const previous = [];
   const pushPath = (attrName) => {
-    const pathLen = path7.length;
+    const pathLen = path8.length;
     const previousLen = previous.length;
     const limit = pathLen < previousLen ? pathLen : previousLen;
     let sharedDepth = 0;
-    while (sharedDepth < limit && previous[sharedDepth] === path7[sharedDepth]) {
+    while (sharedDepth < limit && previous[sharedDepth] === path8[sharedDepth]) {
       sharedDepth++;
     }
     pathTape.push(sharedDepth, pathLen - sharedDepth);
     for (let i = sharedDepth; i < pathLen; i++)
-      pathTape.push(path7[i]);
+      pathTape.push(path8[i]);
     pathTape.push(attrName ? attrNames.push(attrName) : 0);
     previous.length = pathLen;
     for (let i = 0; i < pathLen; i++)
-      previous[i] = path7[i];
+      previous[i] = path8[i];
   };
   const walk = (node) => {
     if (node.nodeType === 1) {
@@ -25314,16 +25625,16 @@ function createPaths(dom) {
     }
     const children2 = node.childNodes;
     for (let i = 0; i < children2.length; i++) {
-      path7.push(i);
+      path8.push(i);
       walk(children2[i]);
-      path7.pop();
+      path8.pop();
     }
   };
   const children = dom.childNodes;
   for (let i = 0; i < children.length; i++) {
-    path7.push(i);
+    path8.push(i);
     walk(children[i]);
-    path7.pop();
+    path8.pop();
   }
   return [pathTape, attrNames];
 }
@@ -25522,16 +25833,16 @@ function Button({
 }
 
 // src/ui/views/ConfigurationSettingsView/baselines.ts
-function isRecord(value) {
+function isRecord2(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function readVaultMind(loadResponse) {
   const vaultMind = loadResponse.config?.config?.vaultMind;
-  return isRecord(vaultMind) ? vaultMind : {};
+  return isRecord2(vaultMind) ? vaultMind : {};
 }
 function readDefaultVault(vaultMind) {
   const vaults = vaultMind.vaults;
-  if (isRecord(vaults) && isRecord(vaults.default)) return vaults.default;
+  if (isRecord2(vaults) && isRecord2(vaults.default)) return vaults.default;
   return {};
 }
 function str(value, fallback = "") {
@@ -25545,7 +25856,7 @@ function bool(value, fallback = false) {
 }
 function readEmbeddingConfig(loadResponse) {
   const vaultMind = loadResponse.config?.config?.vaultMind;
-  if (isRecord(vaultMind) && isRecord(vaultMind.embedding)) return vaultMind.embedding;
+  if (isRecord2(vaultMind) && isRecord2(vaultMind.embedding)) return vaultMind.embedding;
   return {};
 }
 function categoryBaseline(category, loadResponse) {
@@ -25574,13 +25885,13 @@ function categoryBaseline(category, loadResponse) {
       };
     }
     case "agent-models": {
-      const a = isRecord(vm.agentLLM) ? vm.agentLLM : {};
+      const a = isRecord2(vm.agentLLM) ? vm.agentLLM : {};
       return { localUrl: str(a.localUrl), remoteUrl: str(a.remoteUrl), model: str(a.model) };
     }
     case "automation": {
       const v = readDefaultVault(vm);
       const ec = loadResponse.config?.config?.extensionCompatibility;
-      const pic = isRecord(ec) && isRecord(ec["pi-context"]) ? ec["pi-context"] : {};
+      const pic = isRecord2(ec) && isRecord2(ec["pi-context"]) ? ec["pi-context"] : {};
       return {
         autoStart: bool(v.autoStart),
         autoSync: bool(v.autoSync),
@@ -25599,7 +25910,7 @@ function categoryBaseline(category, loadResponse) {
       };
     }
     case "knowledge-graph": {
-      const g = isRecord(vm.graph) ? vm.graph : {};
+      const g = isRecord2(vm.graph) ? vm.graph : {};
       return {
         enabled: bool(g.enabled),
         canvasSync: bool(g.canvasSync),
@@ -25607,7 +25918,7 @@ function categoryBaseline(category, loadResponse) {
       };
     }
     case "vault-layout": {
-      const f = isRecord(vm.folders) ? vm.folders : {};
+      const f = isRecord2(vm.folders) ? vm.folders : {};
       const v = readDefaultVault(vm);
       return {
         inbox: str(f.inbox),
@@ -25619,7 +25930,7 @@ function categoryBaseline(category, loadResponse) {
       };
     }
     case "advanced": {
-      const e = isRecord(vm.embedding) ? vm.embedding : {};
+      const e = isRecord2(vm.embedding) ? vm.embedding : {};
       const prefs = loadResponse.pluginPreferences;
       return {
         sync: str(e.sync),
@@ -25767,7 +26078,7 @@ var SECRET_KEYS = [
   "remoteReadApiKey",
   "remoteWriteApiKey"
 ];
-function isRecord2(value) {
+function isRecord3(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function clone(value) {
@@ -25781,7 +26092,7 @@ function dirtySaveState() {
 }
 function readEmbeddingBaseline(loadResponse) {
   const vaultMind = loadResponse.config?.config?.vaultMind;
-  if (isRecord2(vaultMind) && isRecord2(vaultMind.embedding)) {
+  if (isRecord3(vaultMind) && isRecord3(vaultMind.embedding)) {
     return clone(vaultMind.embedding);
   }
   return {};
@@ -27380,15 +27691,15 @@ function folderField(opts, key) {
     const current = queryNormalized();
     return current.length > 0 && !hasParentTraversal(value()) && !allFolders().some((folder) => folder.normalized === current);
   };
-  const applyPath = (path7) => {
+  const applyPath = (path8) => {
     anchor?.focus();
     state.open = false;
     state.typed = false;
     state.error = "";
-    opts.onChange({ [key]: path7 });
+    opts.onChange({ [key]: path8 });
   };
-  const createPath = async (path7) => {
-    const created = await opts.onCreateFolder(path7);
+  const createPath = async (path8) => {
+    const created = await opts.onCreateFolder(path8);
     applyPath(created.path);
   };
   const openChooser = (event) => {
@@ -27484,8 +27795,8 @@ function VaultLayoutCategory(options) {
     presentations: String(draft().presentations ?? ""),
     journal: String(draft().journal ?? "")
   });
-  const createFolder = async (path7) => {
-    const created = await adapter.createFolder(path7);
+  const createFolder = async (path8) => {
+    const created = await adapter.createFolder(path8);
     if (!folderOptions.items.some((folder) => folder.path === created.path)) {
       folderOptions.items = [...folderOptions.items, created];
     }
@@ -27757,6 +28068,7 @@ function ConfigurationSettingsView(options) {
 
 // src/configuration/RestConfigurationAdapter.ts
 init_pi_detect();
+init_config();
 
 // src/ui/configuration/folder-path.ts
 function normalizeVaultFolderPath(input) {
@@ -27796,7 +28108,7 @@ var RestConfigurationAdapter = class {
     const activeToken = token ?? await this.options.readBridgeToken() ?? "";
     return this.options.clientFactory({
       host: settings.host,
-      port: settings.port,
+      port: readServerPort(this.options.vaultPath) ?? settings.port,
       token: activeToken
     });
   }
@@ -27991,7 +28303,7 @@ var RestConfigurationAdapter = class {
       };
     }
     for (let attempt = 0; attempt < 10; attempt++) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve2) => setTimeout(resolve2, 500));
       try {
         const client = await this.createClient();
         const status = await client.status();
@@ -28455,8 +28767,8 @@ var RestConfigurationAdapter = class {
     });
     return unique.map((item) => ({ path: item.normalized }));
   }
-  async createFolder(path7) {
-    const normalized = normalizeVaultFolderPath(path7);
+  async createFolder(path8) {
+    const normalized = normalizeVaultFolderPath(path8);
     const existing = this.options.app.vault.getAbstractFileByPath(normalized);
     if (existing) {
       if (this.isVaultFolder(existing)) return { path: normalized };
@@ -29146,8 +29458,8 @@ function FoldersStep({ state, adapter }) {
       Object.assign(state.folders, normalized);
       Object.assign(local.draft, normalized);
     },
-    onCreateFolder: async (path7) => {
-      const normalized = normalizeVaultFolderPath(path7);
+    onCreateFolder: async (path8) => {
+      const normalized = normalizeVaultFolderPath(path8);
       const created = await adapter.createFolder(normalized);
       local.options.push(created);
       state.folderOptions = [...state.folderOptions, created];
@@ -29470,12 +29782,12 @@ function ReviewSaveStep({ state }) {
 			${() => {
     const options = state.folderOptions;
     const rows = (key, label) => {
-      const path7 = state.folders[key];
-      const normalized = normalizeVaultFolderPath(path7);
+      const path8 = state.folders[key];
+      const normalized = normalizeVaultFolderPath(path8);
       const exists = options.some((opt) => opt.path === normalized);
       return ItemRow({
         name: label,
-        description: () => exists ? path7 : `${path7} (will be created during setup save)`
+        description: () => exists ? path8 : `${path8} (will be created during setup save)`
       });
     };
     return html`
@@ -29625,17 +29937,17 @@ async function installThenStartRuntime(adapter, request) {
   if (!install.ok) return { install, runtime: install.runtime };
   return { install, runtime: await adapter.startRuntime() };
 }
-function isRecord3(value) {
+function isRecord4(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function applyLoadedState(state, loadRes) {
-  const vaultMind = isRecord3(loadRes.config?.config?.vaultMind) ? loadRes.config.config.vaultMind : null;
-  const embedding = vaultMind && isRecord3(vaultMind.embedding) ? vaultMind.embedding : null;
-  const folders = vaultMind && isRecord3(vaultMind.folders) ? vaultMind.folders : null;
-  const vaults = vaultMind && isRecord3(vaultMind.vaults) ? vaultMind.vaults : null;
-  const defaultVault = vaults && isRecord3(vaults.default) ? vaults.default : null;
-  const extensionCompatibility = isRecord3(loadRes.config?.config?.extensionCompatibility) ? loadRes.config.config.extensionCompatibility : null;
-  const piContext = extensionCompatibility && isRecord3(extensionCompatibility["pi-context"]) ? extensionCompatibility["pi-context"] : null;
+  const vaultMind = isRecord4(loadRes.config?.config?.vaultMind) ? loadRes.config.config.vaultMind : null;
+  const embedding = vaultMind && isRecord4(vaultMind.embedding) ? vaultMind.embedding : null;
+  const folders = vaultMind && isRecord4(vaultMind.folders) ? vaultMind.folders : null;
+  const vaults = vaultMind && isRecord4(vaultMind.vaults) ? vaultMind.vaults : null;
+  const defaultVault = vaults && isRecord4(vaults.default) ? vaults.default : null;
+  const extensionCompatibility = isRecord4(loadRes.config?.config?.extensionCompatibility) ? loadRes.config.config.extensionCompatibility : null;
+  const piContext = extensionCompatibility && isRecord4(extensionCompatibility["pi-context"]) ? extensionCompatibility["pi-context"] : null;
   if (embedding) {
     const persistedLocalUrl = typeof embedding.localUrl === "string" ? embedding.localUrl : "";
     const persistedRemoteUrl = typeof embedding.remoteUrl === "string" ? embedding.remoteUrl : "";
@@ -30592,7 +30904,7 @@ var META = {
   rejected: "Rejected"
 };
 function DiffCard({
-  path: path7,
+  path: path8,
   oldContent,
   newContent,
   onAccept,
@@ -30610,7 +30922,7 @@ function DiffCard({
   return Card({
     tone: () => TONE[s.decision],
     icon: () => ICON[s.decision],
-    title: path7,
+    title: path8,
     meta: () => META[s.decision],
     body: html`<div class="oas-diff-card-viewer">
 			${DiffViewer({ original: oldContent, modified: newContent })}
@@ -30730,26 +31042,26 @@ function PermissionCard({
   onDeny
 }) {
   const s = reactive({ decision: "", value: initialValue });
-  const resolve = (response, decision) => {
+  const resolve2 = (response, decision) => {
     s.decision = decision;
     onResponse?.(response);
   };
   const approve = () => {
-    resolve({ confirmed: true }, "approved");
+    resolve2({ confirmed: true }, "approved");
     onApprove?.();
   };
   const deny = () => {
-    resolve({ confirmed: false }, "denied");
+    resolve2({ confirmed: false }, "denied");
     onDeny?.();
   };
   const selectOption = (option) => {
-    resolve({ value: option }, "approved");
+    resolve2({ value: option }, "approved");
   };
   const submitValue = () => {
-    resolve({ value: s.value }, "approved");
+    resolve2({ value: s.value }, "approved");
   };
   const cancel = () => {
-    resolve({ cancelled: true }, "denied");
+    resolve2({ cancelled: true }, "denied");
   };
   const actions = () => {
     if (s.decision !== "") return "";
@@ -32218,9 +32530,12 @@ function VaultMindView(opts) {
 
 // src/ui/integrations/VaultMindView/VaultMindPanel.ts
 var VIEW_TYPE_VAULT_MIND = "vault-mind-panel";
-async function openOrRevealVaultMindLeaf(workspace, state) {
+async function openOrRevealVaultMindLeaf(workspace, state, controller) {
   const existing = workspace.getLeavesOfType(VIEW_TYPE_VAULT_MIND);
   if (existing.length > 0) {
+    if (controller) {
+      await controller.refreshStatus();
+    }
     await workspace.revealLeaf(existing[0]);
     return existing[0];
   }
@@ -32248,6 +32563,11 @@ var VaultMindPanel = class extends import_obsidian5.ItemView {
   }
   async onOpen() {
     this.contentEl.empty();
+    try {
+      await this.context.controller.refreshStatus();
+    } catch (error) {
+      console.error("[VaultMindPanel] Failed to refresh status:", error);
+    }
     const view = VaultMindView({
       controller: this.context.controller,
       composerData: this.context.composerData,
@@ -32271,17 +32591,17 @@ var VaultMindPanel = class extends import_obsidian5.ItemView {
 
 // src/ui/integrations/SetupWizard/SetupWizardPanel.ts
 var VIEW_TYPE_SETUP = "vault-mind-setup";
-function isRecord4(value) {
+function isRecord5(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function seedSetupWizardState(state, loadRes, runtime) {
-  const vaultMind = isRecord4(loadRes.config?.config?.vaultMind) ? loadRes.config.config.vaultMind : null;
-  const embedding = vaultMind && isRecord4(vaultMind.embedding) ? vaultMind.embedding : null;
-  const folders = vaultMind && isRecord4(vaultMind.folders) ? vaultMind.folders : null;
-  const vaults = vaultMind && isRecord4(vaultMind.vaults) ? vaultMind.vaults : null;
-  const defaultVault = vaults && isRecord4(vaults.default) ? vaults.default : null;
-  const extensionCompatibility = isRecord4(loadRes.config?.config?.extensionCompatibility) ? loadRes.config.config.extensionCompatibility : null;
-  const piContext = extensionCompatibility && isRecord4(extensionCompatibility["pi-context"]) ? extensionCompatibility["pi-context"] : null;
+  const vaultMind = isRecord5(loadRes.config?.config?.vaultMind) ? loadRes.config.config.vaultMind : null;
+  const embedding = vaultMind && isRecord5(vaultMind.embedding) ? vaultMind.embedding : null;
+  const folders = vaultMind && isRecord5(vaultMind.folders) ? vaultMind.folders : null;
+  const vaults = vaultMind && isRecord5(vaultMind.vaults) ? vaultMind.vaults : null;
+  const defaultVault = vaults && isRecord5(vaults.default) ? vaults.default : null;
+  const extensionCompatibility = isRecord5(loadRes.config?.config?.extensionCompatibility) ? loadRes.config.config.extensionCompatibility : null;
+  const piContext = extensionCompatibility && isRecord5(extensionCompatibility["pi-context"]) ? extensionCompatibility["pi-context"] : null;
   if (embedding) {
     const persistedLocalUrl = typeof embedding.localUrl === "string" ? embedding.localUrl : "";
     const persistedRemoteUrl = typeof embedding.remoteUrl === "string" ? embedding.remoteUrl : "";
@@ -33069,12 +33389,8 @@ function createVaultMindController(opts) {
     streamHandler.handleEvent(event);
   });
   async function loadStatus() {
-    try {
-      const status = await client.status();
-      state.isConfigured = status.configured;
-    } catch {
-      state.isConfigured = false;
-    }
+    const status = await client.status();
+    state.isConfigured = status.configured;
   }
   async function loadGit() {
     try {
@@ -33187,7 +33503,9 @@ function createVaultMindController(opts) {
   });
   void (async () => {
     await Promise.all([
-      loadStatus(),
+      loadStatus().catch(
+        (err) => console.error("[VaultMindController] Failed to load status:", err)
+      ),
       loadGit(),
       loadCollections(),
       loadSessions(),
@@ -33296,7 +33614,8 @@ function createVaultMindController(opts) {
         console.log("[VaultMindController] Session exported:", res.path);
         void loadSessions();
       }).catch((err) => console.error("[VaultMindController] exportSession failed:", err));
-    }
+    },
+    refreshStatus: loadStatus
   };
   controller.dispose = () => {
     unsubscribeEvents();
@@ -33307,7 +33626,7 @@ function createVaultMindController(opts) {
 }
 
 // src/main.ts
-var isRecord5 = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+var isRecord6 = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 var VAULT_MIND_ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z"/><path d="M9 21h6"/><path d="M10 9a2 2 0 0 1 4 0"/><path d="M8 12h1"/><path d="M15 12h1"/><circle cx="12" cy="6" r="1"/></svg>`;
 var DEFAULT_SETTINGS = {
   host: "127.0.0.1",
@@ -33344,7 +33663,7 @@ var VaultMindPlugin = class extends import_obsidian7.Plugin {
     await this.loadSettings();
     const rawData = await this.loadData() ?? {};
     const savedData = this.withoutLegacyToken(rawData);
-    if (isRecord5(rawData) && "token" in rawData) {
+    if (isRecord6(rawData) && "token" in rawData) {
       await this.saveData(savedData);
     }
     this.messageStore = new MessageStore();
@@ -33455,32 +33774,34 @@ var VaultMindPlugin = class extends import_obsidian7.Plugin {
     const writeBridgeToken = async (bridgeToken) => {
       await this.app.secretStorage.setSecret(PVM_TOKEN_SECRET_ID, bridgeToken);
     };
-    const setupContext = {
-      plugin: this,
-      vaultPath,
-      settings: pluginSettings,
-      onSaveSettings,
-      readBridgeToken,
-      writeBridgeToken,
-      startRuntimeStarter: async () => {
-        await startFreshRuntime(connection);
-      },
-      onOpenChatPanel: async () => {
-        await openOrRevealVaultMindLeaf(this.app.workspace);
-      }
+    const runtimeLock = createVaultRuntimeLock(vaultPath);
+    const runtimeStarter = async () => {
+      await ensureVaultRuntime({
+        vaultPath,
+        acquireLock: runtimeLock.acquire,
+        releaseLock: runtimeLock.release,
+        readDiscovery: async () => readVaultDiscovery(vaultPath),
+        isProcessAlive: async () => {
+          const discovery = await readVaultDiscovery(vaultPath);
+          if (!discovery) return false;
+          try {
+            process.kill(discovery.pid, 0);
+            return true;
+          } catch {
+            return false;
+          }
+        },
+        probe: async ({ port }) => probeVaultHealth({
+          host: this.settings.host,
+          port,
+          token
+        }),
+        spawnAndStart: async () => {
+          await startFreshRuntime(connection);
+          return { port: readServerPort(vaultPath) };
+        }
+      });
     };
-    const settingsContext = {
-      plugin: this,
-      vaultPath,
-      settings: pluginSettings,
-      onSaveSettings,
-      readBridgeToken,
-      writeBridgeToken,
-      onRunSetup: () => {
-        void openOrRevealSetupWizardLeaf(this.app.workspace);
-      }
-    };
-    this.registerView(VIEW_TYPE_SETUP, (leaf) => new SetupWizardPanel(leaf, setupContext));
     const controller = createVaultMindController({
       client,
       vaultPath,
@@ -33498,6 +33819,30 @@ var VaultMindPlugin = class extends import_obsidian7.Plugin {
       }
     });
     this.vaultMindController = controller;
+    const setupContext = {
+      plugin: this,
+      vaultPath,
+      settings: pluginSettings,
+      onSaveSettings,
+      readBridgeToken,
+      writeBridgeToken,
+      startRuntimeStarter: runtimeStarter,
+      onOpenChatPanel: async () => {
+        await openOrRevealVaultMindLeaf(this.app.workspace, void 0, controller);
+      }
+    };
+    const settingsContext = {
+      plugin: this,
+      vaultPath,
+      settings: pluginSettings,
+      onSaveSettings,
+      readBridgeToken,
+      writeBridgeToken,
+      onRunSetup: () => {
+        void openOrRevealSetupWizardLeaf(this.app.workspace);
+      }
+    };
+    this.registerView(VIEW_TYPE_SETUP, (leaf) => new SetupWizardPanel(leaf, setupContext));
     const composerData = {
       models: [],
       tools: [],
@@ -33683,8 +34028,8 @@ var VaultMindPlugin = class extends import_obsidian7.Plugin {
     const client = await this.getVaultMindClient();
     if (!client) return;
     new RolePickerModal(this.app, async (role) => {
-      const instruction = await new Promise((resolve) => {
-        new InstructionInputModal(this.app, `Instruction for ${role}`, resolve).open();
+      const instruction = await new Promise((resolve2) => {
+        new InstructionInputModal(this.app, `Instruction for ${role}`, resolve2).open();
       });
       if (instruction === null || instruction.trim() === "") {
         this.showNotice("No instruction provided");
@@ -33745,7 +34090,7 @@ ${source}
     }
   }
   withoutLegacyToken(data) {
-    if (!isRecord5(data)) return {};
+    if (!isRecord6(data)) return {};
     const existing = {};
     for (const [key, value] of Object.entries(data)) {
       if (key !== "token") existing[key] = value;
