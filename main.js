@@ -25807,10 +25807,12 @@ function Button({
   variant = "default",
   ariaLabel,
   disabled,
+  id,
   onClick
 }) {
   if (variant === "icon") {
     return html`<button
+			id="${() => id ?? false}"
 			class="clickable-icon oas-btn-icon"
 			aria-label="${ariaLabel ?? ""}"
 			disabled="${() => disabled?.() ?? false}"
@@ -25819,6 +25821,7 @@ function Button({
   }
   const cls = variant === "cta" ? "oas-btn mod-cta" : variant === "ghost" ? "oas-btn oas-btn-ghost" : "oas-btn";
   return html`<button
+		id="${() => id ?? false}"
 		class="${cls}"
 		aria-label="${() => ariaLabel ?? false}"
 		disabled="${() => disabled?.() ?? false}"
@@ -31016,6 +31019,7 @@ function MessageBubble(o) {
 }
 
 // src/ui/components/PermissionCard/PermissionCard.ts
+var cardSeq = 0;
 var ICON3 = {
   "": "shield",
   approved: "check-circle",
@@ -31037,11 +31041,15 @@ function PermissionCard({
   options = [],
   placeholder = "",
   initialValue = "",
+  id,
+  autoFocus,
   onResponse,
   onApprove,
   onDeny
 }) {
   const s = reactive({ decision: "", value: initialValue });
+  const focusId = id ? `perm-focus-${id}` : `perm-focus-${(cardSeq++).toString(36)}`;
+  let focusScheduled = false;
   const resolve2 = (response, decision) => {
     s.decision = decision;
     onResponse?.(response);
@@ -31066,9 +31074,11 @@ function PermissionCard({
   const actions = () => {
     if (s.decision !== "") return "";
     if (permissionType === "select") {
+      const cancelFocusId = options.length === 0 ? focusId : void 0;
       return html`<div class="oas-permission-select">
 				${() => options.map(
-        (option) => html`<button
+        (option, index2) => html`<button
+							id="${() => index2 === 0 ? focusId : false}"
 							class="oas-permission-option-btn"
 							type="button"
 							aria-label="${option}"
@@ -31077,11 +31087,12 @@ function PermissionCard({
       )}
 			</div>
 			<div class="oas-permission-actions">
-				${Button({ label: "Cancel", variant: "ghost", onClick: cancel })}
+				${Button({ label: "Cancel", id: cancelFocusId, variant: "ghost", onClick: cancel })}
 			</div>`;
     }
     if (permissionType === "input") {
       return html`<input
+					id="${focusId}"
 					type="text"
 					class="oas-permission-input"
 					placeholder="${placeholder}"
@@ -31103,6 +31114,7 @@ function PermissionCard({
     }
     if (permissionType === "editor") {
       return html`<textarea
+					id="${focusId}"
 					class="oas-permission-editor"
 					rows="4"
 					placeholder="${placeholder}"
@@ -31122,11 +31134,12 @@ function PermissionCard({
 				</div>`;
     }
     return html`<div class="oas-permission-actions">
-			${Button({ label: "Approve", icon: "check", variant: "cta", onClick: approve })}
+			${Button({ label: "Approve", id: focusId, icon: "check", variant: "cta", onClick: approve })}
 			${Button({ label: "Deny", icon: "x", variant: "ghost", onClick: deny })}
 		</div>`;
   };
-  return Card({
+  return html`<div class="oas-permission-card-wrapper">
+		${Card({
     tone: () => TONE3[s.decision],
     icon: () => ICON3[s.decision],
     title: () => s.decision ? LABEL2[s.decision] : title,
@@ -31135,7 +31148,16 @@ function PermissionCard({
     collapsible: true,
     defaultExpanded: true,
     isExpanded: () => s.decision === ""
-  });
+  })}
+		${() => {
+    if (!autoFocus || focusScheduled) return "";
+    focusScheduled = true;
+    globalThis.setTimeout(() => {
+      document.getElementById(focusId)?.focus();
+    }, 0);
+    return "";
+  }}
+	</div>`;
 }
 
 // src/ui/components/SearchResult/SearchResult.ts
@@ -31240,7 +31262,7 @@ function ToolCard({ toolName, status, args, result }) {
 }
 
 // src/ui/components/MessageFeed/MessageFeed.ts
-function renderMessage(m, showRole, renderMarkdown) {
+function renderMessage(m, showRole, feedId, renderMarkdown) {
   switch (m.kind) {
     case "user":
       return MessageBubble({
@@ -31272,6 +31294,8 @@ function renderMessage(m, showRole, renderMarkdown) {
         options: m.options,
         placeholder: m.placeholder,
         initialValue: m.initialValue,
+        id: `${feedId}-${m.id}`,
+        autoFocus: m.autoFocus,
         onResponse: m.onResponse,
         onApprove: m.onApprove,
         onDeny: m.onDeny
@@ -31308,23 +31332,23 @@ function MessageFeed({
   streaming,
   renderMarkdown
 }) {
+  const feedId = `feed-${(feedSeq++).toString(36)}`;
   const cardCache = /* @__PURE__ */ new Map();
   const getRendered = (m, showRole) => {
     if (m.kind === "permission" || m.kind === "diff") {
       let tpl = cardCache.get(m.id);
       if (!tpl) {
-        tpl = renderMessage(m, showRole, renderMarkdown);
+        tpl = renderMessage(m, showRole, feedId, renderMarkdown);
         cardCache.set(m.id, tpl);
       }
       return tpl;
     }
-    return renderMessage(m, showRole, renderMarkdown);
+    return renderMessage(m, showRole, feedId, renderMarkdown);
   };
   const awaitingReply = () => {
     const msgs = messages();
     return streaming() && msgs.length > 0 && msgs[msgs.length - 1].kind === "user";
   };
-  const feedId = `feed-${(feedSeq++).toString(36)}`;
   const scrollToLatest = () => {
     setTimeout(() => {
       const feed = document.querySelector(`[data-feed="${feedId}"]`);
@@ -32050,18 +32074,25 @@ function FirstRunCard(opts) {
     body: "Get started with Vault Mind \u2014 configure the runtime, embedding provider, and folder layout.",
     footer: Button({ label: "Get started", variant: "cta", onClick: opts.onStartSetup })
   }) : Card({
-    tone: "default",
+    tone: () => opts.onboardingError ? "error" : "default",
     icon: "sparkles",
-    title: "Welcome to Vault Mind",
-    body: "Personalize your AI by giving it a role, a goal, and a specific set of instructions for your vault.",
+    title: () => opts.isPersonalizing ? "Personalizing Vault Mind" : "Welcome to Vault Mind",
+    body: () => opts.isPersonalizing ? `We are preparing your vault's personalized AI. Please respond to any requests for permissions or information below.` : `Personalize your AI by giving it a role, a goal, and a specific set of instructions for your vault.${opts.onboardingError ? `
+
+${opts.onboardingError}` : ""}`,
     footer: html`
 					<div class="oas-card-footer oas-flex-row">
-						${ModelPicker({
-      models: () => opts.models.map((model) => model.id),
-      value: () => opts.currentModel()?.id ?? "",
+						${() => !opts.isPersonalizing ? ModelPicker({
+      models: () => opts.models,
+      value: () => opts.currentModel() ?? "",
       onSelect: opts.onModelSelect
+    }) : null}
+						${Button({
+      label: () => opts.isPersonalizing ? "Personalizing..." : "Personalize",
+      variant: "cta",
+      onClick: opts.onPersonalize,
+      disabled: () => opts.isPersonalizing
     })}
-						${Button({ label: "Personalize", variant: "cta", onClick: opts.onPersonalize })}
 					</div>
 				`
   })}`;
@@ -32425,6 +32456,70 @@ function VaultMindView(opts) {
     demo.setTab("timeline");
   };
   const panelClass = (tab) => s.activeTab === tab ? "oas-tab-panel" : "oas-tab-panel is-hidden";
+  const onModelSelect = (id) => {
+    demo.setModelId(id);
+  };
+  const onPersonalize = () => demo.personalize().then((res) => {
+    if (res.completed) demo.refreshStatus();
+  });
+  const renderChat = () => {
+    if (!s.isConfigured) {
+      return FirstRunCard({
+        onStartSetup: opts.onStartSetup,
+        onPersonalize: () => {
+        },
+        models: demo.models,
+        currentModel: () => demo.currentModelId,
+        onModelSelect,
+        isConfigured: false,
+        isPersonalizing: false,
+        onboardingError: null
+      });
+    }
+    if (s.isPersonalized) {
+      return MessageFeed({
+        messages: () => demo.chat.messages,
+        streaming: () => demo.chat.streaming,
+        renderMarkdown: opts.renderMarkdown
+      });
+    }
+    if (s.isPersonalizing) {
+      return html`
+				<div class="oas-onboarding-surface">
+					${() => {
+        const safeMessages = demo.chat.messages.filter(
+          (m) => m.kind === "permission" || m.kind === "system"
+        );
+        return safeMessages.length > 0 ? MessageFeed({
+          messages: () => safeMessages,
+          streaming: () => false,
+          renderMarkdown: opts.renderMarkdown
+        }) : null;
+      }}
+					${FirstRunCard({
+        onStartSetup: opts.onStartSetup,
+        onPersonalize,
+        models: demo.models,
+        currentModel: () => demo.currentModelId,
+        onModelSelect,
+        isConfigured: true,
+        isPersonalizing: true,
+        onboardingError: s.onboardingError
+      })}
+				</div>
+			`;
+    }
+    return FirstRunCard({
+      onStartSetup: opts.onStartSetup,
+      onPersonalize,
+      models: demo.models,
+      currentModel: () => demo.currentModelId,
+      onModelSelect,
+      isConfigured: true,
+      isPersonalizing: false,
+      onboardingError: s.onboardingError
+    });
+  };
   return html`
 		<div class="oas-shell-view">
 			<div class="oas-shell-view-header">
@@ -32440,38 +32535,8 @@ function VaultMindView(opts) {
 
 			<div class="oas-shell-view-body">
 				<div class="${() => panelClass("chat")}">
-					${() => !s.isConfigured ? FirstRunCard({
-    onStartSetup: opts.onStartSetup,
-    onPersonalize: () => {
-    },
-    models: demo.models,
-    currentModel: () => demo.currentModel,
-    onModelSelect: (id) => {
-      const m = demo.models.find((m2) => m2.id === id);
-      if (m) demo.setModel(m.provider, m.id);
-    },
-    isConfigured: false
-  }) : s.isPersonalized ? MessageFeed({
-    messages: () => demo.chat.messages,
-    streaming: () => demo.chat.streaming,
-    renderMarkdown: opts.renderMarkdown
-  }) : FirstRunCard({
-    onStartSetup: opts.onStartSetup,
-    onPersonalize: () => demo.personalize().then((res) => {
-      if (res.completed) demo.refreshStatus();
-    }),
-    models: demo.models,
-    currentModel: () => demo.currentModel,
-    onModelSelect: (id) => {
-      const m = demo.models.find((m2) => m2.id === id);
-      if (m) demo.setModel(m.provider, m.id);
-    },
-    isConfigured: true
-  })}
-
-
+					${() => renderChat()}
 				</div>
-
 				<div class="${() => panelClass("activity")}">
 					${ActivityView({
     jobs: () => s.jobs,
@@ -32533,8 +32598,7 @@ function VaultMindView(opts) {
       onQueueSend: demo.chat.sendQueued,
       showQueue: () => demo.chat.showQueue,
       onModelSelect: (id) => {
-        const m = demo.models.find((m2) => m2.id === id);
-        if (m) demo.setModel(m.provider, m.id);
+        demo.setModelId(id);
       }
     },
     opts.composerData
@@ -33268,7 +33332,9 @@ function createVaultMindController(opts) {
     currentSessionId: "",
     isInitialized: false,
     isConfigured: false,
-    isPersonalized: false
+    isPersonalized: false,
+    isPersonalizing: false,
+    onboardingError: null
   });
   const modelState = reactive({
     models: [],
@@ -33297,30 +33363,58 @@ function createVaultMindController(opts) {
     if (state.isConfigured) await loadModels();
   }
   async function personalize() {
+    if (state.isPersonalizing) return { completed: false };
+    state.isPersonalizing = true;
+    state.onboardingError = null;
     try {
-      await connection.send({ type: "prompt", message: "/vm personalize" });
-      const deadline = Date.now() + 6e4;
-      do {
-        await loadStatus();
-        if (state.isPersonalized) return { completed: true };
-        await new Promise((resolve2) => globalThis.setTimeout(resolve2, 100));
-      } while (Date.now() < deadline);
-      return { completed: false };
+      if (!connection.isConnected()) {
+        await connection.connect();
+      }
+      connection.send({ type: "prompt", message: "/vm personalize" }).catch((err) => {
+        console.warn("[VaultMindController] personalize dispatch acknowledgement timed out or failed. Still polling for durable status:", err);
+      });
     } catch (err) {
-      console.error("[VaultMindController] personalize failed:", err);
+      console.error("[VaultMindController] personalize dispatch throw:", err);
+      state.onboardingError = err instanceof Error ? err.message : String(err);
+      state.isPersonalizing = false;
       return { completed: false };
     }
+    try {
+      while (true) {
+        if (!state.isPersonalizing) return { completed: false };
+        try {
+          await loadStatus();
+        } catch (err) {
+          console.warn("[VaultMindController] transient status error during personalization:", err);
+        }
+        if (state.isPersonalized) {
+          state.isPersonalizing = false;
+          return { completed: true };
+        }
+        await new Promise((resolve2) => globalThis.setTimeout(resolve2, 500));
+      }
+    } catch (err) {
+      console.error("[VaultMindController] personalize polling failure:", err);
+      state.onboardingError = err instanceof Error ? err.message : String(err);
+      state.isPersonalizing = false;
+    }
+    return { completed: false };
   }
-  async function setModel(provider, modelId) {
+  async function setModelId(id) {
+    const target = modelState.models.find((m) => m.id === id);
+    if (!target) {
+      console.error(`[VaultMindController] setModelId failed: unknown model id "${id}"`);
+      return;
+    }
     try {
       await connection.send({
         type: "set_model",
-        provider,
-        modelId
+        provider: target.provider,
+        modelId: target.id
       });
-      modelState.current = modelState.models.find((m) => m.id === modelId) ?? null;
+      modelState.current = target;
     } catch (err) {
-      console.error("[VaultMindController] setModel failed:", err);
+      console.error("[VaultMindController] setModelId failed:", err);
     }
   }
   const chat = reactive({
@@ -33474,7 +33568,6 @@ function createVaultMindController(opts) {
     if (event.type === "extension_ui_request") {
       const req = event;
       if (DIALOG_METHODS[req.method]) {
-        revealPanel?.();
         const bridge = {
           id: `perm-${req.id}`,
           role: "assistant",
@@ -33482,7 +33575,13 @@ function createVaultMindController(opts) {
           timestamp: Date.now(),
           permissionRequest: req
         };
-        appendFeedMessages(mapBridgeToFeed(bridge, sendRaw));
+        const next = mapBridgeToFeed(bridge, sendRaw);
+        for (const m of next) {
+          if (m.kind === "permission") m.autoFocus = true;
+        }
+        appendFeedMessages(next);
+        state.activeTab = "chat";
+        revealPanel?.();
         return;
       }
     }
@@ -33621,10 +33720,10 @@ function createVaultMindController(opts) {
     chat,
     state,
     get models() {
-      return modelState.models;
+      return modelState.models.map((m) => m.id);
     },
-    get currentModel() {
-      return modelState.current;
+    get currentModelId() {
+      return modelState.current?.id ?? null;
     },
     dispose: () => {
     },
@@ -33716,10 +33815,11 @@ function createVaultMindController(opts) {
       }).catch((err) => console.error("[VaultMind laExportSession failed:", err));
     },
     personalize,
-    setModel,
+    setModelId,
     refreshStatus
   };
   controller.dispose = () => {
+    state.isPersonalizing = false;
     unsubscribeEvents();
     connection.destroy();
     client.disconnect();
