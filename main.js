@@ -26318,12 +26318,24 @@ function boundsBox(bounds) {
     maxY: window.innerHeight - margin
   };
 }
+function fixedContainingBlock(el) {
+  const parent = el.offsetParent;
+  if (!(parent instanceof HTMLElement)) return null;
+  if (parent === document.body || parent === document.documentElement) return null;
+  return parent;
+}
+function setFixedPosition(el, containingBlock, left, top) {
+  const origin = containingBlock?.getBoundingClientRect();
+  el.style.left = `${left - (origin?.left ?? 0)}px`;
+  el.style.top = `${top - (origin?.top ?? 0)}px`;
+}
 var clamp = (v, lo, hi) => Math.min(Math.max(v, lo), Math.max(lo, hi));
 function placePopover(el, position, bounds) {
   if (position.mode === "inline") return;
   el.style.position = "fixed";
   const { gap: GAP } = geometry();
-  const { minX, maxX, minY, maxY } = boundsBox(bounds);
+  const containingBlock = fixedContainingBlock(el);
+  const { minX, maxX, minY, maxY } = boundsBox(bounds ?? containingBlock);
   el.style.maxWidth = `${maxX - minX}px`;
   el.style.maxHeight = `${maxY - minY}px`;
   const w = el.offsetWidth;
@@ -26333,8 +26345,7 @@ function placePopover(el, position, bounds) {
     const below2 = p.top + h <= maxY;
     const left2 = clamp(p.left, minX, maxX - w);
     const top2 = below2 ? p.top : Math.max(minY, p.top - h);
-    el.style.left = `${left2}px`;
-    el.style.top = `${clamp(top2, minY, maxY - h)}px`;
+    setFixedPosition(el, containingBlock, left2, clamp(top2, minY, maxY - h));
     return;
   }
   const anchor = position.anchor();
@@ -26351,8 +26362,7 @@ function placePopover(el, position, bounds) {
   if (!below && roomAbove < h + GAP && roomBelow > roomAbove) below = true;
   const top = below ? a.bottom + GAP : a.top - GAP - h;
   const left = (position.align ?? "start") === "end" ? a.right - w : a.left;
-  el.style.left = `${clamp(left, minX, maxX - w)}px`;
-  el.style.top = `${clamp(top, minY, maxY - h)}px`;
+  setFixedPosition(el, containingBlock, clamp(left, minX, maxX - w), clamp(top, minY, maxY - h));
 }
 function bindDismiss(el, onDismiss, opts) {
   const onDown = (e) => {
