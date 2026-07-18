@@ -22397,7 +22397,7 @@ var init_bootstrap = __esm({
     init_config();
     init_extension_packages();
     init_pi_detect();
-    BUNDLED_PROJECT_VERSION = true ? "0.16.5" : projectPackage.version;
+    BUNDLED_PROJECT_VERSION = true ? "0.16.6" : projectPackage.version;
     VaultBootstrap = class {
       vaultPath;
       piBinaryPath;
@@ -22573,6 +22573,290 @@ module.exports = __toCommonJS(main_exports);
 var import_node_path5 = __toESM(require("node:path"), 1);
 var import_view = require("@codemirror/view");
 var import_obsidian7 = require("obsidian");
+
+// src/chat/ensureVaultRuntime.ts
+var fs = __toESM(require("node:fs"), 1);
+var path2 = __toESM(require("node:path"), 1);
+init_config();
+async function canonicalizeVaultPath(p) {
+  try {
+    return await fs.promises.realpath(p);
+  } catch {
+    return path2.resolve(p);
+  }
+}
+async function ensureVaultRuntime(deps) {
+  const promise = (async () => {
+    await deps.acquireLock();
+    const canonicalVaultPath = await canonicalizeVaultPath(deps.vaultPath);
+    try {
+      const discovery = await deps.readDiscovery();
+      if (discovery) {
+        const alive = await deps.isProcessAlive();
+        if (alive) {
+          const health = await deps.probe({
+            port: discovery.port,
+            token: discovery.token
+          });
+          if (health.ok && health.vaultPath) {
+            const healthVaultPath = await canonicalizeVaultPath(health.vaultPath);
+            if (healthVaultPath === canonicalVaultPath) {
+              const pid = health.pid ?? discovery.pid;
+              const port = health.port ?? discovery.port;
+              return { adopted: true, port, pid };
+            }
+            throw new Error(
+              `Discovery conflict: existing runtime serves ${health.vaultPath} but this vault is ${deps.vaultPath}`
+            );
+          }
+        }
+      }
+      await deps.spawnAndStart();
+      const deadline = Date.now() + 5e3;
+      while (Date.now() < deadline) {
+        const latest = await deps.readDiscovery();
+        if (latest && latest.port && latest.pid) {
+          const health = await deps.probe({
+            port: latest.port,
+            token: latest.token
+          });
+          if (health.ok && health.vaultPath) {
+            const healthVaultPath = await canonicalizeVaultPath(health.vaultPath);
+            if (healthVaultPath === canonicalVaultPath) {
+              return {
+                adopted: false,
+                port: latest.port,
+                pid: latest.pid
+              };
+            }
+            throw new Error(
+              `Discovery conflict: runtime at ${latest.port} serves ${health.vaultPath} but this vault is ${deps.vaultPath}`
+            );
+          }
+        }
+        const { promise: promise2, resolve: resolve2 } = Promise.withResolvers();
+        setTimeout(resolve2, 100);
+        await promise2;
+      }
+      throw new Error(`Spawned runtime for ${deps.vaultPath} did not become healthy within 5s`);
+    } finally {
+      await deps.releaseLock();
+    }
+  })();
+  return promise;
+}
+function createVaultRuntimeLock(vaultPath, options = {}) {
+  const retryDelayMs = options.retryDelayMs ?? 100;
+  const timeoutMs = options.timeoutMs ?? 3e4;
+  const staleThresholdMs = options.staleThresholdMs ?? 5e3;
+  const lockDir = path2.join(vaultPath, ".vault-mind", "runtime-lock");
+  const ownerPath = path2.join(lockDir, "owner.json");
+  const recoveryDir = path2.join(vaultPath, ".vault-mind", "runtime-lock-recovery");
+  const recoveryOwnerPath = path2.join(recoveryDir, "owner.json");
+  let heldToken;
+  const ownerState = async () => {
+    try {
+      const raw = await fs.promises.readFile(ownerPath, "utf-8");
+      const data = JSON.parse(raw);
+      if (!data.pid) return "malformed-metadata";
+      if (data.pid === process.pid) return "live-same-process";
+      try {
+        process.kill(data.pid, 0);
+        return "live-other-process";
+      } catch {
+        return "dead";
+      }
+    } catch {
+      return "missing-metadata";
+    }
+  };
+  const directoryIsStale = async () => {
+    try {
+      const stat = await fs.promises.stat(lockDir);
+      return Date.now() - stat.mtimeMs > staleThresholdMs;
+    } catch {
+      return true;
+    }
+  };
+  const withRecoveryLock = async (operation) => {
+    await fs.promises.mkdir(path2.dirname(recoveryDir), { recursive: true });
+    let acquired = false;
+    const recoveryDeadline = Date.now() + timeoutMs;
+    while (Date.now() < recoveryDeadline) {
+      try {
+        await fs.promises.mkdir(recoveryDir);
+        const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        await fs.promises.writeFile(
+          recoveryOwnerPath,
+          JSON.stringify({ pid: process.pid, token, acquiredAt: Date.now() }),
+          { encoding: "utf-8", mode: 384 }
+        );
+        acquired = true;
+        break;
+      } catch (err) {
+        const code = err.code;
+        if (code !== "EEXIST") throw err;
+        let recoveryStale = false;
+        try {
+          const raw = await fs.promises.readFile(recoveryOwnerPath, "utf-8");
+          const data = JSON.parse(raw);
+          if (!data.pid) {
+            recoveryStale = true;
+          } else if (data.pid === process.pid) {
+            recoveryStale = false;
+          } else {
+            try {
+              process.kill(data.pid, 0);
+              recoveryStale = false;
+            } catch {
+              recoveryStale = true;
+            }
+          }
+        } catch {
+          recoveryStale = true;
+        }
+        if (recoveryStale) {
+          try {
+            await fs.promises.rm(recoveryDir, { recursive: true, force: true });
+          } catch {
+          }
+          continue;
+        }
+        const { promise, resolve: resolve2 } = Promise.withResolvers();
+        setTimeout(resolve2, retryDelayMs);
+        await promise;
+      }
+    }
+    if (!acquired) {
+      throw new Error(`Timed out acquiring recovery lock at ${recoveryDir}`);
+    }
+    try {
+      await operation();
+    } finally {
+      try {
+        await fs.promises.rm(recoveryDir, { recursive: true, force: true });
+      } catch {
+      }
+    }
+  };
+  const breakStaleLock = async () => {
+    await withRecoveryLock(async () => {
+      const currentState = await ownerState();
+      if (currentState === "live-same-process" || currentState === "live-other-process") {
+        return;
+      }
+      if (currentState === "missing-metadata" || currentState === "malformed-metadata") {
+        if (!await directoryIsStale()) {
+          return;
+        }
+      }
+      const tombstone = `${lockDir}.stale.${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      try {
+        await fs.promises.rename(lockDir, tombstone);
+        await fs.promises.rm(tombstone, { recursive: true, force: true });
+      } catch (err) {
+        const code = err.code;
+        if (code === "ENOENT") {
+          return;
+        }
+      }
+    });
+  };
+  const acquire = async () => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      try {
+        await fs.promises.mkdir(path2.dirname(lockDir), { recursive: true });
+        await fs.promises.mkdir(lockDir);
+        const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        heldToken = token;
+        await fs.promises.writeFile(
+          ownerPath,
+          JSON.stringify({ pid: process.pid, token, acquiredAt: Date.now() }),
+          { encoding: "utf-8", mode: 384 }
+        );
+        return;
+      } catch (err) {
+        const code = err.code;
+        if (code === "EEXIST") {
+          const state = await ownerState();
+          if (state === "dead") {
+            await breakStaleLock();
+            continue;
+          }
+          if (state === "live-same-process" || state === "live-other-process") {
+            const { promise: promise2, resolve: resolve3 } = Promise.withResolvers();
+            setTimeout(resolve3, retryDelayMs);
+            await promise2;
+            continue;
+          }
+          if (await directoryIsStale()) {
+            await breakStaleLock();
+            continue;
+          }
+          const { promise, resolve: resolve2 } = Promise.withResolvers();
+          setTimeout(resolve2, retryDelayMs);
+          await promise;
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error(`Timed out acquiring vault runtime lock at ${lockDir}`);
+  };
+  const release = async () => {
+    const token = heldToken;
+    heldToken = void 0;
+    if (!token) return;
+    try {
+      const raw = await fs.promises.readFile(ownerPath, "utf-8");
+      const data = JSON.parse(raw);
+      if (data.token === token) {
+        await fs.promises.unlink(ownerPath);
+        await fs.promises.rmdir(lockDir).catch(() => {
+        });
+      }
+    } catch {
+    }
+  };
+  return { acquire, release };
+}
+async function readVaultDiscovery(vaultPath) {
+  const serverJsonPath = getServerStatePath(vaultPath);
+  try {
+    const raw = await fs.promises.readFile(serverJsonPath, "utf-8");
+    const data = JSON.parse(raw);
+    const port = typeof data.port === "number" && Number.isFinite(data.port) ? data.port : void 0;
+    const pid = typeof data.pid === "number" && Number.isFinite(data.pid) ? data.pid : void 0;
+    if (port === void 0 || pid === void 0) return void 0;
+    return {
+      port,
+      pid,
+      token: typeof data.token === "string" ? data.token : void 0
+    };
+  } catch {
+    return void 0;
+  }
+}
+async function probeVaultHealth(args) {
+  const url = new URL("/vm/status", `http://${args.host}:${args.port}`);
+  try {
+    const response = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${args.token}` }
+    });
+    if (!response.ok) {
+      return { ok: false };
+    }
+    const body = await response.json();
+    const vaultPath = typeof body.vaultPath === "string" ? body.vaultPath : void 0;
+    const pid = typeof body.pid === "number" ? body.pid : void 0;
+    const server = body.server;
+    const port = typeof server === "object" && server !== null && typeof server.port === "number" ? server.port : args.port;
+    return { ok: body.ok === true, vaultPath, pid, port };
+  } catch {
+    return { ok: false };
+  }
+}
 
 // src/chat/message-store.ts
 var MAX_MESSAGES_PER_SESSION = 500;
@@ -23101,292 +23385,6 @@ async function startFreshRuntime(connection, delayer = defaultDelayer, options =
     }
   }
   await connection.send({ type: "prompt", message: "/vm server start" });
-}
-
-// src/chat/ensureVaultRuntime.ts
-var fs = __toESM(require("node:fs"), 1);
-var path2 = __toESM(require("node:path"), 1);
-init_config();
-async function canonicalizeVaultPath(p) {
-  try {
-    return await fs.promises.realpath(p);
-  } catch {
-    return path2.resolve(p);
-  }
-}
-async function ensureVaultRuntime(deps) {
-  const promise = (async () => {
-    await deps.acquireLock();
-    const canonicalVaultPath = await canonicalizeVaultPath(deps.vaultPath);
-    try {
-      const discovery = await deps.readDiscovery();
-      if (discovery) {
-        const alive = await deps.isProcessAlive();
-        if (alive) {
-          const health = await deps.probe({
-            port: discovery.port,
-            token: discovery.token
-          });
-          if (health.ok && health.vaultPath) {
-            const healthVaultPath = await canonicalizeVaultPath(health.vaultPath);
-            if (healthVaultPath === canonicalVaultPath) {
-              const pid = health.pid ?? discovery.pid;
-              const port = health.port ?? discovery.port;
-              return { adopted: true, port, pid };
-            }
-            throw new Error(
-              `Discovery conflict: existing runtime serves ${health.vaultPath} but this vault is ${deps.vaultPath}`
-            );
-          }
-        }
-      }
-      await deps.spawnAndStart();
-      const deadline = Date.now() + 5e3;
-      while (Date.now() < deadline) {
-        const latest = await deps.readDiscovery();
-        if (latest && latest.port && latest.pid) {
-          const health = await deps.probe({
-            port: latest.port,
-            token: latest.token
-          });
-          if (health.ok && health.vaultPath) {
-            const healthVaultPath = await canonicalizeVaultPath(health.vaultPath);
-            if (healthVaultPath === canonicalVaultPath) {
-              return {
-                adopted: false,
-                port: latest.port,
-                pid: latest.pid
-              };
-            }
-            throw new Error(
-              `Discovery conflict: runtime at ${latest.port} serves ${health.vaultPath} but this vault is ${deps.vaultPath}`
-            );
-          }
-        }
-        const { promise: promise2, resolve: resolve2 } = Promise.withResolvers();
-        setTimeout(resolve2, 100);
-        await promise2;
-      }
-      throw new Error(
-        `Spawned runtime for ${deps.vaultPath} did not become healthy within 5s`
-      );
-    } finally {
-      await deps.releaseLock();
-    }
-  })();
-  return promise;
-}
-function createVaultRuntimeLock(vaultPath, options = {}) {
-  const retryDelayMs = options.retryDelayMs ?? 100;
-  const timeoutMs = options.timeoutMs ?? 3e4;
-  const staleThresholdMs = options.staleThresholdMs ?? 5e3;
-  const lockDir = path2.join(vaultPath, ".vault-mind", "runtime-lock");
-  const ownerPath = path2.join(lockDir, "owner.json");
-  const recoveryDir = path2.join(vaultPath, ".vault-mind", "runtime-lock-recovery");
-  const recoveryOwnerPath = path2.join(recoveryDir, "owner.json");
-  let heldToken;
-  const ownerState = async () => {
-    try {
-      const raw = await fs.promises.readFile(ownerPath, "utf-8");
-      const data = JSON.parse(raw);
-      if (!data.pid) return "malformed-metadata";
-      if (data.pid === process.pid) return "live-same-process";
-      try {
-        process.kill(data.pid, 0);
-        return "live-other-process";
-      } catch {
-        return "dead";
-      }
-    } catch {
-      return "missing-metadata";
-    }
-  };
-  const directoryIsStale = async () => {
-    try {
-      const stat = await fs.promises.stat(lockDir);
-      return Date.now() - stat.mtimeMs > staleThresholdMs;
-    } catch {
-      return true;
-    }
-  };
-  const withRecoveryLock = async (operation) => {
-    await fs.promises.mkdir(path2.dirname(recoveryDir), { recursive: true });
-    let acquired = false;
-    const recoveryDeadline = Date.now() + timeoutMs;
-    while (Date.now() < recoveryDeadline) {
-      try {
-        await fs.promises.mkdir(recoveryDir);
-        const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        await fs.promises.writeFile(
-          recoveryOwnerPath,
-          JSON.stringify({ pid: process.pid, token, acquiredAt: Date.now() }),
-          { encoding: "utf-8", mode: 384 }
-        );
-        acquired = true;
-        break;
-      } catch (err) {
-        const code = err.code;
-        if (code !== "EEXIST") throw err;
-        let recoveryStale = false;
-        try {
-          const raw = await fs.promises.readFile(recoveryOwnerPath, "utf-8");
-          const data = JSON.parse(raw);
-          if (!data.pid) {
-            recoveryStale = true;
-          } else if (data.pid === process.pid) {
-            recoveryStale = false;
-          } else {
-            try {
-              process.kill(data.pid, 0);
-              recoveryStale = false;
-            } catch {
-              recoveryStale = true;
-            }
-          }
-        } catch {
-          recoveryStale = true;
-        }
-        if (recoveryStale) {
-          try {
-            await fs.promises.rm(recoveryDir, { recursive: true, force: true });
-          } catch {
-          }
-          continue;
-        }
-        const { promise, resolve: resolve2 } = Promise.withResolvers();
-        setTimeout(resolve2, retryDelayMs);
-        await promise;
-      }
-    }
-    if (!acquired) {
-      throw new Error(`Timed out acquiring recovery lock at ${recoveryDir}`);
-    }
-    try {
-      await operation();
-    } finally {
-      try {
-        await fs.promises.rm(recoveryDir, { recursive: true, force: true });
-      } catch {
-      }
-    }
-  };
-  const breakStaleLock = async () => {
-    await withRecoveryLock(async () => {
-      const currentState = await ownerState();
-      if (currentState === "live-same-process" || currentState === "live-other-process") {
-        return;
-      }
-      if (currentState === "missing-metadata" || currentState === "malformed-metadata") {
-        if (!await directoryIsStale()) {
-          return;
-        }
-      }
-      const tombstone = `${lockDir}.stale.${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      try {
-        await fs.promises.rename(lockDir, tombstone);
-        await fs.promises.rm(tombstone, { recursive: true, force: true });
-      } catch (err) {
-        const code = err.code;
-        if (code === "ENOENT") {
-          return;
-        }
-      }
-    });
-  };
-  const acquire = async () => {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      try {
-        await fs.promises.mkdir(path2.dirname(lockDir), { recursive: true });
-        await fs.promises.mkdir(lockDir);
-        const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        heldToken = token;
-        await fs.promises.writeFile(
-          ownerPath,
-          JSON.stringify({ pid: process.pid, token, acquiredAt: Date.now() }),
-          { encoding: "utf-8", mode: 384 }
-        );
-        return;
-      } catch (err) {
-        const code = err.code;
-        if (code === "EEXIST") {
-          const state = await ownerState();
-          if (state === "dead") {
-            await breakStaleLock();
-            continue;
-          }
-          if (state === "live-same-process" || state === "live-other-process") {
-            const { promise: promise2, resolve: resolve3 } = Promise.withResolvers();
-            setTimeout(resolve3, retryDelayMs);
-            await promise2;
-            continue;
-          }
-          if (await directoryIsStale()) {
-            await breakStaleLock();
-            continue;
-          }
-          const { promise, resolve: resolve2 } = Promise.withResolvers();
-          setTimeout(resolve2, retryDelayMs);
-          await promise;
-          continue;
-        }
-        throw err;
-      }
-    }
-    throw new Error(`Timed out acquiring vault runtime lock at ${lockDir}`);
-  };
-  const release = async () => {
-    const token = heldToken;
-    heldToken = void 0;
-    if (!token) return;
-    try {
-      const raw = await fs.promises.readFile(ownerPath, "utf-8");
-      const data = JSON.parse(raw);
-      if (data.token === token) {
-        await fs.promises.unlink(ownerPath);
-        await fs.promises.rmdir(lockDir).catch(() => {
-        });
-      }
-    } catch {
-    }
-  };
-  return { acquire, release };
-}
-async function readVaultDiscovery(vaultPath) {
-  const serverJsonPath = getServerStatePath(vaultPath);
-  try {
-    const raw = await fs.promises.readFile(serverJsonPath, "utf-8");
-    const data = JSON.parse(raw);
-    const port = typeof data.port === "number" && Number.isFinite(data.port) ? data.port : void 0;
-    const pid = typeof data.pid === "number" && Number.isFinite(data.pid) ? data.pid : void 0;
-    if (port === void 0 || pid === void 0) return void 0;
-    return {
-      port,
-      pid,
-      token: typeof data.token === "string" ? data.token : void 0
-    };
-  } catch {
-    return void 0;
-  }
-}
-async function probeVaultHealth(args) {
-  const url = new URL("/vm/status", `http://${args.host}:${args.port}`);
-  try {
-    const response = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${args.token}` }
-    });
-    if (!response.ok) {
-      return { ok: false };
-    }
-    const body = await response.json();
-    const vaultPath = typeof body.vaultPath === "string" ? body.vaultPath : void 0;
-    const pid = typeof body.pid === "number" ? body.pid : void 0;
-    const server = body.server;
-    const port = typeof server === "object" && server !== null && typeof server.port === "number" ? server.port : args.port;
-    return { ok: body.ok === true, vaultPath, pid, port };
-  } catch {
-    return { ok: false };
-  }
 }
 
 // src/client.ts
@@ -26931,10 +26929,10 @@ function ModelPicker({ models, value, onSelect }) {
     variant: {
       kind: "filterable",
       items: models,
-      key: (i) => i,
-      label: (i) => i,
+      key: (item) => item,
+      label: (item) => item,
       select: "single",
-      selected: (i) => i === value(),
+      selected: (item) => item === value(),
       onSelect,
       placeholder: "Search models\u2026"
     }
@@ -28067,8 +28065,8 @@ function ConfigurationSettingsView(options) {
 }
 
 // src/configuration/RestConfigurationAdapter.ts
-init_pi_detect();
 init_config();
+init_pi_detect();
 
 // src/ui/configuration/folder-path.ts
 function normalizeVaultFolderPath(input) {
@@ -30756,6 +30754,7 @@ function Composer(opts = {}, data = DEFAULT_DATA) {
     value: () => s.model,
     onSelect: (m) => {
       s.model = m;
+      opts.onModelSelect?.(m);
     }
   })}${ThinkingPicker({
     enabled: () => s.thinkingOn,
@@ -30780,6 +30779,7 @@ function Composer(opts = {}, data = DEFAULT_DATA) {
     model: () => s.model,
     onModel: (m) => {
       s.model = m;
+      opts.onModelSelect?.(m);
     },
     thinkingOn: () => s.thinkingOn,
     thinkingLevel: () => s.thinkingLevel,
@@ -32043,13 +32043,28 @@ function ActivityView(o) {
 
 // src/ui/views/VaultMindView/FirstRunCard.ts
 function FirstRunCard(opts) {
-  return Card({
+  return html`${() => !opts.isConfigured ? Card({
     tone: "default",
     icon: "settings",
     title: "Set up Vault Mind",
     body: "Get started with Vault Mind \u2014 configure the runtime, embedding provider, and folder layout.",
     footer: Button({ label: "Get started", variant: "cta", onClick: opts.onStartSetup })
-  });
+  }) : Card({
+    tone: "default",
+    icon: "sparkles",
+    title: "Welcome to Vault Mind",
+    body: "Personalize your AI by giving it a role, a goal, and a specific set of instructions for your vault.",
+    footer: html`
+					<div class="oas-card-footer oas-flex-row">
+						${ModelPicker({
+      models: () => opts.models.map((model) => model.id),
+      value: () => opts.currentModel()?.id ?? "",
+      onSelect: opts.onModelSelect
+    })}
+						${Button({ label: "Personalize", variant: "cta", onClick: opts.onPersonalize })}
+					</div>
+				`
+  })}`;
 }
 
 // src/ui/components/SearchComposer/SearchComposer.ts
@@ -32425,11 +32440,36 @@ function VaultMindView(opts) {
 
 			<div class="oas-shell-view-body">
 				<div class="${() => panelClass("chat")}">
-					${() => s.isConfigured ? MessageFeed({
+					${() => !s.isConfigured ? FirstRunCard({
+    onStartSetup: opts.onStartSetup,
+    onPersonalize: () => {
+    },
+    models: demo.models,
+    currentModel: () => demo.currentModel,
+    onModelSelect: (id) => {
+      const m = demo.models.find((m2) => m2.id === id);
+      if (m) demo.setModel(m.provider, m.id);
+    },
+    isConfigured: false
+  }) : s.isPersonalized ? MessageFeed({
     messages: () => demo.chat.messages,
     streaming: () => demo.chat.streaming,
     renderMarkdown: opts.renderMarkdown
-  }) : FirstRunCard({ onStartSetup: opts.onStartSetup })}
+  }) : FirstRunCard({
+    onStartSetup: opts.onStartSetup,
+    onPersonalize: () => demo.personalize().then((res) => {
+      if (res.completed) demo.refreshStatus();
+    }),
+    models: demo.models,
+    currentModel: () => demo.currentModel,
+    onModelSelect: (id) => {
+      const m = demo.models.find((m2) => m2.id === id);
+      if (m) demo.setModel(m.provider, m.id);
+    },
+    isConfigured: true
+  })}
+
+
 				</div>
 
 				<div class="${() => panelClass("activity")}">
@@ -32481,7 +32521,7 @@ function VaultMindView(opts) {
 			</div>
 
 			<div class="${() => `oas-shell-view-footer${s.activeTab === "chat" ? "" : " is-hidden"}`}">
-				${() => s.isConfigured ? Composer(
+				${() => s.isConfigured && s.isPersonalized ? Composer(
     {
       initialContext: opts.initialContext,
       onSend: demo.chat.send,
@@ -32491,10 +32531,16 @@ function VaultMindView(opts) {
       queue: () => demo.chat.queue,
       onQueueRemove: demo.chat.removeQueued,
       onQueueSend: demo.chat.sendQueued,
-      showQueue: () => demo.chat.showQueue
+      showQueue: () => demo.chat.showQueue,
+      onModelSelect: (id) => {
+        const m = demo.models.find((m2) => m2.id === id);
+        if (m) demo.setModel(m.provider, m.id);
+      }
     },
     opts.composerData
   ) : null}
+
+
 			</div>
 
 			${StatusBar({
@@ -33221,8 +33267,62 @@ function createVaultMindController(opts) {
     sessions: [],
     currentSessionId: "",
     isInitialized: false,
-    isConfigured: false
+    isConfigured: false,
+    isPersonalized: false
   });
+  const modelState = reactive({
+    models: [],
+    current: null
+  });
+  async function loadModels() {
+    if (!connection.isConnected()) connection.connect();
+    try {
+      const [models, current] = await Promise.all([
+        connection.getAvailableModels(),
+        connection.getState()
+      ]);
+      modelState.models.splice(0, modelState.models.length, ...models);
+      modelState.current = current;
+    } catch (err) {
+      console.error("[VaultMindController] Failed to load models:", err);
+    }
+  }
+  async function loadStatus() {
+    const status = await client.status();
+    state.isConfigured = status.configured;
+    state.isPersonalized = status.personalized;
+  }
+  async function refreshStatus() {
+    await loadStatus();
+    if (state.isConfigured) await loadModels();
+  }
+  async function personalize() {
+    try {
+      await connection.send({ type: "prompt", message: "/vm personalize" });
+      const deadline = Date.now() + 6e4;
+      do {
+        await loadStatus();
+        if (state.isPersonalized) return { completed: true };
+        await new Promise((resolve2) => globalThis.setTimeout(resolve2, 100));
+      } while (Date.now() < deadline);
+      return { completed: false };
+    } catch (err) {
+      console.error("[VaultMindController] personalize failed:", err);
+      return { completed: false };
+    }
+  }
+  async function setModel(provider, modelId) {
+    try {
+      await connection.send({
+        type: "set_model",
+        provider,
+        modelId
+      });
+      modelState.current = modelState.models.find((m) => m.id === modelId) ?? null;
+    } catch (err) {
+      console.error("[VaultMindController] setModel failed:", err);
+    }
+  }
   const chat = reactive({
     messages: [],
     streaming: false,
@@ -33388,10 +33488,6 @@ function createVaultMindController(opts) {
     }
     streamHandler.handleEvent(event);
   });
-  async function loadStatus() {
-    const status = await client.status();
-    state.isConfigured = status.configured;
-  }
   async function loadGit() {
     try {
       const [status, branches] = await Promise.all([client.gitStatus(), client.gitBranches()]);
@@ -33524,6 +33620,12 @@ function createVaultMindController(opts) {
   const controller = {
     chat,
     state,
+    get models() {
+      return modelState.models;
+    },
+    get currentModel() {
+      return modelState.current;
+    },
     dispose: () => {
     },
     setTab: (tab) => {
@@ -33542,7 +33644,7 @@ function createVaultMindController(opts) {
       client.retryJob(id).then(loadJobs).catch((err) => console.error("[VaultMindController] retryJob failed:", err));
     },
     cancelJob: (id) => {
-      client.cancelJob(id).then(loadJobs).catch((err) => console.error("[VaultMindController] cancelJob failed:", err));
+      client.cancelJob(id).then(loadJobs).catch((err) => console.error("[VaultMind laJob failed:", err));
     },
     approveEntry: (id) => {
       const entry = state.pending.find((p) => p.id === id);
@@ -33552,7 +33654,7 @@ function createVaultMindController(opts) {
     rejectEntry: (id) => {
       const entry = state.pending.find((p) => p.id === id);
       if (!entry) return;
-      client.approveEntry(id, entry.collection, "reject").then(loadPending).catch((err) => console.error("[VaultMindController] rejectEntry failed:", err));
+      client.approveEntry(id, entry.collection, "reject").then(loadPending).catch((err) => console.error("[VaultMind laEntry failed:", err));
     },
     injectActivity,
     upsertJob,
@@ -33595,27 +33697,27 @@ function createVaultMindController(opts) {
         state.currentSessionId = session.id;
         chat.messages = messageStore.getMessages(target).flatMap((m) => mapBridgeToFeed(m, sendRaw));
       } catch (err) {
-        console.error("[VaultMindController] switchSession failed:", err);
+        console.error("[VaultMind laSession failed:", err);
       }
     },
     renameSession: (session, newName) => {
-      client.renameSession(session.id, newName).then(loadSessions).catch((err) => console.error("[VaultMindController] renameSession failed:", err));
+      client.renameSession(session.id, newName).then(loadSessions).catch((err) => console.error("[VaultMind laSession failed:", err));
     },
     deleteSession: (session) => {
-      client.deleteSession(session.id).then(loadSessions).catch((err) => console.error("[VaultMindController] deleteSession failed:", err));
+      client.deleteSession(session.id).then(loadSessions).catch((err) => console.error("[VaultMind ladeleteSession failed:", err));
     },
     archiveSession: (session) => {
-      client.archiveSession(session.id).then(loadSessions).catch(
-        (err) => console.error("[VaultMindController] archiveSession failed:", err)
-      );
+      client.archiveSession(session.id).then(loadSessions).catch((err) => console.error("[VaultMind larchiveSession failed:", err));
     },
     exportSession: (session) => {
       client.exportSession(session.id).then((res) => {
-        console.log("[VaultMindController] Session exported:", res.path);
+        console.log("[VaultMind laSession exported:", res.path);
         void loadSessions();
-      }).catch((err) => console.error("[VaultMindController] exportSession failed:", err));
+      }).catch((err) => console.error("[VaultMind laExportSession failed:", err));
     },
-    refreshStatus: loadStatus
+    personalize,
+    setModel,
+    refreshStatus
   };
   controller.dispose = () => {
     unsubscribeEvents();
