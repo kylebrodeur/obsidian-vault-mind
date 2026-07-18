@@ -1,8 +1,23 @@
 /* Vault Mind — Obsidian side panel styles */
 
+/* ── SVG icon sizing (data-icon placeholders rendered via setIcon) ── */
+.svg-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 1em;
+	height: 1em;
+	flex-shrink: 0;
+}
+
+.svg-icon svg {
+	width: 100%;
+	height: 100%;
+}
+
 .vault-mind-container {
 	--vault-mind-sidebar-width: 260px;
-	--vault-mind-message-gap: var(--size-4-2);
+	--vault-mind-message-gap: var(--size-4-5);
 	--vault-mind-chip-gap: var(--size-4-1);
 	--vault-mind-status-dot-size: 8px;
 
@@ -78,20 +93,6 @@
 	flex: 1;
 }
 
-.vault-mind-queue-list {
-	display: flex;
-	flex-direction: column;
-	gap: var(--size-4-1);
-}
-
-.vault-mind-count-chips {
-	display: flex;
-	flex-wrap: wrap;
-	gap: var(--vault-mind-chip-gap);
-	padding: var(--size-4-2);
-	border-bottom: 1px solid var(--background-modifier-border);
-}
-
 .vault-mind-count-chip {
 	display: inline-flex;
 	align-items: center;
@@ -112,19 +113,42 @@
 	gap: var(--vault-mind-message-gap);
 	overflow-y: auto;
 	flex: 1;
+	padding: var(--size-4-5) var(--size-4-4) var(--size-4-3);
+}
+
+/* Each row wrapper must be a flex column so is-user can align-self:flex-end */
+.msg-row-wrapper {
+	display: flex;
+	flex-direction: column;
 }
 
 .vault-mind-message {
 	display: flex;
 	flex-direction: column;
-	gap: var(--size-4-1);
+	gap: var(--size-4-2);
 }
 
 .vault-mind-message-role {
-	font-size: var(--font-smallest);
+	font-size: var(--font-ui-smaller);
 	font-weight: var(--font-semibold);
-	color: var(--text-muted);
-	text-transform: capitalize;
+	color: var(--text-faint);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	margin-bottom: var(--size-4-1);
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+/* User role — right-aligned to match bubble */
+.vault-mind-message.is-user .vault-mind-message-role {
+	justify-content: flex-end;
+	color: var(--interactive-accent);
+}
+
+/* Assistant role — subtle accent */
+.vault-mind-message.is-assistant .vault-mind-message-role {
+	color: var(--text-accent);
 }
 
 .vault-mind-message-body {
@@ -292,84 +316,6 @@
 	min-height: var(--size-4-8);
 }
 
-.vault-mind-job-row {
-	padding: var(--size-4-2);
-	border: 1px solid var(--background-modifier-border);
-	border-radius: var(--radius-s);
-	cursor: pointer;
-}
-
-.vault-mind-job-row:hover {
-	background-color: var(--background-modifier-hover);
-}
-
-.vault-mind-job-header {
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	gap: var(--size-4-1);
-}
-
-.vault-mind-job-role {
-	font-size: var(--font-smallest);
-	font-weight: var(--font-semibold);
-	padding: 1px var(--size-4-1);
-	border-radius: var(--radius-s);
-	background-color: var(--background-modifier-active);
-}
-
-.vault-mind-job-status {
-	font-size: var(--font-smallest);
-	text-transform: uppercase;
-	color: var(--text-muted);
-}
-
-.vault-mind-job-path {
-	font-size: var(--font-smallest);
-	color: var(--text-muted);
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-
-.vault-mind-job-instruction {
-	font-size: var(--font-smaller);
-	margin-top: var(--size-4-1);
-}
-
-.vault-mind-job-detail {
-	display: none;
-	margin-top: var(--size-4-2);
-	padding-top: var(--size-4-2);
-	border-top: 1px solid var(--background-modifier-border);
-	font-size: var(--font-smaller);
-}
-
-.vault-mind-job-expanded .vault-mind-job-detail {
-	display: block;
-}
-
-.vault-mind-job-detail-section {
-	margin-bottom: var(--size-4-2);
-}
-
-.vault-mind-job-error {
-	color: var(--text-error);
-	margin-bottom: var(--size-4-2);
-	white-space: pre-wrap;
-}
-
-.vault-mind-job-meta-line {
-	color: var(--text-muted);
-	font-size: var(--font-smallest);
-}
-
-.vault-mind-job-actions {
-	display: flex;
-	gap: var(--size-4-1);
-	margin-top: var(--size-4-2);
-}
-
 .vault-mind-empty {
 	padding: var(--size-4-4);
 	text-align: center;
@@ -475,45 +421,6 @@
 	white-space: pre-wrap;
 }
 
-/* Queue connection states */
-.vault-mind-queue-empty .vault-mind-status-dot {
-	animation: vault-mind-pulse 2s ease-in-out infinite;
-}
-
-.vault-mind-queue-error .vault-mind-status-dot {
-	background-color: var(--text-error);
-}
-
-.vault-mind-queue-reconnecting .vault-mind-status-dot {
-	animation: vault-mind-spin 1s linear infinite;
-	border-radius: 0;
-	clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
-}
-
-.vault-mind-queue-error-state {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	gap: var(--size-4-2);
-}
-
-.vault-mind-queue-reconnecting-state {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	gap: var(--size-4-2);
-}
-
-.vault-mind-spinner {
-	display: inline-flex;
-	animation: vault-mind-spin 1s linear infinite;
-}
-
-.vault-mind-spinner svg {
-	width: 16px;
-	height: 16px;
-}
-
 /* Keyboard focus indicators */
 .vault-mind-container button:focus-visible,
 .vault-mind-container [tabindex="0"]:focus-visible,
@@ -522,10 +429,6 @@
 .vault-mind-ribbon-icon:focus-visible {
 	outline: 2px solid var(--interactive-accent);
 	outline-offset: 2px;
-}
-
-.vault-mind-job-row:focus-visible {
-	background-color: var(--background-modifier-hover);
 }
 
 .vault-mind-status-bar-item {
@@ -742,172 +645,541 @@
 	padding: var(--size-4-4);
 }
 
-/* PiChat vendored styles */
-
-/* Pi Plugin — Chat View Styles */
-
-/* Utility: hide elements via CSS class instead of inline styles */
-/* Use higher specificity by scoping to plugin container */
-.pi-chat-container .pi-session-panel.is-hidden,
-.pi-chat-container .pi-session-popover.is-hidden,
-.pi-chat-container .pi-attachments.is-hidden,
-.pi-chat-container .pi-abort-btn.is-hidden,
-.pi-chat-container .pi-header-model.is-hidden,
-.pi-chat-container .pi-header-cwd.is-hidden,
-.pi-chat-container .pi-env-var-container.is-hidden {
-	display: none;
-}
-
-/* Env var hint container for provider dropdown */
-.pi-env-var-container {
-	display: flex;
-	align-items: center;
-	gap: 12px;
-	margin-top: 8px;
-	padding: 8px 12px;
-	background: var(--background-secondary);
-	border-radius: var(--radius-s);
-}
-
-.pi-env-var-hint {
-	flex: 1;
-	color: var(--text-muted);
-}
-
-.pi-env-var-add-btn {
-	padding: 4px 12px;
-	font-size: var(--font-ui-small);
-	border-radius: var(--radius-s);
-	background: var(--interactive-accent);
-	color: var(--text-on-accent);
-	cursor: pointer;
-}
-
-.pi-env-var-add-btn:hover:not(:disabled) {
-	background: var(--interactive-accent-hover);
-}
-
-.pi-env-var-add-btn:disabled {
-	opacity: 0.6;
-	cursor: not-allowed;
-}
-
-/* Platform help spacing */
-.pi-platform-help {
-	margin-left: 0;
-	margin-top: 0.5em;
-	margin-bottom: 1em;
-}
+/* ── Chat View ──
+ * All custom rules scoped under .vault-mind-chat-container + element type
+ * so they beat Obsidian's global button:not(.clickable-icon) rule at (0,2,1).
+ *
+ * Prefix: vault-mind-* (unified — no pi-* in new code).
+ * Obsidian classes used directly: .clickable-icon, .mod-cta, .svg-icon
+ */
 
 /* ── Layout ── */
-.pi-chat-container {
+.vault-mind-chat-container {
 	display: flex;
 	flex-direction: column;
 	height: 100%;
+	overflow: hidden;
 }
 
 /* ── Header Bar ── */
-.pi-header-bar {
+.vault-mind-chat-header {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
 	padding: 6px 12px;
 	border-bottom: 1px solid var(--background-modifier-border);
-	background: var(--background-secondary);
 	flex-shrink: 0;
-	min-height: 32px;
-	gap: 8px;
 }
 
-.pi-header-left {
+.vault-mind-chat-header-left {
 	display: flex;
 	align-items: center;
-	gap: 8px;
+	gap: 6px;
 	min-width: 0;
 	flex: 1;
 }
 
-.pi-header-right {
+.vault-mind-chat-header-right {
 	display: flex;
 	align-items: center;
+	gap: 4px;
 	flex-shrink: 0;
 	position: relative;
 }
 
-.pi-header-session-name {
-	font-weight: 600;
-	font-size: 0.9em;
-	cursor: pointer;
-	padding: 2px 4px;
-	border-radius: 4px;
+.vault-mind-chat-session-name {
+	font-weight: var(--font-semibold);
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
-	max-width: 200px;
+	padding: 2px 6px;
+	border-radius: var(--radius-s);
+	cursor: pointer;
 }
 
-.pi-header-session-name:hover {
+.vault-mind-chat-session-name:hover {
 	background: var(--background-modifier-hover);
 }
 
-.pi-header-name-input {
-	font-weight: 600;
-	font-size: 0.9em;
-	border: 1px solid var(--interactive-accent);
-	border-radius: 4px;
-	padding: 1px 4px;
-	background: var(--background-primary);
-	color: var(--text-normal);
-	width: 180px;
-	outline: none;
+.vault-mind-chat-container button.vault-mind-chat-sessions-btn {
+	color: var(--text-muted);
+	background: none;
+	border: none;
+	cursor: pointer;
+	padding: 4px;
+	border-radius: var(--radius-s);
 }
 
-.pi-header-model {
-	font-size: 0.75em;
-	color: var(--text-muted);
-	background: var(--background-primary-alt);
-	padding: 1px 6px;
+.vault-mind-chat-container button.vault-mind-chat-sessions-btn:hover,
+.vault-mind-chat-container button.vault-mind-chat-sessions-btn.is-active {
+	color: var(--text-normal);
+	background: var(--background-modifier-hover);
+}
+
+/* ── Chat Body (scrollable message area) ── */
+.vault-mind-chat-body {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 12px;
+}
+
+/* ── Messages ── */
+.vault-mind-messages {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-5);
+}
+
+.vault-mind-message {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+}
+
+.vault-mind-message-role {
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-semibold);
+	color: var(--text-faint);
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+.vault-mind-message.is-user .vault-mind-message-role {
+	justify-content: flex-end;
+	color: var(--interactive-accent);
+}
+
+.vault-mind-message.is-assistant .vault-mind-message-role {
+	color: var(--text-accent);
+}
+
+.vault-mind-message-body {
+	line-height: var(--line-height-normal);
+}
+
+.vault-mind-message-body p:first-child {
+	margin-top: 0;
+}
+
+.vault-mind-message-body p:last-child {
+	margin-bottom: 0;
+}
+
+/* User message bubble */
+.vault-mind-message.is-user .vault-mind-message-body {
+	background: var(--background-modifier-form-field);
 	border-radius: 8px;
-	white-space: nowrap;
+	padding: 8px 12px;
 }
 
-.pi-header-cwd {
-	font-size: 0.75em;
+.vault-mind-message.is-user .vault-mind-message-body p {
+	margin: 0;
+}
+
+/* Steering message */
+.vault-mind-message.is-steer .vault-mind-message-body {
+	background: var(--background-modifier-error-hover);
+	border-left: 3px solid var(--text-accent);
+}
+
+.vault-mind-message.is-steer .vault-mind-message-role {
+	color: var(--text-accent);
+}
+
+/* ── Thinking ── */
+.vault-mind-thinking {
+	margin-bottom: 10px;
+	font-size: var(--font-ui-smaller);
 	color: var(--text-muted);
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	max-width: 150px;
-}
-
-.pi-header-new-btn {
-	font-size: 0.8em;
-	padding: 2px 10px;
-	border-radius: 4px;
 	border: 1px solid var(--background-modifier-border);
-	background: var(--background-primary);
-	color: var(--text-muted);
+	border-radius: var(--radius-s);
+}
+
+.vault-mind-thinking summary {
 	cursor: pointer;
+	user-select: none;
+	font-style: italic;
+	padding: 4px 8px;
+	list-style: none;
+}
+
+.vault-mind-thinking summary::-webkit-details-marker {
+	display: none;
+}
+
+.vault-mind-thinking summary::before {
+	content: "▶";
+	font-size: 0.7em;
+	transition: transform 0.15s;
+	margin-right: 6px;
+}
+
+.vault-mind-thinking[open] summary::before {
+	transform: rotate(90deg);
+}
+
+.vault-mind-thinking-content {
+	padding: 8px 12px;
+	border-top: 1px solid var(--background-modifier-border);
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+/* ── Action Row (assistant message) ── */
+.vault-mind-action-row {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	opacity: 0;
+	transition: opacity 0.1s;
+	position: relative;
+}
+
+.vault-mind-message:hover .vault-mind-action-row,
+.vault-mind-message:focus-within .vault-mind-action-row {
+	opacity: 1;
+}
+
+.vault-mind-action-row.is-popover-open {
+	opacity: 1;
+}
+
+.vault-mind-chat-container button.vault-mind-action-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border: none;
+	border-radius: var(--radius-s);
+	background: none;
+	color: var(--text-faint);
+	cursor: pointer;
+	font-size: var(--font-ui-smaller);
+}
+
+.vault-mind-chat-container button.vault-mind-action-btn:hover {
+	color: var(--text-normal);
+	background: var(--background-modifier-hover);
+}
+
+.vault-mind-chat-container button.vault-mind-action-btn.is-copied {
+	color: var(--text-success);
+}
+
+/* Rewind button (user message) */
+.vault-mind-message-actions {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	opacity: 0;
+	transition: opacity 0.1s;
+}
+
+.vault-mind-message.is-user:hover .vault-mind-message-actions,
+.vault-mind-message.is-user:focus-within .vault-mind-message-actions {
+	opacity: 1;
+}
+
+.vault-mind-chat-container button.vault-mind-rewind-btn {
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-secondary);
+	color: var(--text-muted);
+	padding: 2px 8px;
+	border-radius: var(--radius-s);
+	font-size: var(--font-ui-smaller);
+	cursor: pointer;
+}
+
+.vault-mind-chat-container button.vault-mind-rewind-btn:hover {
+	color: var(--text-normal);
+	background: var(--background-modifier-hover);
+}
+
+/* ── Info Popover (inline, inside the action row) ── */
+.vault-mind-info-popover-inline {
+	position: absolute;
+	top: calc(100% + 4px);
+	left: 0;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	padding: var(--size-4-3);
+	box-shadow: var(--shadow-s);
+	z-index: 100;
+	min-width: 160px;
 	white-space: nowrap;
 }
 
-.pi-header-new-btn:hover {
-	background: var(--background-modifier-hover);
+.vault-mind-info-popover-title {
+	font-weight: var(--font-semibold);
+	margin-bottom: var(--size-4-2);
 	color: var(--text-normal);
 }
 
-.pi-header-new-btn:focus-visible {
-	outline: 2px solid var(--interactive-accent);
-	outline-offset: 2px;
+.vault-mind-info-popover-body {
+	font-size: 0.85em;
+	color: var(--text-muted);
 }
+
+/* biome-ignore lint/style/noDescendingSpecificity: unrelated selector (info-popover body) — no cascade conflict with the earlier .is-user message-body p rule */
+.vault-mind-info-popover-body p {
+	margin: 0 0 var(--size-4-1);
+}
+
+.vault-mind-info-popover-body p:last-child {
+	margin-bottom: 0;
+}
+
+/* ── Rich Tool Cards ── */
+.vault-mind-tool-card {
+	border: 1px solid var(--background-modifier-border);
+	border-left: 3px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	overflow: hidden;
+}
+
+.vault-mind-tool-card.is-running {
+	border-left-color: var(--interactive-accent);
+}
+
+.vault-mind-tool-card.is-error {
+	border-color: var(--text-error);
+	border-left-color: var(--text-error);
+}
+
+.vault-mind-tool-card:not(.is-running):not(.is-error) {
+	border-left-color: var(--color-green);
+}
+
+.vault-mind-tool-card-header {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	padding: var(--size-4-2) var(--size-4-3);
+	cursor: pointer;
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.vault-mind-tool-card-header:hover {
+	background: var(--background-modifier-hover);
+}
+
+.vault-mind-tool-card-status {
+	flex-shrink: 0;
+	width: 14px;
+	text-align: center;
+}
+
+.vault-mind-tool-card-status.is-running {
+	color: var(--interactive-accent);
+	animation: vault-mind-spin 1s linear infinite;
+	display: inline-block;
+}
+
+.vault-mind-tool-card-status.is-error {
+	color: var(--text-error);
+}
+
+.vault-mind-tool-card-status.is-done {
+	color: var(--color-green);
+}
+
+.vault-mind-tool-card-name {
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--text-normal);
+}
+
+.vault-mind-tool-card-chevron {
+	flex-shrink: 0;
+	color: var(--text-faint);
+	font-size: 0.75em;
+	transition: transform 0.15s;
+}
+
+.vault-mind-tool-card.is-expanded .vault-mind-tool-card-chevron {
+	transform: rotate(90deg);
+}
+
+.vault-mind-tool-card-body {
+	display: none;
+	padding: var(--size-4-2) var(--size-4-3);
+	border-top: 1px solid var(--background-modifier-border);
+	font-size: var(--font-ui-smaller);
+}
+
+.vault-mind-tool-card.is-expanded .vault-mind-tool-card-body {
+	display: block;
+}
+
+.vault-mind-tool-card-args {
+	margin-bottom: var(--size-4-2);
+}
+
+.vault-mind-tool-section-label {
+	font-size: var(--font-smallest);
+	font-weight: var(--font-semibold);
+	color: var(--text-muted);
+	text-transform: uppercase;
+	margin-bottom: var(--size-4-1);
+}
+
+.vault-mind-tool-card-args pre {
+	font-size: var(--font-ui-smaller);
+	margin: 0;
+	padding: var(--size-4-1) var(--size-4-2);
+	background: var(--background-primary-alt);
+	border-radius: var(--radius-s);
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.vault-mind-tool-card-result {
+	max-height: 300px;
+	overflow-y: auto;
+}
+
+.vault-mind-tool-card-result > *:first-child {
+	margin-top: 0;
+}
+
+.vault-mind-tool-card-result > *:last-child {
+	margin-bottom: 0;
+}
+
+/* ── Inline Permission Cards ── */
+.vault-mind-permission-card {
+	border: 1px solid var(--interactive-accent);
+	border-left: 3px solid var(--interactive-accent);
+	border-radius: var(--radius-s);
+	padding: var(--size-4-3);
+	margin-top: var(--size-4-2);
+}
+
+.vault-mind-permission-card.is-resolved {
+	opacity: 0.6;
+	border-color: var(--background-modifier-border);
+	border-left-color: var(--color-green);
+}
+
+.vault-mind-permission-title {
+	font-weight: var(--font-semibold);
+	font-size: var(--font-ui-small);
+	margin-bottom: var(--size-4-1);
+}
+
+.vault-mind-permission-message {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	margin-bottom: var(--size-4-2);
+}
+
+.vault-mind-permission-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--size-4-1);
+}
+
+.vault-mind-permission-card button.vault-mind-permission-option {
+	background: var(--background-primary);
+	color: var(--text-normal);
+	border: 1px solid var(--background-modifier-border);
+	padding: 4px 12px;
+	border-radius: var(--radius-s);
+	cursor: pointer;
+	font-size: var(--font-ui-smaller);
+}
+
+.vault-mind-permission-card button.vault-mind-permission-option:hover {
+	background: var(--background-modifier-hover);
+	border-color: var(--interactive-accent);
+}
+
+.vault-mind-permission-card button.vault-mind-permission-approve {
+	background: var(--color-green);
+	color: var(--text-on-accent);
+	border: none;
+	padding: 4px 12px;
+	border-radius: var(--radius-s);
+	cursor: pointer;
+	font-size: var(--font-ui-smaller);
+}
+
+.vault-mind-permission-card button.vault-mind-permission-approve:hover {
+	filter: brightness(1.1);
+}
+
+.vault-mind-permission-card button.vault-mind-permission-deny {
+	background: none;
+	color: var(--text-error);
+	border: 1px solid var(--text-error);
+	padding: 4px 12px;
+	border-radius: var(--radius-s);
+	cursor: pointer;
+	font-size: var(--font-ui-smaller);
+}
+
+.vault-mind-permission-card button.vault-mind-permission-deny:hover {
+	background: var(--background-modifier-error);
+}
+
+.vault-mind-permission-input-row {
+	display: flex;
+	gap: 6px;
+	align-items: center;
+}
+
+.vault-mind-permission-input-row input.vault-mind-permission-input {
+	flex: 1;
+	padding: 4px 8px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-modifier-form-field);
+	color: var(--text-normal);
+	font-size: var(--font-ui-smaller);
+}
+
+.vault-mind-permission-input-row input.vault-mind-permission-input:focus {
+	outline: none;
+	border-color: var(--interactive-accent);
+	box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
+}
+
+.vault-mind-permission-response {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	font-style: italic;
+	margin-top: var(--size-4-1);
+}
+
+/* ── Status Bar ── */
+.vault-mind-chat-statusbar {
+	padding: 2px 12px;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+	flex-shrink: 0;
+	min-height: 20px;
+}
+
 /* ── Session Popover ── */
-.pi-session-popover {
+.vault-mind-session-popover {
 	position: absolute;
 	top: calc(100% + 4px);
 	right: 0;
 	width: 320px;
-	max-width: calc(100vw - 24px);
-	max-height: 70vh;
+	max-height: 400px;
 	display: flex;
 	flex-direction: column;
 	background: var(--background-primary);
@@ -918,146 +1190,114 @@
 	overflow: hidden;
 }
 
-.pi-session-popover:focus {
+.vault-mind-session-popover.is-hidden {
+	display: none;
+}
+
+.vault-mind-session-popover:focus {
 	outline: none;
 }
 
-.pi-session-popover-header {
+.vault-mind-session-popover-header {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
 	padding: 8px 12px;
 	border-bottom: 1px solid var(--background-modifier-border);
-	background: var(--background-secondary);
 }
 
-.pi-session-popover-title {
+.vault-mind-session-popover-title {
 	font-weight: 600;
 	font-size: 0.9em;
 }
 
-.pi-session-popover-spinner {
-	display: inline-block;
-	animation: pi-spin 1s linear infinite;
-}
-
-.pi-session-popover-list {
+.vault-mind-session-popover-list {
 	flex: 1;
 	overflow-y: auto;
 	padding: 4px;
 }
 
-.pi-session-popover-empty {
+.vault-mind-session-popover-empty {
 	padding: 16px 12px;
 	color: var(--text-muted);
 	font-size: 0.85em;
 	text-align: center;
 }
 
-.pi-session-popover-item {
+.vault-mind-session-popover-item {
 	display: flex;
 	align-items: flex-start;
 	gap: 6px;
-	padding: 6px 8px;
+	padding: 8px;
 	border-radius: var(--radius-s);
 	cursor: pointer;
 }
 
-.pi-session-popover-item:hover,
-.pi-session-popover-item.is-selected {
+.vault-mind-session-popover-item:hover,
+.vault-mind-session-popover-item.is-selected {
 	background: var(--background-modifier-hover);
 }
 
-.pi-session-popover-item.is-current {
+.vault-mind-session-popover-item.is-current {
 	border-left: 2px solid var(--interactive-accent);
 }
 
-.pi-session-popover-item-main {
+.vault-mind-session-popover-item-main {
 	flex: 1;
 	min-width: 0;
 }
 
-.pi-session-popover-name-row {
+.vault-mind-session-popover-name-row {
 	display: flex;
 	align-items: center;
 	gap: 6px;
 }
 
-.pi-session-popover-name {
+.vault-mind-session-popover-name {
 	font-weight: 500;
 	font-size: 0.9em;
 	color: var(--text-normal);
-	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
-.pi-session-popover-current-badge {
+.vault-mind-session-popover-current-badge {
 	font-size: 0.7em;
 	color: var(--text-accent);
 	background: var(--background-primary-alt);
-	padding: 1px 4px;
-	border-radius: 4px;
-	text-transform: uppercase;
+	padding: 1px 6px;
+	border-radius: var(--radius-s);
 }
 
-.pi-session-popover-meta {
+.vault-mind-session-popover-meta {
 	font-size: 0.75em;
 	color: var(--text-muted);
 	margin-top: 2px;
 }
 
-.pi-session-popover-preview {
+.vault-mind-session-popover-preview {
 	font-size: 0.8em;
 	color: var(--text-muted);
 	margin-top: 2px;
-	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
-.pi-session-popover-rename-row {
-	display: flex;
-	align-items: center;
-	gap: 4px;
-}
-
-.pi-session-popover-rename-input {
-	flex: 1;
-	font-size: 0.9em;
-	padding: 2px 6px;
-	border: 1px solid var(--background-modifier-border);
-	border-radius: 4px;
-	background: var(--background-primary);
-	color: var(--text-normal);
-}
-
-.pi-session-popover-rename-input:focus {
-	border-color: var(--interactive-accent);
-	outline: none;
-}
-
-.pi-session-popover-delete-confirm {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	font-size: 0.8em;
-	color: var(--text-error);
-	margin-top: 4px;
-}
-
-.pi-session-popover-actions {
+.vault-mind-session-popover-actions {
 	display: flex;
 	gap: 2px;
 	opacity: 0;
+	transition: opacity 0.1s;
 }
 
-.pi-session-popover-item:hover .pi-session-popover-actions,
-.pi-session-popover-item.is-selected .pi-session-popover-actions {
+.vault-mind-session-popover-item:hover .vault-mind-session-popover-actions,
+.vault-mind-session-popover-item.is-selected .vault-mind-session-popover-actions {
 	opacity: 1;
 }
 
-.pi-session-popover-action-btn {
+.vault-mind-chat-container button.vault-mind-session-popover-action-btn {
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -1065,30 +1305,69 @@
 	height: 24px;
 	padding: 0;
 	border: none;
-	border-radius: 4px;
-	background: transparent;
-	color: var(--text-muted);
+	background: none;
+	color: var(--text-faint);
+	border-radius: var(--radius-s);
 	cursor: pointer;
-	font-size: 0.85em;
+	font-size: var(--font-ui-smaller);
 }
 
-.pi-session-popover-action-btn:hover {
+.vault-mind-chat-container button.vault-mind-session-popover-action-btn:hover {
 	background: var(--background-modifier-hover);
 	color: var(--text-normal);
 }
 
-.pi-session-popover-action-btn:focus-visible {
-	outline: 2px solid var(--interactive-accent);
-	outline-offset: 2px;
-}
-
-.pi-session-popover-delete-btn:hover,
-.pi-session-popover-delete-confirm-btn:hover {
+.vault-mind-chat-container button.vault-mind-session-popover-delete-btn:hover {
 	background: var(--background-modifier-error-hover);
 	color: var(--text-error);
 }
 
-@keyframes pi-spin {
+.vault-mind-session-popover-rename-row {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+}
+
+.vault-mind-session-popover-rename-input {
+	flex: 1;
+	font-size: 0.9em;
+	padding: 2px 6px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-modifier-form-field);
+	color: var(--text-normal);
+}
+
+.vault-mind-session-popover-rename-input:focus {
+	border-color: var(--interactive-accent);
+	outline: none;
+}
+
+.vault-mind-session-popover-delete-confirm {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-top: 4px;
+	font-size: 0.8em;
+	color: var(--text-error);
+}
+
+/* ── Fallback Banner ── */
+.vault-mind-fallback-banner {
+	padding: 6px 12px;
+	background: var(--background-modifier-error-hover);
+	color: var(--text-accent);
+	font-size: var(--font-ui-smaller);
+	text-align: center;
+	flex-shrink: 0;
+}
+
+.vault-mind-fallback-banner.is-hidden {
+	display: none;
+}
+
+/* ── Spinner keyframe ── */
+@keyframes vault-mind-spin {
 	from {
 		transform: rotate(0deg);
 	}
@@ -1097,1084 +1376,12 @@
 	}
 }
 
-/* ── Chat Body (panel + messages) ── */
-.pi-chat-body {
-	display: flex;
-	flex: 1;
-	min-height: 0;
-	overflow: hidden;
-}
-
-/* ── Session Panel ── */
-.pi-session-panel {
-	width: 280px;
-	min-width: 280px;
-	border-right: 1px solid var(--background-modifier-border);
-	display: flex;
-	flex-direction: column;
-	background: var(--background-primary);
-	overflow: hidden;
-}
-
-.pi-session-panel-header {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	padding: 8px 12px;
-	border-bottom: 1px solid var(--background-modifier-border);
-	flex-shrink: 0;
-}
-
-.pi-session-panel-title {
-	font-weight: 600;
-	font-size: 0.9em;
-}
-
-.pi-session-panel-close {
-	background: none;
-	border: none;
-	cursor: pointer;
-	color: var(--text-muted);
-	font-size: 1.1em;
-	padding: 0 4px;
-	line-height: 1;
-}
-
-.pi-session-panel-close:hover {
-	color: var(--text-normal);
-}
-
-.pi-session-panel-close:focus-visible {
+/* ── Focus indicators ── */
+.vault-mind-chat-container button:focus-visible,
+.vault-mind-chat-container [tabindex="0"]:focus-visible,
+.vault-mind-chat-container input:focus-visible {
 	outline: 2px solid var(--interactive-accent);
 	outline-offset: 2px;
-	border-radius: 2px;
-}
-
-.pi-session-panel-search {
-	margin: 8px;
-	padding: 4px 8px;
-	border: 1px solid var(--background-modifier-border);
-	border-radius: 4px;
-	background: var(--background-primary);
-	color: var(--text-normal);
-	font-size: 0.85em;
-	flex-shrink: 0;
-}
-
-.pi-session-panel-search:focus {
-	outline: none;
-	border-color: var(--interactive-accent);
-}
-
-.pi-session-panel-list {
-	flex: 1;
-	overflow-y: auto;
-	padding: 0 4px 8px;
-}
-
-.pi-session-panel-empty {
-	padding: 16px 12px;
-	color: var(--text-muted);
-	font-size: 0.85em;
-	text-align: center;
-}
-
-.pi-session-entry {
-	display: flex;
-	align-items: flex-start;
-	padding: 8px;
-	margin: 2px 0;
-	border-radius: 4px;
-	cursor: pointer;
-	gap: 4px;
-}
-
-.pi-session-entry:hover {
-	background: var(--background-modifier-hover);
-}
-
-.pi-session-entry-active {
-	background: var(--background-modifier-active-hover);
-	border-left: 3px solid var(--interactive-accent);
-}
-
-.pi-session-entry-content {
-	flex: 1;
-	min-width: 0;
-}
-
-.pi-session-entry-name {
-	font-weight: 600;
-	font-size: 0.85em;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-
-.pi-session-entry-meta {
-	font-size: 0.75em;
-	color: var(--text-muted);
-	margin-top: 2px;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-
-.pi-session-entry-cwd {
-	opacity: 0.7;
-}
-
-.pi-session-entry-preview {
-	font-size: 0.75em;
-	color: var(--text-faint);
-	margin-top: 2px;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-
-.pi-session-entry-actions {
-	display: flex;
-	flex-direction: column;
-	gap: 2px;
-	opacity: 0;
-	transition: opacity 0.15s;
-	flex-shrink: 0;
-}
-
-.pi-session-entry:hover .pi-session-entry-actions {
-	opacity: 1;
-}
-
-.pi-session-action-btn {
-	background: none;
-	border: none;
-	cursor: pointer;
-	padding: 2px;
-	font-size: 0.8em;
-	border-radius: 2px;
-	line-height: 1;
-}
-
-.pi-session-action-btn:hover {
-	background: var(--background-modifier-hover);
-}
-
-.pi-session-action-btn:focus-visible {
-	outline: 2px solid var(--interactive-accent);
-	outline-offset: 2px;
-}
-
-.pi-session-action-delete:hover {
-	background: var(--background-modifier-error-hover);
-}
-
-.pi-header-sessions-btn {
-	font-size: 0.85em;
-	padding: 2px 6px;
-	border-radius: 4px;
-	border: 1px solid var(--background-modifier-border);
-	background: var(--background-primary);
-	color: var(--text-muted);
-	cursor: pointer;
-	margin-right: 4px;
-}
-
-.pi-header-sessions-btn:hover {
-	background: var(--background-modifier-hover);
-	color: var(--text-normal);
-}
-
-.pi-header-sessions-btn:focus-visible {
-	outline: 2px solid var(--interactive-accent);
-	outline-offset: 2px;
-}
-
-.pi-messages {
-	flex: 1;
-	overflow-y: auto;
-	padding: 12px;
-}
-
-.pi-input-container {
-	border-top: 1px solid var(--background-modifier-border);
-	padding: 8px 12px;
-	min-height: 40px;
-}
-
-/* ── Messages ── */
-.pi-message {
-	margin-bottom: 20px;
-	padding-bottom: 16px;
-	border-bottom: 1px solid var(--background-modifier-border);
-	user-select: text;
-}
-
-.pi-message:last-child {
-	border-bottom: none;
-}
-
-.pi-message-label {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	margin-bottom: 4px;
-}
-
-.pi-message-label-text {
-	font-size: 0.8em;
-	font-weight: 600;
-	color: var(--text-muted);
-	text-transform: uppercase;
-	letter-spacing: 0.05em;
-}
-
-/* ── User messages ── */
-.pi-message-user .pi-message-content {
-	background: var(--background-modifier-form-field);
-	border-radius: 8px;
-	padding: 8px 12px;
-}
-
-.pi-message-content,
-.pi-message-content * {
-	user-select: text;
-}
-
-.pi-message-user .pi-message-content p {
-	margin: 0;
-}
-
-/* ── Steering messages ── */
-.pi-message-steer .pi-message-content {
-	background: var(--background-modifier-error-hover);
-	border-left: 3px solid var(--text-accent);
-}
-
-.pi-message-steer .pi-message-label-text {
-	color: var(--text-accent);
-}
-
-/* ── Assistant messages ── */
-.pi-message-assistant .pi-message-content {
-	padding: 4px 0;
-}
-
-/* Assistant message error display */
-.pi-message-assistant .pi-message-error {
-	background: var(--background-modifier-error);
-	color: var(--text-error);
-	padding: 8px 12px;
-	border-radius: var(--radius-s);
-	margin-bottom: 8px;
-	font-size: 0.9em;
-}
-
-.pi-message-assistant .pi-message-error strong {
-	color: var(--text-error);
-}
-
-/* Tighten markdown spacing inside assistant messages */
-.pi-message-assistant .pi-message-content > *:first-child {
-	margin-top: 0;
-}
-
-.pi-message-assistant .pi-message-content > *:last-child {
-	margin-bottom: 0;
-}
-
-/* ── Tool call messages ── */
-.pi-message-tool details {
-	border: 1px solid var(--background-modifier-border);
-	border-radius: 4px;
-	padding: 4px 8px;
-}
-
-.pi-message-tool summary {
-	cursor: pointer;
-	font-family: var(--font-monospace);
-	font-size: 0.85em;
-	padding: 4px 0;
-	user-select: none;
-}
-
-.pi-message-tool summary:hover {
-	color: var(--text-accent);
-}
-
-.pi-tool-name {
-	color: var(--text-normal);
-}
-
-.pi-tool-error-indicator {
-	color: var(--text-error);
-	margin-left: 4px;
-}
-
-.pi-message-tool-error details {
-	border-color: var(--text-error);
-}
-
-.pi-tool-body {
-	padding: 8px 0 4px;
-}
-
-.pi-tool-section-label {
-	font-size: 0.75em;
-	font-weight: 600;
-	color: var(--text-muted);
-	text-transform: uppercase;
-	letter-spacing: 0.05em;
-	margin-bottom: 4px;
-}
-
-.pi-tool-args pre,
-.pi-tool-result pre {
-	font-size: 0.85em;
-	margin: 0;
-	padding: 6px 8px;
-	background: var(--background-primary-alt);
-	border-radius: 4px;
-	overflow-x: auto;
-}
-
-.pi-tool-result {
-	margin-top: 8px;
-}
-
-.pi-tool-result-content {
-	max-height: 300px;
-	overflow-y: auto;
-}
-
-/* ── Input area ── */
-.pi-input-area {
-	display: flex;
-	align-items: flex-end;
-	gap: 8px;
-}
-
-.pi-input-textarea {
-	flex: 1;
-	resize: none;
-	min-height: 36px;
-	height: var(--pi-input-height, 36px);
-	max-height: 200px;
-	border: 1px solid var(--background-modifier-border);
-	border-radius: 6px;
-	padding: 8px;
-	background: var(--background-primary);
-	color: var(--text-normal);
-	font-family: var(--font-text);
-	font-size: var(--font-text-size);
-	line-height: 1.4;
-	overflow-y: hidden;
-}
-
-.pi-input-textarea:focus {
-	outline: none;
-	border-color: var(--interactive-accent);
-}
-
-.pi-input-textarea.pi-input-disabled {
-	opacity: 0.5;
-	cursor: not-allowed;
-}
-
-/* ── Abort button ── */
-.pi-abort-btn {
-	padding: 4px 12px;
-	border-radius: 4px;
-	background: var(--color-red);
-	color: var(--text-on-accent);
-	border: none;
-	cursor: pointer;
-	font-size: 0.85em;
-	white-space: nowrap;
-	flex-shrink: 0;
-}
-
-.pi-abort-btn:hover {
-	background: var(--color-red);
-	filter: brightness(0.85);
-}
-
-.pi-abort-btn:focus-visible {
-	outline: 2px solid var(--interactive-accent);
-	outline-offset: 2px;
-}
-
-/* ── Attachment chips ── */
-.pi-attachments {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 4px;
-	padding: 4px 0;
-}
-
-.pi-attachment-chip {
-	display: flex;
-	align-items: center;
-	gap: 4px;
-	background: var(--background-secondary);
-	border-radius: 12px;
-	padding: 2px 8px;
-	font-size: 0.8em;
-}
-
-.pi-attachment-name {
-	max-width: 150px;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.pi-attachment-remove {
-	cursor: pointer;
-	opacity: 0.6;
-	font-size: 1.1em;
-	line-height: 1;
-}
-
-.pi-attachment-remove:hover {
-	opacity: 1;
-}
-
-.pi-attachment-thumb {
-	flex-shrink: 0;
-	width: 16px;
-	height: 16px;
-	object-fit: cover;
-	border-radius: 2px;
-}
-
-/* ── Thinking ── */
-.pi-thinking {
-	margin-bottom: 8px;
-	font-size: 0.85em;
-	color: var(--text-muted);
-}
-
-.pi-thinking summary {
-	cursor: pointer;
-	user-select: none;
-	font-style: italic;
-}
-
-.pi-thinking-content {
-	padding: 4px 0 4px 12px;
-	border-left: 2px solid var(--background-modifier-border);
-	margin-top: 4px;
-	white-space: pre-wrap;
-}
-
-/* Live thinking — pulsing summary while streaming */
-.pi-thinking-live summary {
-	animation: pi-pulse 1.5s ease-in-out infinite;
-}
-
-.pi-thinking-live .pi-thinking-content {
-	max-height: 300px;
-	overflow-y: auto;
-}
-
-@keyframes pi-pulse {
-	0%,
-	100% {
-		opacity: 0.4;
-	}
-	50% {
-		opacity: 1;
-	}
-}
-
-/* ── Status bar ── */
-.pi-status-bar {
-	padding: 0 8px;
-}
-
-/* ── Command suggest ── */
-.pi-command-suggest-item {
-	padding: 4px 0;
-}
-
-.pi-command-header {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-}
-
-.pi-command-name {
-	font-weight: 600;
-	font-family: var(--font-monospace);
-	font-size: 0.9em;
-}
-
-.pi-command-source {
-	font-size: 0.7em;
-	color: var(--text-faint);
-	background: var(--background-primary-alt);
-	padding: 0 4px;
-	border-radius: 4px;
-}
-
-.pi-command-desc {
-	color: var(--text-muted);
-	font-size: 0.8em;
-	margin-top: 2px;
-}
-
-/* ── Read-only banner ── */
-.pi-readonly-banner {
-	padding: 6px 12px;
-	background: var(--background-secondary);
-	border-top: 1px solid var(--background-modifier-border);
-	color: var(--text-muted);
-	font-size: 0.85em;
-	text-align: center;
-}
-
-/* ── Session list modal ── */
-.pi-session-suggest-item {
-	padding: 4px 0;
-}
-
-.pi-session-date {
-	font-weight: 600;
-	font-size: 0.9em;
-	color: var(--text-normal);
-}
-
-.pi-session-preview {
-	color: var(--text-muted);
-	font-size: 0.8em;
-	margin-top: 2px;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-/* ── Rewind button (user message actions) ── */
-.pi-message-actions {
-	display: inline-flex;
-	align-items: center;
-	gap: 4px;
-	opacity: 0;
-	transition: opacity 120ms ease;
-}
-
-.pi-message-user:hover .pi-message-actions,
-.pi-message-user:focus-within .pi-message-actions {
-	opacity: 1;
-}
-
-.pi-message-rewind-btn {
-	border: 1px solid var(--background-modifier-border);
-	background: var(--background-secondary);
-	color: var(--text-muted);
-	border-radius: 6px;
-	padding: 1px 6px;
-	font-size: 12px;
-	line-height: 18px;
-	cursor: pointer;
-}
-
-.pi-message-rewind-btn:hover {
-	color: var(--text-normal);
-	background: var(--background-modifier-hover);
-}
-
-.pi-message-rewind-btn.is-disabled,
-.pi-message-rewind-btn:disabled {
-	opacity: 0.4;
-	cursor: not-allowed;
-}
-
-/* ── Return to latest banner ── */
-.pi-return-banner {
-	margin: 8px 12px;
-	padding: 8px 10px;
-	border: 1px solid var(--background-modifier-border);
-	border-radius: 8px;
-	background: var(--background-secondary);
-	color: var(--text-muted);
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	gap: 8px;
-	max-width: 520px;
-	margin-left: auto;
-	margin-right: auto;
-}
-
-.pi-return-banner-text {
-	font-size: 0.85em;
-}
-
-.pi-return-latest-btn {
-	border: 1px solid var(--interactive-accent);
-	background: var(--interactive-accent);
-	color: var(--text-on-accent);
-	border-radius: 6px;
-	padding: 2px 8px;
-	cursor: pointer;
-	font-size: 0.85em;
-}
-
-.pi-return-latest-btn:hover {
-	filter: brightness(0.9);
-}
-
-.pi-return-latest-btn:focus-visible {
-	outline: 2px solid var(--text-normal);
-	outline-offset: 2px;
-}
-
-/* ── Thinking indicator (waiting for Pi) ── */
-.pi-thinking-indicator {
-	margin-bottom: 20px;
-	padding-bottom: 16px;
-	border-bottom: 1px solid var(--background-modifier-border);
-}
-
-.pi-thinking-indicator-content {
-	display: flex;
-	align-items: center;
-	gap: 4px;
-	padding: 4px 0;
-	font-size: 0.85em;
-	color: var(--text-muted);
-}
-
-.pi-thinking-dots {
-	display: inline-flex;
-	gap: 2px;
-}
-
-.pi-thinking-dots::before,
-.pi-thinking-dots::after {
-	content: "";
-	display: inline-block;
-	width: 4px;
-	height: 4px;
-	background: var(--text-muted);
-	border-radius: 50%;
-	animation: pi-bounce 1.4s ease-in-out infinite;
-}
-
-.pi-thinking-dots::before {
-	animation-delay: 0s;
-}
-
-.pi-thinking-dots::after {
-	animation-delay: 0.2s;
-	margin-left: 2px;
-}
-
-/* Third dot using text trick */
-.pi-thinking-text::before {
-	content: "";
-	display: inline-block;
-	width: 4px;
-	height: 4px;
-	background: var(--text-muted);
-	border-radius: 50%;
-	margin-right: 4px;
-	animation: pi-bounce 1.4s ease-in-out infinite;
-	animation-delay: 0.4s;
-}
-
-@keyframes pi-bounce {
-	0%,
-	80%,
-	100% {
-		transform: translateY(0);
-		opacity: 0.4;
-	}
-	40% {
-		transform: translateY(-6px);
-		opacity: 1;
-	}
-}
-
-/* ── Permission Modal ── */
-.pi-permission-modal {
-	padding: 20px;
-	max-width: 500px;
-}
-
-.pi-permission-modal h2 {
-	margin-bottom: 16px;
-	text-align: center;
-}
-
-.pi-permission-modal p {
-	margin-bottom: 20px;
-	text-align: center;
-	color: var(--text-muted);
-}
-
-.pi-permission-options {
-	display: flex;
-	flex-direction: column;
-	gap: 8px;
-	margin-bottom: 16px;
-}
-
-.pi-permission-option-btn {
-	width: 100%;
-	padding: 12px 16px;
-	border: 1px solid var(--background-modifier-border);
-	background: var(--background-secondary);
-	color: var(--text-normal);
-	border-radius: 8px;
-	cursor: pointer;
-	font-size: 14px;
-	text-align: left;
-	transition: background 0.15s, border-color 0.15s;
-}
-
-.pi-permission-option-btn:hover {
-	background: var(--background-modifier-hover);
-	border-color: var(--interactive-accent);
-}
-
-.pi-permission-cancel-btn {
-	width: 100%;
-	padding: 10px 16px;
-	border: none;
-	background: var(--background-modifier-error);
-	color: var(--text-on-accent);
-	border-radius: 8px;
-	cursor: pointer;
-	font-size: 14px;
-	transition: background 0.15s;
-}
-
-.pi-permission-cancel-btn:hover {
-	background: var(--text-error);
-}
-
-.pi-permission-buttons {
-	display: flex;
-	gap: 8px;
-	margin-top: 16px;
-}
-
-.pi-permission-buttons button {
-	flex: 1;
-	padding: 10px 16px;
-	border-radius: 8px;
-	cursor: pointer;
-	font-size: 14px;
-	transition: background 0.15s;
-}
-
-.pi-permission-confirm-btn {
-	border: none;
-	background: var(--interactive-accent);
-	color: var(--text-on-accent);
-}
-
-.pi-permission-confirm-btn:hover {
-	background: var(--interactive-accent-hover);
-}
-
-.pi-permission-input {
-	width: 100%;
-	padding: 12px 16px;
-	border: 1px solid var(--background-modifier-border);
-	background: var(--background-primary);
-	color: var(--text-normal);
-	border-radius: 8px;
-	font-size: 14px;
-	margin-bottom: 16px;
-	resize: vertical;
-	min-height: 2.5em;
-	font-family: var(--font-interface);
-}
-
-.pi-permission-input:focus {
-	border-color: var(--interactive-accent);
-	outline: none;
-}
-
-/* ── API Key Info Section (Settings) ── */
-.pi-api-key-info {
-	padding: 12px;
-	margin-bottom: 16px;
-	background: var(--background-secondary);
-	border-radius: 8px;
-	border: 1px solid var(--background-modifier-border);
-}
-
-.pi-api-key-info p {
-	margin: 4px 0;
-	font-size: 0.85em;
-	color: var(--text-muted);
-}
-
-.pi-api-key-info code {
-	background: var(--background-primary-alt);
-	padding: 2px 6px;
-	border-radius: 4px;
-	font-size: 0.85em;
-}
-
-.pi-api-keys-missing {
-	color: var(--text-error);
-}
-
-.pi-api-keys-detected {
-	color: var(--text-success);
-}
-
-.pi-env-status-ok {
-	color: var(--text-success);
-}
-
-.pi-env-status-missing {
-	color: var(--text-error);
-}
-
-/* ── API Key Input Width (Settings) ── */
-.pi-api-key-input {
-	width: 100%;
-}
-
-/* ── API Key Required for Selected Provider (highlighted) ── */
-.setting-item.pi-api-key-setting .pi-api-key-input.pi-api-key-required {
-	border-color: var(--interactive-accent);
-	box-shadow: 0 0 0 1px var(--interactive-accent);
-}
-
-.setting-item.pi-api-key-setting .pi-api-key-input.pi-api-key-required:focus {
-	border-color: var(--interactive-accent);
-	box-shadow: 0 0 0 2px var(--interactive-accent);
-}
-
-/* ── Pending Review Section (Queue Tab) ── */
-.vault-mind-pending-section {
-	margin-top: 12px;
-	border: 1px solid var(--background-modifier-border);
-	border-radius: 6px;
-	overflow: hidden;
-}
-
-.vault-mind-pending-section > summary.vault-mind-pending-summary {
-	padding: 8px 12px;
-	font-weight: 600;
-	font-size: 0.85em;
-	text-transform: uppercase;
-	letter-spacing: 0.04em;
-	color: var(--text-muted);
-	background: var(--background-secondary);
-	cursor: pointer;
-	user-select: none;
-	list-style: none;
-}
-
-.vault-mind-pending-section > summary.vault-mind-pending-summary::marker,
-.vault-mind-pending-section > summary.vault-mind-pending-summary::-webkit-details-marker {
-	display: none;
-}
-
-.vault-mind-pending-section > summary.vault-mind-pending-summary::before {
-	content: "▶ ";
-	font-size: 0.7em;
-	opacity: 0.6;
-}
-
-.vault-mind-pending-section[open] > summary.vault-mind-pending-summary::before {
-	content: "▼ ";
-}
-
-.vault-mind-pending-item {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	padding: 8px 12px;
-	border-top: 1px solid var(--background-modifier-border);
-	flex-wrap: wrap;
-}
-
-.vault-mind-pending-collection {
-	font-size: 0.78em;
-	font-weight: 600;
-	color: var(--text-accent);
-	white-space: nowrap;
-	flex-shrink: 0;
-}
-
-.vault-mind-pending-entry-text {
-	flex: 1;
-	font-size: 0.85em;
-	color: var(--text-normal);
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.vault-mind-pending-actions {
-	display: flex;
-	gap: 6px;
-	flex-shrink: 0;
-}
-
-.vault-mind-pending-approve,
-.vault-mind-pending-reject {
-	padding: 3px 10px;
-	border-radius: 4px;
-	font-size: 0.8em;
-	cursor: pointer;
-	border: 1px solid transparent;
-}
-
-.vault-mind-pending-approve {
-	background: var(--color-green);
-	color: var(--text-on-accent);
-}
-
-.vault-mind-pending-approve:hover {
-	opacity: 0.85;
-}
-
-.vault-mind-pending-reject {
-	background: var(--color-red);
-	color: var(--text-on-accent);
-}
-
-.vault-mind-pending-reject:hover {
-	opacity: 0.85;
-}
-
-/* ── Mentionable badge preview popup ── */
-.pi-mentionable-chip {
-	cursor: pointer;
-}
-
-.pi-mentionable-preview {
-	position: fixed;
-	background: var(--background-primary);
-	border: 1px solid var(--background-modifier-border);
-	border-radius: var(--radius-m);
-	padding: var(--size-4-3);
-	max-width: 360px;
-	box-shadow: var(--shadow-s);
-	z-index: 1000;
-}
-
-.pi-mentionable-preview-title {
-	font-weight: var(--font-semibold);
-	margin-bottom: var(--size-4-2);
-	color: var(--text-normal);
-	word-break: break-word;
-}
-
-.pi-mentionable-preview-body {
-	font-family: var(--font-monospace);
-	font-size: 0.85em;
-	color: var(--text-muted);
-	white-space: pre-wrap;
-}
-
-.pi-mentionable-preview-body p {
-	margin: 0 0 var(--size-4-1);
-}
-
-.pi-mentionable-preview-body p:last-child {
-	margin-bottom: 0;
-}
-
-.pi-mentionable-preview-empty {
-	font-style: italic;
-	color: var(--text-faint);
-}
-
-.pi-mentionable-preview-image {
-	max-width: 320px;
-	max-height: 240px;
-	border-radius: var(--radius-s);
-}
-
-/* ── Assistant message action row ── */
-.pi-message-action-row {
-	display: flex;
-	align-items: center;
-	gap: var(--size-4-1);
-	margin-left: auto;
-	opacity: 0;
-	transition: opacity 0.15s ease;
-}
-
-.pi-message:hover .pi-message-action-row,
-.pi-message:focus-within .pi-message-action-row {
-	opacity: 1;
-}
-
-.pi-message-action-btn {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	gap: var(--size-4-1);
-	padding: var(--size-4-1) var(--size-4-2);
-	font-size: 0.75em;
-	line-height: 1;
-	color: var(--text-muted);
-	background: var(--background-secondary);
-	border: 1px solid var(--background-modifier-border);
-	border-radius: var(--radius-s);
-	cursor: pointer;
-}
-
-.pi-message-action-btn:hover {
-	color: var(--text-normal);
-	background: var(--background-modifier-hover);
-}
-
-.pi-message-action-btn:focus-visible {
-	outline: 2px solid var(--interactive-accent);
-	outline-offset: 2px;
-}
-
-.pi-message-action-copy.is-copied {
-	color: var(--text-success);
-}
-
-/* ── Message info popover ── */
-.pi-message-actions-popover {
-	position: fixed;
-	background: var(--background-primary);
-	border: 1px solid var(--background-modifier-border);
-	border-radius: var(--radius-m);
-	padding: var(--size-4-3);
-	max-width: 280px;
-	box-shadow: var(--shadow-s);
-	z-index: 1000;
-}
-
-.pi-message-actions-popover-title {
-	font-weight: var(--font-semibold);
-	margin-bottom: var(--size-4-2);
-	color: var(--text-normal);
-}
-
-.pi-message-actions-popover-body {
-	font-size: 0.85em;
-	color: var(--text-muted);
-}
-
-.pi-message-actions-popover-body p {
-	margin: 0 0 var(--size-4-1);
-}
-
-.pi-message-actions-popover-body p:last-child {
-	margin-bottom: 0;
-}
-
-/* ── C2: hide native file input; session name ellipsis ── */
-.pi-composer-file-input {
-	display: none;
 }
 
 .vault-mind-session-name {
@@ -2185,7 +1392,7 @@
 }
 
 /* ── C3: model sequence picker ── */
-.pi-model-seq-picker {
+.vault-mind-model-seq-picker {
 	display: flex;
 	flex-direction: column;
 	gap: var(--size-4-1);
@@ -2193,11 +1400,11 @@
 	min-width: 280px;
 }
 
-.pi-model-seq-search-row {
+.vault-mind-model-seq-search-row {
 	display: flex;
 }
 
-.pi-model-seq-search {
+.vault-mind-model-seq-search {
 	width: 100%;
 	padding: var(--size-4-1) var(--size-4-2);
 	background: var(--background-modifier-form-field);
@@ -2207,13 +1414,13 @@
 	font-size: var(--font-ui-small);
 }
 
-.pi-model-seq-search:focus {
+.vault-mind-model-seq-search:focus {
 	outline: none;
 	border-color: var(--interactive-accent);
 	box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
 }
 
-.pi-model-seq-suggestions {
+.vault-mind-model-seq-suggestions {
 	display: flex;
 	flex-direction: column;
 	max-height: 160px;
@@ -2223,7 +1430,7 @@
 	background: var(--background-primary);
 }
 
-.pi-model-seq-suggestion {
+.vault-mind-model-seq-suggestion {
 	display: flex;
 	align-items: center;
 	gap: var(--size-4-2);
@@ -2237,37 +1444,37 @@
 	width: 100%;
 }
 
-.pi-model-seq-suggestion:hover {
+.vault-mind-model-seq-suggestion:hover {
 	background: var(--background-modifier-hover);
 }
 
-.pi-model-seq-suggestion-name {
+.vault-mind-model-seq-suggestion-name {
 	flex: 1;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
-.pi-model-seq-suggestion-provider {
+.vault-mind-model-seq-suggestion-provider {
 	color: var(--text-faint);
 	font-size: var(--font-ui-smaller);
 	flex-shrink: 0;
 }
 
-.pi-model-seq-list {
+.vault-mind-model-seq-list {
 	display: flex;
 	flex-direction: column;
 	gap: 2px;
 }
 
-.pi-model-seq-empty {
+.vault-mind-model-seq-empty {
 	color: var(--text-muted);
 	font-size: var(--font-ui-small);
 	font-style: italic;
 	margin: var(--size-4-1) 0;
 }
 
-.pi-model-seq-row {
+.vault-mind-model-seq-row {
 	display: flex;
 	align-items: center;
 	gap: var(--size-4-2);
@@ -2278,7 +1485,7 @@
 	user-select: none;
 }
 
-.pi-model-seq-handle {
+.vault-mind-model-seq-handle {
 	color: var(--text-faint);
 	cursor: grab;
 	flex-shrink: 0;
@@ -2286,11 +1493,11 @@
 	line-height: 1;
 }
 
-.pi-model-seq-handle:active {
+.vault-mind-model-seq-handle:active {
 	cursor: grabbing;
 }
 
-.pi-model-seq-name {
+.vault-mind-model-seq-name {
 	flex: 1;
 	font-size: var(--font-ui-small);
 	color: var(--text-normal);
@@ -2299,7 +1506,7 @@
 	white-space: nowrap;
 }
 
-.pi-model-seq-badge {
+.vault-mind-model-seq-badge {
 	font-size: var(--font-ui-smaller);
 	padding: 1px 6px;
 	border-radius: var(--radius-s);
@@ -2308,7 +1515,7 @@
 	flex-shrink: 0;
 }
 
-.pi-model-seq-remove {
+.vault-mind-model-seq-remove {
 	background: none;
 	border: none;
 	cursor: pointer;
@@ -2319,16 +1526,3294 @@
 	flex-shrink: 0;
 }
 
-.pi-model-seq-remove:hover {
+.vault-mind-model-seq-remove:hover {
 	color: var(--text-error);
 }
 
-/* Wider popover when the picker is embedded in ModelSelect dropdown. */
-.pi-model-dropdown--picker {
-	min-width: 300px;
-}
-
-/* Init-wizard wrapper gives the picker consistent spacing. */
 .vault-mind-init-model-picker {
 	margin: var(--size-4-2) 0;
 }
+
+/* ── Save button container (D7) ── */
+.vault-mind-save-container {
+	border-top: 1px solid var(--background-modifier-border);
+	margin-top: var(--size-4-4);
+	padding-top: var(--size-4-4);
+}
+
+.vault-mind-save-container .setting-item {
+	border-top: none;
+}
+
+.vault-mind-save-container .setting-item-control button {
+	width: 100%;
+}
+
+/* ══════════════════════════════════════════════════════
+ * Composer v2 — redesigned input area with footer pickers
+ * ══════════════════════════════════════════════════════ */
+
+/* Override the existing .vault-mind-composer for the new 3-zone layout */
+.vault-mind-composer {
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	display: flex;
+	flex-direction: column;
+	position: relative;
+	z-index: 10;
+	margin-bottom: 8px;
+}
+
+.vault-mind-composer:focus-within {
+	border-color: var(--background-modifier-border-hover);
+}
+
+/* ── Header (pills + add context) ── */
+.vault-mind-composer-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: var(--size-4-2) var(--size-4-3);
+	min-height: 38px;
+}
+
+.vault-mind-composer-pills {
+	display: flex;
+	gap: 6px;
+	flex-wrap: wrap;
+}
+
+.vault-mind-composer-pills:empty {
+	display: none;
+}
+
+.vault-mind-composer-pill {
+	background: var(--background-primary-alt);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	padding: 2px 8px;
+	font-size: var(--font-ui-smaller);
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	max-width: 220px;
+}
+
+.vault-mind-composer-pill-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	min-width: 0;
+}
+
+.vault-mind-composer-pill-remove {
+	cursor: pointer;
+	color: var(--text-faint);
+	font-size: 14px;
+	line-height: 1;
+}
+
+.vault-mind-composer-pill-remove:hover {
+	color: var(--text-normal);
+}
+
+.vault-mind-composer button.vault-mind-composer-add-context {
+	font-size: var(--font-ui-smaller);
+}
+
+/* ── Textarea zone ── */
+.vault-mind-composer-textarea-wrap {
+	position: relative;
+	width: 100%;
+	padding: 0 var(--size-4-3);
+}
+
+.vault-mind-textarea-mirror {
+	visibility: hidden;
+	position: absolute;
+	top: 0;
+	left: 0;
+	white-space: pre-wrap;
+	word-wrap: break-word;
+	z-index: -1;
+}
+
+.vault-mind-composer textarea.vault-mind-composer-textarea {
+	width: 100%;
+	background: transparent;
+	outline: none;
+	color: var(--text-normal);
+	padding: 14px;
+	font-size: var(--font-ui-medium);
+	resize: none;
+	font-family: inherit;
+	line-height: 1.6;
+	min-height: 60px;
+}
+
+/* ── Shared popover base ── */
+.vault-mind-popover {
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	box-shadow: var(--shadow-s);
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	z-index: 1000;
+}
+
+.vault-mind-options-menu {
+	overflow: visible;
+}
+
+.vault-mind-footer-popover {
+	position: absolute;
+	bottom: calc(100% + 12px);
+	left: 0;
+	width: 260px;
+}
+
+.vault-mind-context-suggest {
+	position: absolute;
+	width: 280px;
+}
+
+.vault-mind-popover-header {
+	padding: 10px 12px;
+	font-size: var(--font-smallest);
+	text-transform: uppercase;
+	letter-spacing: 0.8px;
+	color: var(--text-faint);
+	background: var(--background-secondary);
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.vault-mind-popover-search {
+	padding: 8px;
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.vault-mind-popover-search input {
+	width: 100%;
+	background: var(--background-primary-alt);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	padding: 8px 10px;
+	color: var(--text-normal);
+	font-size: var(--font-ui-smaller);
+	outline: none;
+}
+
+.vault-mind-popover-search input:focus {
+	border-color: var(--interactive-accent);
+}
+
+.vault-mind-popover-list {
+	max-height: 240px;
+	overflow-y: auto;
+	scrollbar-width: thin;
+	scrollbar-color: var(--background-modifier-border) transparent;
+}
+
+.vault-mind-popover-list::-webkit-scrollbar {
+	width: 8px;
+}
+
+.vault-mind-popover-list::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.vault-mind-popover-list::-webkit-scrollbar-thumb {
+	background: var(--background-modifier-border);
+	border-radius: var(--radius-s);
+}
+
+.vault-mind-popover-list::-webkit-scrollbar-thumb:hover {
+	background: var(--background-modifier-border-hover);
+}
+
+/* ── Search row with leading back/close nav glyph ── */
+.vault-mind-popover-search-nav {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.vault-mind-popover-search-nav input {
+	flex: 1;
+}
+
+.vault-mind-composer button.vault-mind-popover-nav-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 24px;
+	flex-shrink: 0;
+	background: none;
+	border: none;
+	color: var(--text-muted);
+	cursor: pointer;
+	border-radius: var(--radius-s);
+	font-size: var(--font-ui-medium);
+}
+
+.vault-mind-composer button.vault-mind-popover-nav-btn:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.vault-mind-popover-item {
+	padding: 10px 12px;
+	font-size: var(--font-ui-small);
+	cursor: pointer;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	color: var(--text-muted);
+}
+
+.vault-mind-popover-item:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.vault-mind-popover-item.is-selected {
+	color: var(--interactive-accent);
+	font-weight: var(--font-semibold);
+}
+
+/* ── Check mark (multi-select tools) ── */
+.vault-mind-check-mark {
+	width: 14px;
+	height: 14px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 3px;
+	position: relative;
+	flex-shrink: 0;
+}
+
+.vault-mind-popover-item.is-selected .vault-mind-check-mark {
+	background: var(--interactive-accent);
+	border-color: var(--interactive-accent);
+}
+
+.vault-mind-popover-item.is-selected .vault-mind-check-mark::after {
+	content: "";
+	position: absolute;
+	left: 4px;
+	top: 1px;
+	width: 4px;
+	height: 8px;
+	border: solid var(--text-on-accent);
+	border-width: 0 2px 2px 0;
+	transform: rotate(45deg);
+}
+
+/* ── Footer toolbar ── */
+.vault-mind-composer-footer {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: var(--size-2-3) var(--size-4-3) 10px var(--size-4-3);
+}
+
+.vault-mind-composer-footer-left {
+	display: flex;
+	gap: 4px;
+	min-width: 0;
+}
+
+.vault-mind-popover-anchor {
+	position: relative;
+}
+
+.vault-mind-composer button.vault-mind-composer-footer-btn {
+	background: transparent;
+	border: none;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 8px;
+	border-radius: var(--radius-s);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-width: 180px;
+	flex-shrink: 1;
+}
+
+.vault-mind-composer button.vault-mind-composer-footer-btn:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.vault-mind-caret-icon {
+	width: 0;
+	height: 0;
+	border-left: 3.5px solid transparent;
+	border-right: 3.5px solid transparent;
+	border-top: 4px solid currentColor;
+	opacity: 0.6;
+	margin-top: 2px;
+}
+
+/* ── Send button ── */
+.vault-mind-composer button.vault-mind-composer-send {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	border: none;
+	border-radius: var(--radius-s);
+	padding: 8px 14px;
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-semibold);
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	opacity: 0.3;
+	pointer-events: none;
+	flex-shrink: 0;
+}
+
+.vault-mind-composer button.vault-mind-composer-send.is-active {
+	opacity: 1;
+	pointer-events: all;
+}
+
+.vault-mind-composer-send-icon {
+	display: flex;
+	align-items: center;
+}
+
+.vault-mind-composer-send-icon svg {
+	width: 14px;
+	height: 14px;
+	fill: none;
+	stroke: currentColor;
+	stroke-width: 2.5;
+}
+
+/* ── Toggle switch (thinking) ── */
+.vault-mind-thinking-toggle-row {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 12px;
+	font-size: var(--font-ui-small);
+}
+
+.vault-mind-toggle-switch {
+	width: 30px;
+	height: 16px;
+	background: var(--background-modifier-border);
+	border-radius: 10px;
+	position: relative;
+	cursor: pointer;
+	transition: background 0.2s;
+}
+
+.vault-mind-toggle-switch.is-on {
+	background: var(--interactive-accent);
+}
+
+.vault-mind-toggle-switch::after {
+	content: "";
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	width: 12px;
+	height: 12px;
+	background: var(--text-on-accent);
+	border-radius: 50%;
+	transition: left 0.2s;
+}
+
+.vault-mind-toggle-switch.is-on::after {
+	left: 16px;
+}
+
+/* ── Thinking levels ── */
+.vault-mind-thinking-levels {
+	border-top: 1px solid var(--background-modifier-border);
+	background: var(--background-secondary);
+}
+
+.vault-mind-thinking-level {
+	padding: 8px 12px;
+	font-size: var(--font-ui-smaller);
+	cursor: pointer;
+	color: var(--text-muted);
+}
+
+.vault-mind-thinking-level:hover {
+	color: var(--text-normal);
+}
+
+.vault-mind-thinking-level.is-active {
+	color: var(--interactive-accent);
+}
+
+/* ── Accent text helper ── */
+.vault-mind-accent-text {
+	color: var(--interactive-accent);
+}
+
+/* ── Collapsed Options Menu (narrow widths) ── */
+.vault-mind-options-anchor {
+	position: relative;
+}
+
+.vault-mind-options-menu {
+	padding: 4px;
+}
+
+.vault-mind-toolbar-row {
+	padding: 10px;
+	font-size: var(--font-ui-small);
+	border-radius: var(--radius-s);
+	cursor: pointer;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	color: var(--text-muted);
+}
+
+.vault-mind-toolbar-row:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.vault-mind-caret-right {
+	transform: rotate(-90deg);
+}
+
+.vault-mind-secondary-popover {
+	position: absolute;
+	width: 260px;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	box-shadow: var(--shadow-s);
+	overflow: hidden;
+	z-index: 1001;
+}
+
+/* ── Slash command suggest item (name + description) ── */
+.vault-mind-command-item {
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 2px;
+}
+
+.vault-mind-command-desc {
+	color: var(--text-faint);
+	font-size: var(--font-smaller);
+}
+
+/* ── Queue View ──
+ * All custom rules scoped under .vault-mind-queue-container + element type
+ * so they beat Obsidian's global button:not(.clickable-icon) rule at (0,2,1).
+ * Prefix: vault-mind-*.
+ */
+
+.vault-mind-queue-container {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	overflow: hidden;
+}
+
+/* ── Header ── */
+.vault-mind-queue-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: var(--size-2-3) var(--size-4-3);
+	border-bottom: 1px solid var(--background-modifier-border);
+	flex-shrink: 0;
+}
+
+.vault-mind-queue-title {
+	font-weight: var(--font-semibold);
+	font-size: var(--font-ui-small);
+	color: var(--text-normal);
+}
+
+.vault-mind-queue-container button.vault-mind-queue-refresh-btn {
+	background: none;
+	border: none;
+	color: var(--text-muted);
+	cursor: pointer;
+	padding: var(--size-4-1);
+	border-radius: var(--radius-s);
+	display: flex;
+	align-items: center;
+}
+
+.vault-mind-queue-container button.vault-mind-queue-refresh-btn:hover {
+	color: var(--text-normal);
+	background: var(--background-modifier-hover);
+}
+
+/* ── Status chips ── */
+.vault-mind-queue-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--size-4-1);
+	padding: var(--size-4-2) var(--size-4-3);
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.vault-mind-queue-container button.vault-mind-queue-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-4-1);
+	padding: 1px var(--size-4-1);
+	border-radius: var(--radius-s);
+	font-size: var(--font-smallest);
+	background-color: var(--background-modifier-active);
+	color: var(--text-muted);
+	border: 1px solid transparent;
+	cursor: pointer;
+}
+
+.vault-mind-queue-container button.vault-mind-queue-chip:hover {
+	border-color: var(--background-modifier-border-hover);
+}
+
+.vault-mind-queue-container button.vault-mind-queue-chip.is-active {
+	border-color: var(--interactive-accent);
+	background-color: var(--interactive-accent-hover);
+}
+
+.vault-mind-queue-chip-value {
+	font-weight: var(--font-semibold);
+}
+
+.vault-mind-queue-chip.status-pending .vault-mind-queue-chip-value {
+	color: var(--text-normal);
+}
+
+.vault-mind-queue-chip.status-running .vault-mind-queue-chip-value {
+	color: var(--interactive-accent);
+}
+
+.vault-mind-queue-chip.status-done .vault-mind-queue-chip-value {
+	color: var(--color-green);
+}
+
+.vault-mind-queue-chip.status-failed .vault-mind-queue-chip-value {
+	color: var(--color-red);
+}
+
+.vault-mind-queue-chip.status-cancelled .vault-mind-queue-chip-value {
+	color: var(--text-faint);
+}
+
+.vault-mind-queue-chip.status-review .vault-mind-queue-chip-value {
+	color: var(--interactive-accent);
+}
+
+/* ── Body (scrollable job/pending area — mirrors .vault-mind-chat-body) ── */
+.vault-mind-queue-body {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	overflow-x: hidden;
+	padding: var(--size-4-3);
+}
+
+/* ── List ── */
+.vault-mind-queue-list {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+}
+
+.vault-mind-queue-empty {
+	padding: var(--size-4-4);
+	text-align: center;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+.vault-mind-queue-connection-error {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+/* ── Job Card (mirrors .vault-mind-tool-card from chat) ── */
+.vault-mind-job-card {
+	border: 1px solid var(--background-modifier-border);
+	border-left: 3px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	overflow: hidden;
+}
+
+.vault-mind-job-card.status-running {
+	border-left-color: var(--interactive-accent);
+}
+
+.vault-mind-job-card.status-done {
+	border-left-color: var(--color-green);
+}
+
+.vault-mind-job-card.status-failed {
+	border-left-color: var(--color-red);
+}
+
+.vault-mind-job-card.status-cancelled {
+	border-left-color: var(--text-faint);
+	opacity: 0.7;
+}
+
+.vault-mind-job-card-header {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	padding: var(--size-4-2) var(--size-4-3);
+	cursor: pointer;
+	font-size: var(--font-ui-small);
+}
+
+.vault-mind-job-card-header:hover {
+	background: var(--background-modifier-hover);
+}
+
+.vault-mind-job-card-status {
+	flex-shrink: 0;
+}
+
+.vault-mind-job-card-status.is-running {
+	color: var(--interactive-accent);
+	animation: vault-mind-spin 1s linear infinite;
+	display: inline-block;
+}
+
+.vault-mind-job-card-status.is-done {
+	color: var(--color-green);
+}
+
+.vault-mind-job-card-status.is-failed,
+.vault-mind-job-card-status.is-cancelled {
+	color: var(--color-red);
+}
+
+.vault-mind-job-card-status.is-cancelled {
+	color: var(--text-faint);
+}
+
+.vault-mind-job-card-role {
+	flex-shrink: 0;
+	font-weight: var(--font-medium);
+	color: var(--text-muted);
+	white-space: nowrap;
+}
+
+.vault-mind-job-card-path {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.vault-mind-job-card-time {
+	flex-shrink: 0;
+	font-size: var(--font-smallest);
+	color: var(--text-faint);
+}
+
+.vault-mind-job-card-chevron {
+	flex-shrink: 0;
+	transition: transform 0.15s;
+}
+
+.vault-mind-job-card.is-expanded .vault-mind-job-card-chevron {
+	transform: rotate(90deg);
+}
+
+.vault-mind-job-card-body {
+	display: none;
+	padding: var(--size-4-2) var(--size-4-3);
+	border-top: 1px solid var(--background-modifier-border);
+	font-size: var(--font-ui-smaller);
+}
+
+.vault-mind-job-card.is-expanded .vault-mind-job-card-body {
+	display: block;
+}
+
+.vault-mind-pending-card .vault-mind-job-card-body {
+	display: block;
+}
+
+.vault-mind-job-card-instruction {
+	color: var(--text-normal);
+	margin-bottom: var(--size-4-2);
+}
+
+.vault-mind-job-card-error {
+	color: var(--text-error);
+	background: var(--background-modifier-error);
+	border-radius: var(--radius-s);
+	padding: var(--size-4-2);
+	margin-bottom: var(--size-4-2);
+	white-space: pre-wrap;
+}
+
+.vault-mind-job-card-meta {
+	display: flex;
+	gap: var(--size-4-3);
+	color: var(--text-faint);
+	font-size: var(--font-smallest);
+	margin-bottom: var(--size-4-2);
+}
+
+.vault-mind-job-card-actions {
+	display: flex;
+	gap: var(--size-4-1);
+}
+
+.vault-mind-queue-container .vault-mind-job-card button.vault-mind-job-card-btn {
+	padding: var(--size-4-1) var(--size-4-2);
+	border-radius: var(--radius-s);
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-primary);
+	color: var(--text-muted);
+	cursor: pointer;
+	font-size: var(--font-ui-smaller);
+}
+
+.vault-mind-queue-container .vault-mind-job-card button.vault-mind-job-card-btn:hover {
+	color: var(--text-normal);
+	border-color: var(--interactive-accent);
+}
+
+.vault-mind-queue-container .vault-mind-job-card button.vault-mind-job-card-btn.is-primary {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	border-color: var(--interactive-accent);
+}
+
+.vault-mind-queue-container .vault-mind-job-card button.vault-mind-job-card-btn.is-primary:hover {
+	filter: brightness(0.9);
+}
+
+.vault-mind-queue-container .vault-mind-job-card button.vault-mind-job-card-btn.is-danger:hover {
+	color: var(--text-error);
+	border-color: var(--text-error);
+}
+
+/* BEGIN GENERATED OBSIDIAN-UI CSS — DO NOT EDIT */
+/* Source: packages/obsidian-ui/src/components/ActivityRow/ActivityRow.css */
+/* One event row in an agent run record (Timeline list + dense job-row latest line). */
+.oas-activity-row {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--size-4-2);
+	padding: var(--size-2-3) var(--size-4-2);
+	font-size: var(--font-ui-small);
+	line-height: var(--line-height-tight);
+}
+
+.oas-activity-row.is-dense {
+	padding: var(--size-2-1) 0;
+	font-size: var(--font-ui-smaller);
+}
+
+.oas-activity-row-icon {
+	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	color: var(--text-muted);
+	/* Nudge the icon onto the label's baseline row. */
+	margin-top: var(--size-2-1);
+}
+
+/* Tones — colour the leading icon only; text stays on the normal scale. */
+.oas-activity-row.is-ok .oas-activity-row-icon {
+	color: var(--text-success);
+}
+.oas-activity-row.is-warn .oas-activity-row-icon {
+	color: var(--text-warning);
+}
+.oas-activity-row.is-error .oas-activity-row-icon {
+	color: var(--text-error);
+}
+
+.oas-activity-row-body {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-2-1);
+}
+
+.oas-activity-row-label {
+	color: var(--text-normal);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.oas-activity-row-detail {
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Dense mode: label + detail share one line, detail trails muted. */
+.oas-activity-row.is-dense .oas-activity-row-body {
+	flex-direction: row;
+	align-items: baseline;
+	gap: var(--size-4-2);
+}
+
+.oas-activity-row-ts {
+	flex-shrink: 0;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+	font-variant-numeric: tabular-nums;
+	margin-top: var(--size-2-1);
+}
+
+/* Source: packages/obsidian-ui/src/components/Button/Button.css */
+/* Button with icon slots — layered on Obsidian's own button styling.
+   Scoped `button.oas-btn` (element+class) to match Obsidian's global
+   `button:not(.clickable-icon)` specificity and win on load order. */
+button.oas-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-2-2);
+}
+
+.oas-btn .oas-btn-icon-slot {
+	display: inline-flex;
+	align-items: center;
+	line-height: 1;
+}
+
+.oas-btn .oas-btn-trailing {
+	color: var(--text-faint);
+}
+
+/* Ghost: transparent, muted — the toolbar / picker-trigger look. */
+button.oas-btn-ghost {
+	background: transparent;
+	border: none;
+	box-shadow: none;
+	color: var(--text-muted);
+	cursor: pointer;
+	padding: var(--size-2-2) var(--size-2-3);
+	border-radius: var(--radius-s);
+	font-size: var(--font-ui-smaller);
+}
+
+button.oas-btn-ghost:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+/* Source: packages/obsidian-ui/src/components/Card/Card.css */
+/* Card component — additions on top of the `oas-card` utility (src/utilities.css).
+   The utility owns the frame, header, title, chevron, body-collapse, and actions. */
+
+/* Non-collapsible cards: header isn't a toggle. */
+.oas-card-static .oas-card-header {
+	cursor: default;
+}
+
+.oas-card-static .oas-card-header:hover {
+	background: transparent;
+}
+
+/* Leading status icon (colour set inline per tone). */
+.oas-card-lead {
+	display: inline-flex;
+	flex-shrink: 0;
+}
+
+/* Trailing header meta (path · time · badge). */
+.oas-card-meta {
+	flex-shrink: 0;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	white-space: nowrap;
+}
+
+/* Padded body content wrapper (the utility pads its own sub-elements, not a
+   generic slot). */
+.oas-card-content {
+	padding: var(--size-4-2) var(--size-4-3);
+}
+
+/* Spin the loader icon for running-tone cards — only when the caller opts in
+   (spinIcon, default true). Cards whose lead icon is a semantic glyph (e.g. an
+   agent role) pass spinIcon:false so the glyph stays upright. */
+.oas-card--running.oas-card-spin-icon .oas-card-lead .oas-icon {
+	animation: oas-card-spin 1s linear infinite;
+}
+
+@keyframes oas-card-spin {
+	from {
+		transform: rotate(0deg);
+	}
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+/* Source: packages/obsidian-ui/src/components/Chip/Chip.css */
+.oas-chip {
+	/* Tunable in CSS; font-relative (~24 chars) as no px width token exists. */
+	--oas-chip-max-width: 24ch;
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-2-1);
+	max-width: var(--oas-chip-max-width);
+	padding: var(--size-2-1) var(--size-2-3);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary-alt);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-normal);
+}
+
+.oas-chip-icon {
+	display: inline-flex;
+	color: var(--text-muted);
+}
+
+.oas-chip-label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* Remove button — small, faint until hovered. */
+.oas-chip .oas-chip-remove.clickable-icon {
+	width: var(--size-4-3);
+	height: var(--size-4-3);
+	padding: 0;
+	color: var(--text-faint);
+}
+
+.oas-chip .oas-chip-remove.clickable-icon:hover {
+	color: var(--text-normal);
+}
+
+.oas-chip-remove .oas-icon {
+	width: var(--icon-xs);
+	height: var(--icon-xs);
+}
+
+/* Source: packages/obsidian-ui/src/components/Composer/Composer.css */
+/* Chat-specific chrome layered onto the shared OmniComposer frame (oas-omni-*).
+ * The input box, chip row, and textarea live in OmniComposer.css; here we style
+ * only what fills the chat composer's slots: the queue (above) and the footer
+ * pickers/options (which collapse in a narrow composer). */
+
+/* Queue slot — always mounted in the OmniComposer above-slot; host toggles is-hidden. */
+.oas-queue-slot.is-hidden {
+	display: none;
+}
+
+/* display is owned by the shared oas-collapse-wide utility (flex when wide, none
+   when narrow); here we only add the picker cluster's layout details. */
+.oas-composer-pickers {
+	align-items: center;
+	gap: var(--size-2-1);
+	min-width: 0;
+	flex-wrap: wrap;
+}
+
+/* Narrow composer: the three pickers collapse into a single Options menu — via
+   the shared oas-collapse-wide / oas-collapse-narrow utility (utilities.css),
+   which resolves against OmniComposer's .oas-omni (container-type: inline-size). */
+
+/* Slash-command rows in the /-suggest: command name over a muted description. */
+.oas-suggest-cmd {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-2-1);
+}
+
+.oas-suggest-cmd-desc {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+/* Source: packages/obsidian-ui/src/components/DiffCard/DiffCard.css */
+.oas-diff-card-viewer {
+	overflow: hidden;
+}
+
+.oas-diff-card-actions {
+	display: flex;
+	gap: var(--size-2-2);
+}
+
+/* Source: packages/obsidian-ui/src/components/DiffViewer/DiffViewer.css */
+/* DiffViewer — pure-TS LCS line diff. Portable (no CM6 dep). */
+.oas-diff-viewer {
+	max-height: var(--oas-diff-height, calc(var(--size-4-1) * 80));
+	overflow-y: auto;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+}
+
+.oas-diff-pre {
+	margin: 0;
+	padding: var(--size-4-2) 0;
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-small);
+	line-height: var(--line-height-tight);
+	white-space: pre;
+}
+
+.oas-diff-line {
+	padding: 0 var(--size-4-3);
+	white-space: pre;
+}
+
+.oas-diff-line--equal {
+	color: var(--text-muted);
+}
+
+.oas-diff-line--delete {
+	background: color-mix(in srgb, var(--color-red) 15%, transparent);
+	color: var(--text-error);
+}
+
+.oas-diff-line--insert {
+	background: color-mix(in srgb, var(--color-green) 12%, transparent);
+	color: var(--text-success);
+}
+
+/* Source: packages/obsidian-ui/src/components/EmbeddingProviderSection/EmbeddingProviderSection.css */
+.oas-embedding-provider-section .setting-item-control .oas-segmented-group {
+	display: inline-flex;
+	align-items: center;
+	border-radius: var(--input-radius, 6px);
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-modifier-form-field);
+	padding: 2px;
+	gap: 2px;
+}
+
+.oas-embedding-provider-section .oas-segmented-btn {
+	background: transparent;
+	border: none;
+	border-radius: calc(var(--input-radius, 6px) - 2px);
+	padding: var(--size-4-1) var(--size-4-3);
+	font-size: var(--font-ui-small);
+	line-height: 1.4;
+	color: var(--text-muted);
+	cursor: pointer;
+	white-space: nowrap;
+	transition:
+		background-color 120ms ease,
+		color 120ms ease;
+}
+
+.oas-embedding-provider-section .oas-segmented-btn:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.oas-embedding-provider-section .oas-segmented-btn.is-active {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	font-weight: var(--font-medium, 500);
+}
+
+.oas-embedding-provider-section .oas-segmented-btn:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: -1px;
+}
+
+.oas-embedding-provider-section .oas-embedding-provider-group {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	padding: var(--size-4-2);
+	border-radius: var(--input-radius, 6px);
+	background: var(--background-secondary);
+}
+
+.oas-embedding-provider-section .oas-embedding-shared-fields {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+}
+
+/* Source: packages/obsidian-ui/src/components/EmptyState/EmptyState.css */
+.oas-empty-state {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: var(--size-4-2);
+	padding: var(--size-4-4);
+	text-align: center;
+	color: var(--text-muted);
+}
+
+.oas-empty-icon {
+	font-size: var(--font-ui-larger, 2rem);
+	line-height: 1;
+	color: var(--text-faint);
+}
+
+.oas-empty-title {
+	font-size: var(--font-ui-medium);
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+}
+
+.oas-empty-desc {
+	font-size: var(--font-ui-small);
+	max-width: 280px;
+}
+
+.oas-empty-action {
+	margin-top: var(--size-4-2);
+}
+
+/* Source: packages/obsidian-ui/src/components/FolderConfigSection/FolderConfigSection.css */
+.oas-folder-config-section {
+	width: 100%;
+	max-width: 40rem;
+}
+
+.oas-folder-field {
+	width: 100%;
+}
+
+.oas-folder-label {
+	display: block;
+	margin-bottom: var(--size-2-1);
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.oas-folder-input {
+	width: 100%;
+	padding: var(--size-2-2) var(--size-2-3);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	color: var(--text-normal);
+	font-size: var(--font-ui-small);
+}
+
+.oas-folder-input:focus {
+	border-color: var(--text-accent);
+	outline: none;
+	box-shadow: 0 0 0 1px var(--text-accent);
+}
+
+.oas-folder-input::placeholder {
+	color: var(--text-faint);
+}
+
+/* Source: packages/obsidian-ui/src/components/JobCard/JobCard.css */
+.oas-job-instruction {
+	margin: 0;
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+	font-style: italic;
+}
+
+/* Source: packages/obsidian-ui/src/components/ListItem/ListItem.css */
+/* Compact clickable list row (dense menus, popover lists). */
+.oas-list-item {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--size-4-2);
+	padding: var(--size-2-3) var(--size-4-3);
+	border-radius: var(--radius-s);
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+	cursor: pointer;
+}
+
+.oas-list-item:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.oas-list-item.is-selected {
+	color: var(--interactive-accent);
+	font-weight: var(--font-semibold);
+}
+
+.oas-list-item-main {
+	flex: 1;
+	min-width: 0;
+}
+
+.oas-list-item-label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.oas-list-item-desc {
+	margin-top: var(--size-2-1);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+}
+
+.oas-list-item-caret {
+	flex-shrink: 0;
+	color: var(--text-faint);
+	line-height: 1;
+}
+
+/* Multi-select tick — an empty box that fills when the row is selected. */
+.oas-list-item-check {
+	position: relative;
+	width: 14px;
+	height: 14px;
+	flex-shrink: 0;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+}
+
+.oas-list-item.is-selected .oas-list-item-check {
+	background: var(--interactive-accent);
+	border-color: var(--interactive-accent);
+}
+
+.oas-list-item.is-selected .oas-list-item-check::after {
+	content: "";
+	position: absolute;
+	left: 4px;
+	top: 1px;
+	width: 4px;
+	height: 8px;
+	border: solid var(--text-on-accent);
+	border-width: 0 2px 2px 0;
+	transform: rotate(45deg);
+}
+
+/* Source: packages/obsidian-ui/src/components/MessageBubble/MessageBubble.css */
+.oas-msg {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-2-1);
+	padding: var(--size-2-3) 0;
+}
+
+.oas-msg-role {
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-medium);
+	color: var(--text-muted);
+}
+
+.oas-msg.is-user .oas-msg-role {
+	color: var(--text-accent);
+}
+
+.oas-msg-body {
+	color: var(--text-normal);
+	line-height: var(--line-height-normal);
+}
+
+/* Rendered-markdown block (the injected renderer tags it .markdown-rendered so
+   Obsidian's app.css styles it). Strip outer margins so bubbles pack tightly. */
+.oas-msg-md > :first-child {
+	margin-top: 0;
+}
+
+.oas-msg-md > :last-child {
+	margin-bottom: 0;
+}
+
+/* Steered user message — accent rail. */
+.oas-msg.is-steer {
+	border-left: var(--size-2-1) solid var(--text-accent);
+	padding-left: var(--size-4-2);
+}
+
+/* Streaming caret. */
+.oas-msg-caret {
+	display: inline-block;
+	width: var(--size-2-1);
+	height: var(--font-ui-medium);
+	margin-left: var(--size-2-1);
+	background: var(--text-accent);
+	vertical-align: text-bottom;
+	animation: oas-msg-blink calc(var(--anim-duration-slow) * 2) step-start infinite;
+}
+
+@keyframes oas-msg-blink {
+	50% {
+		opacity: 0;
+	}
+}
+
+/* Source: packages/obsidian-ui/src/components/MessageFeed/MessageFeed.css */
+.oas-msg-feed {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+	padding: var(--size-4-3);
+}
+
+/* Source: packages/obsidian-ui/src/components/OmniComposer/OmniComposer.css */
+/* OmniComposer — the shared input frame (auto-grow textarea + chips + slots).
+ * Chat/search-specific chrome (pickers, run controls, queue, mode) lives in the
+ * consumer's CSS, rendered into the chips/footer/above slots. */
+
+/* Stack: an optional above-slot (chat queue) sits over the input box with a small gap. */
+.oas-omni-stack {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-2-3);
+}
+
+/* The input frame: a light bordered box around the textarea + slots. */
+.oas-omni {
+	container-type: inline-size;
+	width: 100%;
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-2-2);
+	padding: var(--size-2-3) var(--size-4-2);
+	border: var(--border-width) solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background: var(--background-secondary);
+}
+
+.oas-omni:focus-within {
+	border-color: var(--background-modifier-border-hover);
+}
+
+/* Header row: chips (left, wrap) + the chip action button (right). */
+.oas-omni-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: var(--size-2-2);
+}
+
+.oas-omni-chips {
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	flex-wrap: wrap;
+	gap: var(--size-2-1);
+}
+
+.oas-omni-input {
+	display: flex;
+}
+
+.oas-omni-textarea {
+	/* Line-relative so it scales with the font (no px). */
+	--oas-omni-min-lines: 3lh;
+	--oas-omni-max-lines: 8lh;
+	flex: 1;
+	width: 100%;
+	min-height: var(--oas-omni-min-lines);
+	max-height: var(--oas-omni-max-lines);
+	overflow-y: auto;
+	resize: none;
+	border: none;
+	background: transparent;
+	color: var(--text-normal);
+	font-family: inherit;
+	font-size: var(--font-ui-medium);
+	line-height: var(--line-height-normal);
+	padding: var(--size-4-2);
+}
+
+.oas-omni-textarea:focus {
+	outline: none;
+	box-shadow: none;
+}
+
+.oas-omni-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--size-2-3);
+}
+
+/* Source: packages/obsidian-ui/src/components/PermissionCard/PermissionCard.css */
+.oas-permission-prompt {
+	margin: 0;
+	font-size: var(--font-ui-medium);
+	color: var(--text-normal);
+}
+
+.oas-permission-actions {
+	display: flex;
+	gap: var(--size-2-2);
+}
+
+.oas-permission-select {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-2-2);
+}
+
+.oas-permission-option-btn {
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--input-radius, 6px);
+	padding: var(--size-4-1) var(--size-4-2);
+	color: var(--text-normal);
+	font-size: var(--font-ui-small);
+	text-align: left;
+	cursor: pointer;
+}
+
+.oas-permission-option-btn:hover {
+	background: var(--background-modifier-hover);
+}
+
+.oas-permission-input,
+.oas-permission-editor {
+	width: 100%;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--input-radius, 6px);
+	padding: var(--size-4-1) var(--size-4-2);
+	color: var(--text-normal);
+	font-size: var(--font-ui-small);
+	font-family: inherit;
+}
+
+.oas-permission-editor {
+	resize: vertical;
+}
+
+/* Source: packages/obsidian-ui/src/components/Popover/Popover.css */
+/* Popover shell — the box. Positioning (top/left) is set by the controller.
+   Sizing knobs are custom properties so a consumer can retune them in CSS; no px
+   token exists at these sizes, so the defaults are font-relative. */
+.oas-popover {
+	--oas-popover-min-width: 14rem;
+	--oas-popover-list-max-height: 15rem;
+	display: flex;
+	flex-direction: column;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	box-shadow: var(--shadow-s);
+	overflow: hidden;
+	z-index: 1000;
+}
+
+/* Floating modes — controller sets fixed top/left off the anchor rect or caret. */
+.oas-popover--anchor,
+.oas-popover--caret {
+	position: fixed;
+	min-width: var(--oas-popover-min-width);
+}
+
+/* In-flow mode — renders where it sits (static showcases, embedded panels). */
+.oas-popover--inline {
+	position: static;
+}
+
+/* Closed state — the box stays in the DOM (reliable positioning), just hidden. */
+.oas-popover.is-hidden {
+	display: none;
+}
+
+.oas-popover-header {
+	padding: var(--size-2-3) var(--size-4-3);
+	font-size: var(--font-ui-smaller);
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--text-faint);
+	background: var(--background-secondary);
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.oas-popover-list {
+	flex: 0 1 auto;
+	min-height: 0;
+	max-height: var(--oas-popover-list-max-height);
+	overflow-y: auto;
+	padding: var(--size-2-2);
+	scrollbar-width: thin;
+}
+
+/* Action body scroll region — fills the height the controller allows and scrolls
+   tall stacked content (e.g. the Options menu). */
+.oas-popover-action {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	scrollbar-width: thin;
+}
+
+/* Source: packages/obsidian-ui/src/components/ProgressBar/ProgressBar.css */
+.oas-progress {
+	width: 100%;
+	height: var(--size-2-2);
+	background: var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	overflow: hidden;
+}
+
+.oas-progress-fill {
+	height: 100%;
+	background: var(--interactive-accent);
+	border-radius: inherit;
+	transition: width 200ms ease;
+}
+
+/* Source: packages/obsidian-ui/src/components/QueueList/QueueList.css */
+/* Standalone collapsible queue panel — stacks above the composer. */
+.oas-queue {
+	display: flex;
+	flex-direction: column;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background: var(--background-primary-alt);
+	overflow: hidden;
+}
+
+/* Header is a full-width toggle; scope under .oas-queue + element to beat
+   Obsidian's global button rule. */
+.oas-queue button.oas-queue-header {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-2);
+	width: 100%;
+	padding: var(--size-2-2) var(--size-4-2);
+	border: none;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+	cursor: pointer;
+	text-align: left;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.oas-queue button.oas-queue-header:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.oas-queue-chevron {
+	display: inline-flex;
+	transition: transform var(--anim-duration-fast) ease;
+}
+
+.oas-queue:not(.is-collapsed) .oas-queue-chevron {
+	transform: rotate(90deg);
+}
+
+.oas-queue-body {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-2-2);
+	padding: 0 var(--size-4-2) var(--size-2-3);
+}
+
+.oas-queue-item {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-2);
+	padding: var(--size-2-1) var(--size-2-3);
+	background: var(--background-modifier-hover);
+	border-radius: var(--radius-s);
+}
+
+.oas-queue-text {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: var(--font-ui-small);
+}
+
+/* Source: packages/obsidian-ui/src/components/RunControls/RunControls.css */
+.run-controls {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-2-2);
+}
+
+/* In a narrow composer container, the primary buttons collapse to icon-only.
+   (Breakpoints are structural lengths, not themeable tokens.) */
+@container (max-width: 360px) {
+	.run-controls .oas-btn-label {
+		display: none;
+	}
+}
+
+/* Source: packages/obsidian-ui/src/components/SearchComposer/SearchComposer.css */
+/* Search composer — compact variant of OmniComposer for the Search tab.
+ * The textarea is shorter (1 line min vs 3 for chat) since search queries
+ * are typically short; the mode picker sits in the footer. */
+.oas-search-composer .oas-omni-textarea {
+	--oas-omni-min-lines: 1lh;
+}
+
+.oas-search-composer-footer {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-3);
+}
+
+/* Source: packages/obsidian-ui/src/components/SearchField/SearchField.css */
+/* Filter input row for lists/menus. */
+.oas-search-field {
+	padding: var(--size-4-2);
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.oas-search-field-nav {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-3);
+}
+
+.oas-search-field-input {
+	width: 100%;
+	background: var(--background-primary-alt);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	padding: var(--size-2-2) var(--size-2-3);
+	color: var(--text-normal);
+	font-size: var(--font-ui-smaller);
+	outline: none;
+}
+
+.oas-search-field-nav .oas-search-field-input {
+	flex: 1;
+}
+
+.oas-search-field-input:focus {
+	border-color: var(--interactive-accent);
+}
+
+/* Scoped under the container + element type so it beats Obsidian's global
+   button:not(.clickable-icon) rule and never leaks. */
+.oas-search-field button.oas-search-field-nav-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: var(--size-4-6);
+	height: var(--size-4-6);
+	flex-shrink: 0;
+	background: none;
+	border: none;
+	color: var(--text-muted);
+	cursor: pointer;
+	border-radius: var(--radius-s);
+	font-size: var(--font-ui-medium);
+	line-height: 1;
+}
+
+.oas-search-field button.oas-search-field-nav-btn:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+/* Source: packages/obsidian-ui/src/components/SearchResult/SearchResult.css */
+.oas-search-empty {
+	margin: 0;
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+}
+
+.oas-search-results {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+}
+
+.oas-search-hit {
+	display: grid;
+	grid-template-columns: 1fr auto;
+	grid-template-rows: auto auto;
+	column-gap: var(--size-2-3);
+	row-gap: var(--size-2-1);
+	align-items: start;
+}
+
+.oas-search-hit-path {
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-semibold);
+	color: var(--text-accent);
+	grid-column: 1;
+	grid-row: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.oas-search-hit-snippet {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	grid-column: 1;
+	grid-row: 2;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.oas-search-hit-score {
+	grid-column: 2;
+	grid-row: 1 / 3;
+	align-self: center;
+}
+
+/* Source: packages/obsidian-ui/src/components/SectionLabel/SectionLabel.css */
+/* Uppercase group caption for sectioned lists / grouped popovers. */
+.oas-section-label {
+	padding: var(--size-2-2) var(--size-4-3);
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-semibold);
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--text-faint);
+}
+
+/* Source: packages/obsidian-ui/src/components/SessionPicker/SessionPicker.css */
+.oas-session-picker {
+	display: flex;
+	align-items: center;
+}
+
+.oas-session-picker-trigger {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-1);
+	padding: 0 var(--size-2-2);
+	height: var(--size-4-4);
+	border: none;
+	border-radius: var(--radius-s);
+	background: transparent;
+	color: var(--text-muted);
+	font-size: var(--font-smallest);
+	cursor: pointer;
+}
+
+.oas-session-picker-trigger:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.oas-session-picker-label {
+	max-width: 120px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.oas-session-picker-body {
+	display: flex;
+	flex-direction: column;
+	max-height: 360px;
+}
+
+.oas-session-picker-search {
+	padding: var(--size-4-2);
+	border-bottom: var(--border-width) solid var(--background-modifier-border);
+}
+
+.oas-session-picker-list {
+	flex: 1;
+	overflow-y: auto;
+	padding: var(--size-2-1);
+}
+
+.oas-session-picker-empty {
+	padding: var(--size-4-2);
+	color: var(--text-muted);
+	font-size: var(--font-smallest);
+	text-align: center;
+}
+
+.oas-session-picker-item {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: var(--size-2-2) var(--size-4-2);
+	border-radius: var(--radius-s);
+	cursor: pointer;
+}
+
+.oas-session-picker-item:hover,
+.oas-session-picker-item.is-current {
+	background: var(--background-modifier-hover);
+}
+
+.oas-session-picker-item-main {
+	flex: 1;
+	min-width: 0;
+}
+
+.oas-session-picker-name-row {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-2);
+}
+
+.oas-session-picker-name {
+	font-size: var(--font-ui-small);
+	font-weight: var(--font-medium);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.oas-session-picker-current-badge {
+	font-size: var(--font-smallest);
+	color: var(--text-accent);
+	flex-shrink: 0;
+}
+
+.oas-session-picker-meta {
+	font-size: var(--font-smallest);
+	color: var(--text-faint);
+	margin-top: var(--size-2-1);
+}
+
+.oas-session-picker-preview {
+	font-size: var(--font-smallest);
+	color: var(--text-muted);
+	margin-top: var(--size-2-1);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.oas-session-picker-actions {
+	display: flex;
+	gap: var(--size-2-1);
+	flex-shrink: 0;
+	margin-left: var(--size-2-2);
+}
+
+.oas-session-picker-action-btn {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: var(--size-4-3);
+	height: var(--size-4-3);
+	border: none;
+	border-radius: var(--radius-s);
+	background: transparent;
+	color: var(--text-faint);
+	cursor: pointer;
+}
+
+.oas-session-picker-action-btn:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.oas-session-picker-rename-row {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-1);
+	width: 100%;
+}
+
+.oas-session-picker-rename-input {
+	flex: 1;
+	border: var(--border-width) solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	color: var(--text-normal);
+	font-size: var(--font-ui-small);
+	padding: var(--size-2-1) var(--size-2-2);
+}
+
+.oas-session-picker-delete-confirm {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-2);
+	font-size: var(--font-smallest);
+	color: var(--text-error);
+	width: 100%;
+}
+
+.oas-session-picker-delete-confirm span {
+	flex: 1;
+}
+
+/* Source: packages/obsidian-ui/src/components/StatusBar/StatusBar.css */
+/* Thin status strip pinned at the bottom of the panel (collection + git pickers).
+   container-type drives the shared oas-collapse-* utility: below 400px the inline
+   pickers collapse into the compact scope menu. */
+.oas-statusbar {
+	container-type: inline-size;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--size-4-2);
+	padding: var(--size-2-2) var(--size-4-2);
+	border-top: var(--border-width) solid var(--background-modifier-border);
+	background: var(--background-secondary);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.oas-statusbar-left,
+.oas-statusbar-right {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-3);
+	min-width: 0;
+}
+
+/* The wide inline picker cluster (collapsed away on narrow via oas-collapse-wide). */
+.oas-statusbar-controls {
+	align-items: center;
+	gap: var(--size-2-3);
+}
+
+/* Dirty working tree → an amber dot before the branch picker. */
+.oas-statusbar-git.is-dirty::before {
+	content: "";
+	width: var(--size-2-2);
+	height: var(--size-2-2);
+	border-radius: 50%;
+	background: var(--text-warning);
+	flex-shrink: 0;
+}
+.oas-statusbar-git {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-2-1);
+}
+
+.oas-statusbar-session {
+	color: var(--text-faint);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* ── Collection read/write popover body ── */
+.oas-statusbar-collections {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-2-1);
+	padding: var(--size-2-2);
+}
+
+.oas-statusbar-collections-head,
+.oas-statusbar-collection-row {
+	display: grid;
+	grid-template-columns: 1fr auto auto;
+	align-items: center;
+	gap: var(--size-4-2);
+	padding: var(--size-2-1) var(--size-2-2);
+}
+
+.oas-statusbar-collections-head {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-faint);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
+.oas-statusbar-collections-cols {
+	display: flex;
+	gap: var(--size-4-2);
+}
+
+.oas-statusbar-collection-row:hover {
+	background: var(--background-modifier-hover);
+	border-radius: var(--radius-s);
+}
+
+.oas-statusbar-collection-name {
+	color: var(--text-normal);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.oas-statusbar-collection-count {
+	color: var(--text-faint);
+	font-variant-numeric: tabular-nums;
+}
+
+.oas-statusbar-collection-toggles {
+	display: flex;
+	gap: var(--size-4-2);
+}
+
+/* Read/write toggle chips — off = faint outline; on = accent. */
+.oas-statusbar-toggle {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: var(--size-4-5);
+	height: var(--size-4-5);
+	border: var(--border-width) solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: transparent;
+	color: var(--text-faint);
+	cursor: pointer;
+}
+.oas-statusbar-toggle:hover {
+	color: var(--text-normal);
+}
+.oas-statusbar-toggle.is-on {
+	background: var(--interactive-accent);
+	border-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+}
+.oas-statusbar-toggle.is-write {
+	background: var(--text-success);
+	border-color: var(--text-success);
+	color: var(--text-on-accent);
+}
+
+/* Source: packages/obsidian-ui/src/components/SystemMessage/SystemMessage.css */
+.oas-system-msg {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--size-2-2);
+	padding: var(--size-2-2) var(--size-4-2);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.oas-system-msg-icon {
+	display: inline-flex;
+	flex-shrink: 0;
+	opacity: 0.7;
+}
+
+.oas-system-msg--warning {
+	color: var(--text-warning);
+}
+
+.oas-system-msg--fallback {
+	color: var(--text-faint);
+	font-style: italic;
+}
+
+/* Source: packages/obsidian-ui/src/components/Tab/Tab.css */
+/* Tab bar container — horizontal strip that sits at the bottom of a view header.
+ * Stretches to fill the header (align-self:stretch). No horizontal padding here —
+ * the header's own margin already provides the inset from the pane edge. */
+.oas-tab-bar {
+	display: flex;
+	align-items: flex-end;
+	align-self: stretch;
+	gap: var(--size-2-2);
+	overflow-x: auto;
+	scrollbar-width: none;
+}
+
+.oas-tab-bar::-webkit-scrollbar {
+	display: none;
+}
+
+/* Individual tab button. Scoped element+class so it beats Obsidian's global
+   button:not(.clickable-icon) padding/border rule. */
+button.oas-tab {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-2-2);
+	padding: var(--size-2-2) var(--size-4-2) var(--size-2-3);
+	height: 100%;
+	background: none;
+	border: none;
+	border-bottom: 2px solid transparent;
+	/* Overlap the bar's border-bottom so the active underline merges with it. */
+	margin-bottom: -1px;
+	border-radius: var(--radius-s) var(--radius-s) 0 0;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	white-space: nowrap;
+	cursor: pointer;
+	transition:
+		background 80ms,
+		color 80ms;
+}
+
+button.oas-tab:hover {
+	background: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+button.oas-tab.is-active {
+	color: var(--text-normal);
+	font-weight: var(--font-semibold);
+	border-bottom-color: var(--interactive-accent);
+}
+
+.oas-tab-icon {
+	line-height: 1;
+	color: inherit;
+}
+
+.oas-tab-label {
+	line-height: 1.4;
+}
+
+/* Source: packages/obsidian-ui/src/components/ThinkingBlock/ThinkingBlock.css */
+.oas-thinking-body {
+	margin: 0;
+	font-size: var(--font-ui-small);
+	color: var(--text-muted);
+	font-style: italic;
+	white-space: pre-wrap;
+	word-break: break-word;
+	line-height: var(--line-height-normal);
+}
+
+/* Source: packages/obsidian-ui/src/components/ToolCard/ToolCard.css */
+.oas-tool-card-details {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+}
+
+.oas-tool-card-section {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-2-1);
+}
+
+.oas-tool-card-label {
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-semibold);
+	color: var(--text-muted);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
+.oas-tool-card-code {
+	margin: 0;
+	padding: var(--size-2-2) var(--size-4-2);
+	background: var(--background-primary-alt);
+	border-radius: var(--radius-s);
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-normal);
+	overflow-x: auto;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+/* Source: packages/obsidian-ui/src/utilities.css */
+/*
+ * Portable utility classes for Obsidian Arrow components.
+ *
+ * These travel with component ports into the plugin — copy this file once into
+ * the plugin's styles directory and import it alongside your component CSS.
+ * All classes are prefixed `oas-` to avoid any conflict with Obsidian's own
+ * selectors. Values use Obsidian's CSS custom property scale so they track the
+ * active theme automatically.
+ */
+
+/* ── Layout ──────────────────────────────────────────────────── */
+.oas-flex {
+	display: flex;
+}
+.oas-inline-flex {
+	display: inline-flex;
+}
+.oas-flex-col {
+	flex-direction: column;
+}
+.oas-flex-wrap {
+	flex-wrap: wrap;
+}
+.oas-items-start {
+	align-items: flex-start;
+}
+.oas-items-center {
+	align-items: center;
+}
+.oas-items-end {
+	align-items: flex-end;
+}
+.oas-items-baseline {
+	align-items: baseline;
+}
+.oas-justify-start {
+	justify-content: flex-start;
+}
+.oas-justify-center {
+	justify-content: center;
+}
+.oas-justify-end {
+	justify-content: flex-end;
+}
+.oas-justify-between {
+	justify-content: space-between;
+}
+.oas-grow {
+	flex: 1;
+}
+.oas-shrink-0 {
+	flex-shrink: 0;
+}
+
+/*
+ * Spacing — two Obsidian token families:
+ *
+ * 4-px scale  oas-gap-N / oas-p-N / oas-px-N / oas-py-N / oas-mt-N / oas-mb-N
+ *   N=1 → --size-4-1 (4px)   N=2 → --size-4-2 (8px)   N=3 → --size-4-3 (12px)
+ *   N=4 → --size-4-4 (16px)  N=5 → --size-4-5 (20px)  N=6 → --size-4-6 (24px)
+ *
+ * 2-px sub-scale  oas-gap-2-1 / oas-p-2-1 … (mirrors Obsidian token name)
+ *   2-1 → --size-2-1 (2px)   2-3 → --size-2-3 (6px)
+ */
+
+/* 2-px sub-scale ── */
+.oas-gap-2-1 {
+	gap: var(--size-2-1);
+}
+.oas-p-2-1 {
+	padding: var(--size-2-1);
+}
+.oas-px-2-1 {
+	padding-inline: var(--size-2-1);
+}
+.oas-py-2-1 {
+	padding-block: var(--size-2-1);
+}
+.oas-mt-2-1 {
+	margin-top: var(--size-2-1);
+}
+.oas-mb-2-1 {
+	margin-bottom: var(--size-2-1);
+}
+.oas-gap-2-3 {
+	gap: var(--size-2-3);
+}
+.oas-p-2-3 {
+	padding: var(--size-2-3);
+}
+.oas-px-2-3 {
+	padding-inline: var(--size-2-3);
+}
+.oas-py-2-3 {
+	padding-block: var(--size-2-3);
+}
+.oas-mt-2-3 {
+	margin-top: var(--size-2-3);
+}
+.oas-mb-2-3 {
+	margin-bottom: var(--size-2-3);
+}
+
+/* 4-px scale ── */
+.oas-gap-1 {
+	gap: var(--size-4-1);
+}
+.oas-gap-2 {
+	gap: var(--size-4-2);
+}
+.oas-gap-3 {
+	gap: var(--size-4-3);
+}
+.oas-gap-4 {
+	gap: var(--size-4-4);
+}
+.oas-gap-5 {
+	gap: var(--size-4-5);
+}
+.oas-gap-6 {
+	gap: var(--size-4-6);
+}
+.oas-p-1 {
+	padding: var(--size-4-1);
+}
+.oas-p-2 {
+	padding: var(--size-4-2);
+}
+.oas-p-3 {
+	padding: var(--size-4-3);
+}
+.oas-p-4 {
+	padding: var(--size-4-4);
+}
+.oas-p-5 {
+	padding: var(--size-4-5);
+}
+.oas-p-6 {
+	padding: var(--size-4-6);
+}
+.oas-px-2 {
+	padding-inline: var(--size-4-2);
+}
+.oas-px-3 {
+	padding-inline: var(--size-4-3);
+}
+.oas-px-4 {
+	padding-inline: var(--size-4-4);
+}
+.oas-px-5 {
+	padding-inline: var(--size-4-5);
+}
+.oas-px-6 {
+	padding-inline: var(--size-4-6);
+}
+.oas-py-1 {
+	padding-block: var(--size-4-1);
+}
+.oas-py-2 {
+	padding-block: var(--size-4-2);
+}
+.oas-py-3 {
+	padding-block: var(--size-4-3);
+}
+.oas-py-4 {
+	padding-block: var(--size-4-4);
+}
+.oas-py-5 {
+	padding-block: var(--size-4-5);
+}
+.oas-py-6 {
+	padding-block: var(--size-4-6);
+}
+.oas-mt-1 {
+	margin-top: var(--size-4-1);
+}
+.oas-mt-2 {
+	margin-top: var(--size-4-2);
+}
+.oas-mt-3 {
+	margin-top: var(--size-4-3);
+}
+.oas-mt-4 {
+	margin-top: var(--size-4-4);
+}
+.oas-mt-5 {
+	margin-top: var(--size-4-5);
+}
+.oas-mt-6 {
+	margin-top: var(--size-4-6);
+}
+.oas-mb-1 {
+	margin-bottom: var(--size-4-1);
+}
+.oas-mb-2 {
+	margin-bottom: var(--size-4-2);
+}
+.oas-mb-3 {
+	margin-bottom: var(--size-4-3);
+}
+.oas-mb-4 {
+	margin-bottom: var(--size-4-4);
+}
+.oas-mb-5 {
+	margin-bottom: var(--size-4-5);
+}
+.oas-mb-6 {
+	margin-bottom: var(--size-4-6);
+}
+.oas-ml-auto {
+	margin-left: auto;
+}
+
+/* ── Sizing ──────────────────────────────────────────────────── */
+.oas-w-full {
+	width: 100%;
+}
+.oas-min-w-0 {
+	min-width: 0;
+}
+.oas-min-h-0 {
+	min-height: 0;
+}
+
+/* ── Typography ──────────────────────────────────────────────── */
+.oas-text-xs {
+	font-size: var(--font-ui-smaller);
+}
+.oas-text-sm {
+	font-size: var(--font-ui-small);
+}
+.oas-text-md {
+	font-size: var(--font-ui-medium);
+}
+.oas-font-medium {
+	font-weight: var(--font-medium);
+}
+.oas-font-semibold {
+	font-weight: var(--font-semibold);
+}
+.oas-font-mono {
+	font-family: var(--font-monospace);
+}
+.oas-leading-1 {
+	line-height: 1;
+}
+.oas-text-normal {
+	color: var(--text-normal);
+}
+.oas-text-muted {
+	color: var(--text-muted);
+}
+.oas-text-faint {
+	color: var(--text-faint);
+}
+.oas-text-accent {
+	color: var(--text-accent);
+}
+.oas-text-success {
+	color: var(--text-success);
+}
+.oas-text-error {
+	color: var(--text-error);
+}
+
+/* ── Overflow ────────────────────────────────────────────────── */
+.oas-truncate {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.oas-overflow-hidden {
+	overflow: hidden;
+}
+.oas-overflow-auto {
+	overflow: auto;
+}
+
+/* ── Border ──────────────────────────────────────────────────── */
+.oas-border {
+	border: 1px solid var(--background-modifier-border);
+}
+.oas-border-b {
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+.oas-border-t {
+	border-top: 1px solid var(--background-modifier-border);
+}
+.oas-rounded-s {
+	border-radius: var(--radius-s);
+}
+.oas-rounded-m {
+	border-radius: var(--radius-m);
+}
+.oas-rounded-l {
+	border-radius: var(--radius-l);
+}
+
+/* ── Interaction ─────────────────────────────────────────────── */
+.oas-cursor-pointer {
+	cursor: pointer;
+}
+.oas-select-none {
+	user-select: none;
+}
+
+/* ── Badges ──────────────────────────────────────────────────── */
+/* Status and label badges. Portable — copy with components into plugin. */
+.oas-badge {
+	display: inline-flex;
+	align-items: center;
+	padding: 1px var(--size-4-1);
+	border-radius: var(--radius-s);
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-medium);
+	vertical-align: middle;
+	margin-left: var(--size-4-1);
+}
+.oas-badge.is-live {
+	background: color-mix(in srgb, var(--text-success) 15%, var(--background-primary));
+	color: var(--text-success);
+}
+.oas-badge.is-draft {
+	background: var(--background-modifier-hover);
+	color: var(--text-faint);
+}
+
+/* ── Collapsible card ────────────────────────────────────────── */
+/* Expandable section with left-border accent. Portable — copy with components. */
+.oas-card {
+	border-bottom: 1px solid var(--background-modifier-border);
+	border-left: 3px solid var(--background-modifier-border-hover);
+}
+.oas-card.is-expanded {
+	border-left-color: var(--interactive-accent);
+}
+.oas-card-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--size-4-2);
+	padding: var(--size-4-3);
+	cursor: pointer;
+	font-size: var(--font-ui-small);
+	font-weight: var(--font-semibold);
+	color: var(--text-normal);
+	user-select: none;
+}
+.oas-card-header:hover {
+	background: var(--background-modifier-hover);
+}
+.oas-card-title {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.oas-card-chevron {
+	flex-shrink: 0;
+	color: var(--text-faint);
+	transition: transform 0.15s;
+	font-size: var(--font-ui-medium);
+	line-height: 1;
+}
+.oas-card.is-expanded .oas-card-chevron {
+	transform: rotate(90deg);
+}
+.oas-card-body {
+	display: none;
+	border-top: 1px solid var(--background-modifier-border);
+}
+.oas-card.is-expanded .oas-card-body {
+	display: block;
+}
+.oas-card-desc {
+	margin: 0;
+	padding: var(--size-4-2) var(--size-4-3);
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+.oas-card-note {
+	margin: 0;
+	padding: 0 var(--size-4-3) var(--size-4-2);
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+.oas-card-children {
+	display: flex;
+	align-items: baseline;
+	flex-wrap: wrap;
+	gap: var(--size-4-1);
+	padding: var(--size-4-1) var(--size-4-3);
+}
+.oas-card-children-label {
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}
+.oas-card-actions {
+	padding: var(--size-4-2) var(--size-4-3);
+}
+
+/* ── View & component shells ─────────────────────────────────── */
+/*
+ * Portable structural shells. Copy these with your view/component into the
+ * plugin — they rely only on Obsidian tokens and need no sandbox-specific CSS.
+ *
+ * View shell: apply oas-shell-view to the root element your view returns.
+ * The view-content div (Obsidian) is the scroll container; oas-shell-view
+ * fills it as a flex column so the body can grow and the footer stays pinned.
+ *
+ * Component shell: apply oas-shell-panel to a standalone component root for a
+ * card-style container with border, radius, and padding.
+ */
+.oas-shell-view {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+}
+/* Header: pinned to the top, never shrinks, has a min-height floor but grows
+ * to fit taller content (e.g. a wrapping toolbar). Border-bottom separates it
+ * from the body. Default flex + vertical centering prevents content from touching
+ * the top chrome edge; TabBar overrides align-items to flex-end (underline tabs). */
+.oas-shell-view-header {
+	flex: 0 0 auto;
+	min-height: var(--header-height);
+	display: flex;
+	align-items: center;
+	border-bottom: 1px solid var(--background-modifier-border);
+	margin: var(--size-4-3) var(--size-4-3) 0 var(--size-4-3);
+}
+/* Body: fills all space between header and footer; scrolls its own overflow. */
+.oas-shell-view-body {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+}
+/* Footer: pinned to the bottom, never shrinks, has a min-height floor but
+ * expands to fit contained components (e.g. a composer that grows with input). */
+.oas-shell-view-footer {
+	flex: 0 0 auto;
+	min-height: var(--header-height);
+	border-top: 1px solid var(--background-modifier-border);
+	margin: 0 var(--size-4-3) var(--size-4-3) var(--size-4-3);
+}
+.oas-shell-panel {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+	padding: var(--size-4-3);
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+}
+
+/* ── Settings surface ────────────────────────────────────────────
+ * Simulates Obsidian's Settings-modal tab pane for a plugin-settings-style
+ * component: a left vertical-tab rail (.vertical-tab-header) beside a content
+ * column (.vertical-tab-content). Fills the available width and height so it
+ * reads like the real modal rather than collapsing to intrinsic width. The
+ * content column caps at a readable measure and takes the remaining space.
+ */
+.oas-settings {
+	display: flex;
+	width: 100%;
+	height: 100%;
+	min-height: 0;
+	overflow: hidden;
+}
+.oas-settings > .vertical-tab-header {
+	flex: 0 0 auto;
+	overflow-y: auto;
+}
+.oas-settings > .vertical-tab-content {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow-y: auto;
+}
+
+/* ── Readable width (editor-style views) ─────────────────────────
+ * Reproduces Obsidian's "readable line length" for a *custom* view: caps
+ * content at the same --file-line-width token the markdown editor uses and
+ * centers it, with the editor's horizontal --file-margins. A custom ItemView
+ * does not inherit Obsidian's markdown editor chrome, so an editor-style
+ * (note/document) view wraps its content in this class to match. Portable: the
+ * tokens resolve against the active theme in both the sandbox and the plugin.
+ */
+.oas-readable-width {
+	width: 100%;
+	max-width: var(--file-line-width);
+	margin-inline: auto;
+	padding-inline: var(--file-margins-x);
+}
+
+/* ── Icon wrapper (Lucide) ─────────────────────────────── */
+/* Inline wrapper for Lucide SVGs rendered via icons.ts. Sized to the SVG it
+   contains; vertical-align middle keeps it aligned with adjacent text. */
+.oas-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	vertical-align: middle;
+}
+
+.oas-icon--missing {
+	display: inline-block;
+	width: var(--icon-m);
+	height: var(--icon-m);
+}
+
+/* ── Responsive control collapse ───────────────────────────
+   The shared convention for collapsing an inline control cluster into a compact
+   menu on narrow widths (the composer footer's pickers → Options menu, the status
+   bar's pickers → a scope menu). Put container-type: inline-size on the collapsing
+   region; mark the wide inline controls oas-collapse-wide and the compact fallback
+   oas-collapse-narrow. Below the panel breakpoint they swap. The utility owns
+   `display` for both states (same class, same file) so the swap wins regardless
+   of stylesheet load order. */
+.oas-collapse-wide {
+	display: flex;
+}
+.oas-collapse-narrow {
+	display: none;
+}
+
+@container (max-width: 420px) {
+	.oas-collapse-wide {
+		display: none;
+	}
+	.oas-collapse-narrow {
+		display: flex;
+	}
+}
+
+/* Source: packages/obsidian-ui/src/views/ConfigurationSettingsView/ConfigurationSettingsView.css */
+/* Flat grouped single-column Settings panel with oas-shell-view structure */
+.oas-configuration-settings {
+	width: 100%;
+	height: 100%;
+	min-width: 0;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+}
+
+/* Header */
+.oas-configuration-settings-header {
+	flex-shrink: 0;
+	padding: var(--size-4-3) var(--size-4-4);
+	border-bottom: 1px solid var(--background-modifier-border);
+	background: var(--background-primary);
+}
+
+.oas-configuration-settings-identity {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+}
+
+.oas-configuration-settings-title {
+	font-size: var(--font-ui-large);
+	font-weight: 600;
+	color: var(--text-normal);
+}
+
+.oas-configuration-settings-subtitle {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+/* Body */
+.oas-configuration-settings-body {
+	flex: 1;
+	overflow: auto;
+	padding: var(--size-4-4);
+}
+
+.oas-configuration-settings-loading {
+	text-align: center;
+	padding: var(--size-4-6);
+	color: var(--text-muted);
+}
+
+/* Section */
+.oas-settings-section {
+	margin-bottom: var(--size-4-6);
+}
+
+.oas-settings-section:last-child {
+	margin-bottom: 0;
+}
+
+.oas-settings-section .setting-item-heading {
+	font-size: var(--font-ui-medium);
+	font-weight: 600;
+	color: var(--text-normal);
+	margin-bottom: var(--size-4-1);
+	padding-top: var(--size-4-3);
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.oas-settings-section:first-child .setting-item-heading {
+	border-top: none;
+	padding-top: 0;
+}
+
+.oas-settings-section .setting-item-description {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	margin-bottom: var(--size-4-3);
+}
+
+/* Footer */
+.oas-configuration-settings-footer {
+	flex-shrink: 0;
+	padding: var(--size-4-3) var(--size-4-4);
+	border-top: 1px solid var(--background-modifier-border);
+	background: var(--background-primary);
+	display: flex;
+	justify-content: flex-end;
+	gap: var(--size-4-2);
+}
+
+/* Source: packages/obsidian-ui/src/views/DiffViewer/DiffViewerView.css */
+/* DiffViewer as a full-pane editor view. */
+
+/* Label row above each editor pane. */
+.oas-diff-view-labels {
+	display: flex;
+	border-bottom: 1px solid var(--background-modifier-border);
+	flex-shrink: 0;
+}
+
+.oas-diff-view-label {
+	flex: 1;
+	padding: var(--size-2-1) var(--size-4-3);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	border-right: 1px solid var(--background-modifier-border);
+}
+
+.oas-diff-view-label:last-child {
+	border-right: none;
+}
+
+/* Body: fills remaining height. position: relative lets the diff viewer use inset: 0. */
+.oas-diff-view-body {
+	flex: 1;
+	min-height: 0;
+	overflow: hidden;
+	position: relative;
+}
+
+/* Absolute positioning gives CM6 an explicit pixel height so height: 100% resolves
+   correctly on .cm-mergeView. Flex-resolved heights (flex: 1 + height: auto) don't
+   propagate to percentage-height grandchildren in all browsers. */
+.oas-diff-view-body .oas-diff-viewer {
+	position: absolute;
+	inset: 0;
+	height: auto;
+	border: none;
+	border-radius: 0;
+}
+
+/* Source: packages/obsidian-ui/src/views/SetupWizard/SetupWizard.css */
+.bootstrap-view {
+	padding: var(--size-4-2) var(--size-4-3);
+}
+
+.oas-setup-step {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+}
+
+/* Source: packages/obsidian-ui/src/views/SetupWizard/Wizard.css */
+.oas-wizard {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-3);
+	padding: var(--size-4-2) var(--size-4-3);
+	height: 100%;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+
+.oas-wizard.oas-shell-view > .oas-wizard-header {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--size-4-2);
+	padding-bottom: var(--size-4-2);
+	border-bottom: 1px solid var(--background-modifier-border);
+	margin: 0;
+}
+
+.oas-wizard-identity {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-2);
+}
+
+.oas-wizard-identity .oas-icon {
+	color: var(--text-accent);
+}
+
+.oas-wizard-title {
+	font-weight: var(--font-semibold);
+	font-size: var(--font-ui-medium);
+}
+
+.oas-wizard-step-name {
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+}
+
+/* ── Progress dots ───────────────────────────────────────────────────────── */
+
+.oas-wizard-progress {
+	display: flex;
+	justify-content: center;
+	gap: var(--size-2-2);
+	padding: var(--size-2-2) 0;
+}
+
+.oas-wizard-dot {
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	background: var(--background-modifier-border);
+	transition: background 200ms ease;
+}
+
+.oas-wizard-dot.is-active {
+	background: var(--text-accent);
+}
+
+/* ── Body ────────────────────────────────────────────────────────────────── */
+
+.oas-wizard-body {
+	flex: 1;
+	overflow-y: auto;
+}
+
+.oas-wizard-body .oas-card {
+	margin-bottom: var(--size-4-2);
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+.oas-wizard.oas-shell-view > .oas-wizard-footer {
+	padding-top: var(--size-4-2);
+	border-top: 1px solid var(--background-modifier-border);
+	margin: 0;
+}
+
+.oas-wizard-footer.is-hidden,
+.oas-wizard-back.is-hidden,
+.oas-wizard-footer-action.is-hidden {
+	display: none;
+}
+
+.oas-wizard-footer-row {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+
+.oas-wizard-footer-actions {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-2);
+	margin-left: auto;
+}
+
+/* ── Done state ───────────────────────────────────────────────────────────── */
+
+.oas-wizard-done {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: var(--size-4-4);
+	color: var(--text-muted);
+	font-size: var(--font-ui-medium);
+}
+
+/* Source: packages/obsidian-ui/src/views/TabbedView/TabbedView.css */
+/* Per-tab panel — fills the body; hidden tabs are removed from layout. */
+.oas-tab-panel {
+	height: 100%;
+	overflow-y: auto;
+}
+
+.oas-tab-panel.is-hidden {
+	display: none;
+}
+
+/* Source: packages/obsidian-ui/src/views/VaultMindView/ActivityView/ActivityView.css */
+/* Activity tab body — status filter Picker over a scrolling job + pending-review list. */
+.oas-activity-view {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+}
+
+.oas-activity-filter {
+	flex: 0 0 auto;
+	padding: var(--size-4-2);
+	border-bottom: var(--border-width) solid var(--background-modifier-border);
+}
+
+.oas-activity-list {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	padding: var(--size-4-2);
+}
+
+.oas-activity-list-rows {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-2);
+}
+
+.oas-activity-list-empty.is-hidden {
+	display: none;
+}
+
+/* Source: packages/obsidian-ui/src/views/VaultMindView/ActivityView/JobRow.css */
+/* Running status: a pulsing accent dot before "Running · time" (the lead role
+   icon stays upright — Card spinIcon:false). */
+.oas-job-row-meta {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--size-2-2);
+}
+
+.oas-job-row-pulse {
+	width: var(--size-2-2);
+	height: var(--size-2-2);
+	border-radius: 50%;
+	background: var(--text-accent);
+	flex-shrink: 0;
+	animation: oas-job-row-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes oas-job-row-pulse {
+	0%,
+	100% {
+		opacity: 1;
+		transform: scale(1);
+	}
+	50% {
+		opacity: 0.35;
+		transform: scale(0.7);
+	}
+}
+
+/* Activity-tab job row body: latest action + instruction + error. */
+.oas-job-row-body {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-2-2);
+}
+
+.oas-job-row-instruction {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+}
+
+.oas-job-row-error {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-error);
+	font-family: var(--font-monospace);
+}
+
+.oas-job-row-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--size-2-2);
+}
+
+/* Source: packages/obsidian-ui/src/views/VaultMindView/ActivityView/PendingRow.css */
+/* Activity-tab pending-review row body: content preview + provenance. */
+.oas-pending-row-body {
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-2-2);
+}
+
+.oas-pending-row-fact {
+	color: var(--text-normal);
+}
+
+.oas-pending-row-meta {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+
+.oas-pending-row-actions {
+	display: flex;
+	gap: var(--size-2-2);
+}
+
+/* Source: packages/obsidian-ui/src/views/VaultMindView/SearchView/ResultRow.css */
+/* One search hit row (Search tab). A full-width clickable button that reads as a row. */
+.oas-result-row {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--size-4-2);
+	width: 100%;
+	text-align: left;
+	padding: var(--size-4-2);
+	border: none;
+	border-radius: var(--radius-s);
+	background: transparent;
+	color: var(--text-normal);
+	cursor: pointer;
+}
+
+.oas-result-row:hover {
+	background: var(--background-modifier-hover);
+}
+
+.oas-result-row-icon {
+	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	color: var(--text-muted);
+	margin-top: var(--size-2-1);
+}
+
+.oas-result-row-main {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-2-1);
+}
+
+.oas-result-row-head {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: var(--size-4-2);
+}
+
+.oas-result-row-title {
+	font-weight: var(--font-semibold);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.oas-result-row-score {
+	flex-shrink: 0;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	font-variant-numeric: tabular-nums;
+}
+
+.oas-result-row-snippet {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+.oas-result-row-foot {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--size-2-2);
+	font-size: var(--font-ui-smaller);
+}
+
+.oas-result-row-domain {
+	color: var(--text-faint);
+	font-family: var(--font-monospace);
+}
+
+.oas-result-row-tag {
+	color: var(--text-accent);
+}
+
+/* Source: packages/obsidian-ui/src/views/VaultMindView/SearchView/SearchView.css */
+/* Search tab body — composer pinned at top, results scroll below. */
+.oas-search-view {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+}
+
+.oas-search-view-composer {
+	flex: 0 0 auto;
+	padding: var(--size-4-2);
+	border-bottom: var(--border-width) solid var(--background-modifier-border);
+}
+
+.oas-search-view-results {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	padding: var(--size-4-2) var(--size-4-1);
+}
+
+.oas-search-presearch.is-hidden,
+.oas-search-noresults.is-hidden {
+	display: none;
+}
+
+.oas-search-group {
+	margin-bottom: var(--size-4-3);
+}
+
+/* Source: packages/obsidian-ui/src/views/VaultMindView/TimelineView/ActivityTimeline.css */
+/* Timeline tab — chronological run record (append-only, scrolls with tail pinned). */
+.oas-activity-timeline {
+	height: 100%;
+	overflow-y: auto;
+	padding: var(--size-4-2) var(--size-4-1);
+}
+
+/* A thin rule between rows keeps the stream scannable. */
+.oas-activity-timeline-slot:not(:last-child) .oas-activity-row {
+	border-bottom: var(--border-width) solid var(--background-modifier-border);
+}
+
+.oas-activity-timeline-empty.is-hidden {
+	display: none;
+}
+
+/* Source: packages/obsidian-ui/src/views/VaultMindView/TimelineView/TimelineFilter.css */
+/* Timeline filter bar — search field grows, job-scope picker sits at the end. */
+.oas-timeline-filter {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	padding: var(--size-4-2);
+	border-bottom: var(--border-width) solid var(--background-modifier-border);
+}
+
+.oas-timeline-filter-search {
+	flex: 1;
+	min-width: 0;
+}
+
+/* Source: packages/obsidian-ui/src/views/VaultMindView/TimelineView/TimelineView.css */
+/* Timeline tab body — filter row over a scrolling stream, filling the tab panel. */
+.oas-timeline-view {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+}
+
+.oas-timeline-view-stream {
+	flex: 1;
+	min-height: 0;
+}
+
+/* Source: packages/obsidian-ui/src/views/VaultMindView/VaultMindView.css */
+/* Vault Mind panel — three always-mounted tab panels toggled with is-hidden so
+ * scroll position + component state survive tab switches. */
+.oas-shell-view > .oas-shell-view-body > .oas-tab-panel {
+	height: 100%;
+	min-height: 0;
+}
+
+.oas-shell-view > .oas-shell-view-body > .oas-tab-panel.is-hidden {
+	display: none;
+}
+
+/* The Composer footer is chat-only — hidden on the Activity + Timeline tabs. */
+.oas-shell-view > .oas-shell-view-footer.is-hidden {
+	display: none;
+}
+/* END GENERATED OBSIDIAN-UI CSS */
