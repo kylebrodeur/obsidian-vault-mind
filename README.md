@@ -3,39 +3,40 @@
 
 # Vault Mind
 
-A right-hand side panel for Obsidian that connects to the local
-[`pi-vault-mind`](https://github.com/kylebrodeur/pi-vault-mind) extension.
+The Obsidian plugin for
+[`pi-vault-mind`](https://github.com/kylebrodeur/pi-vault-mind).
+It mounts the Vault Mind setup/configuration surfaces and the main working panel
+for a single vault-local runtime.
 
-It gives you three dockable views:
+## Current surfaces
 
-- **Vault Mind Queue** — live list of pending / running / done / failed /
-  cancelled agent dispatch jobs, with retry / cancel buttons.
-- **Vault Mind Status** — pi running state, watcher toggle, embedding
-  provider/model, and a search box.
-- **Vault Mind Chat** — a chat surface that talks to `pi` directly via the
-  existing RPC mode.
+- **Setup wizard** — first-run runtime/install/provider/folder/preferences/review flow.
+- **Settings tab** — grouped configuration categories mounted in Obsidian Settings.
+- **Vault Mind panel** — the main working surface after setup, including chat and the shipped panel tabs.
 
 ## Views
 
 ![Vault Mind Status](screenshots/status.png)
-*Status view — connection state, token mode, watcher toggle, and vault search.*
+*Status-style runtime/configuration surface during setup and recovery.*
 
 ![Vault Mind Queue](screenshots/queue.png)
-*Queue view — live job list with count chips and keyboard-focusable rows.*
+*Historical queue/status screenshot from the alpha period. Current product work is centered in the unified Vault Mind panel and Settings surfaces.*
 
 ![Vault Mind Setup](screenshots/setup.png)
-*Setup view — pre-filled from `~/.pi/agent/vault-mind.config.json`.*
+*Setup view — hydrated from the vault-local Vault Mind configuration surface under `<vault>/.vault-mind/`.*
 
 ![Vault Mind Chat](screenshots/chat.png)
-*Chat view — message history, tool calls, and composer.*
+*Chat/work panel after setup and first-run handoff.*
 
 ## Requirements
 
-- Obsidian 1.5.0+ desktop (Electron-based; mobile is not supported).
-- `pi-vault-mind` extension running in a local `pi` session (or headless).
-- A `PVM_API_TOKEN` configured in env, `~/.pi/agent/vault-mind.env`, or the
-  extension config. The plugin imports the token from the dotenv file and
-  seals it in the OS keychain via Electron `safeStorage`.
+- Obsidian desktop.
+- `pi-vault-mind` available for the vault you are configuring.
+- A runtime bearer token (`PVM_API_TOKEN`) available in env or
+  `<vault>/.vault-mind/vault-mind.env` when required.
+
+The plugin can import the vault-local dotenv token and seal it in the OS
+keychain via Electron `safeStorage`.
 
 ## Install
 
@@ -60,16 +61,19 @@ It gives you three dockable views:
 
 ## Usage
 
-Open the command palette and choose one of:
+Open the command palette and use:
 
-- `Vault Mind: Open Queue`
-- `Vault Mind: Open Status`
-- `Vault Mind: Open Chat`
+- `Open Vault Mind`
+- Obsidian **Settings → Vault Mind** when you need the setup/configuration surface
 
-On first run, the plugin will prompt you to import the bearer token from
-`~/.pi/agent/vault-mind.env`. It then connects to
+On first run, the plugin can import the bearer token from
+`<vault>/.vault-mind/vault-mind.env`. It then connects to
 `http://127.0.0.1:11435` by default (configurable in settings) and opens the
 setup wizard if the extension is not yet configured.
+
+After setup, the panel opens the normal chat/work surface. Personalization is a
+separate first-run step in the panel; setup does not claim to run it
+automatically.
 
 ## Development
 
@@ -90,8 +94,7 @@ from the plugin directory.
   (Apache-2.0).
 - Chat view originally forked from
   [`gengyabc/obsidian-pi-plugin`](https://github.com/gengyabc/obsidian-pi-plugin)
-  (MIT). See `THIRD_PARTY_NOTICES.md`. **This renderer is being replaced in P1.7**
-  with an Arrow-native implementation; the RPC/session backend from this fork is retained.
+  (MIT). See `THIRD_PARTY_NOTICES.md`.
 
 ## License
 

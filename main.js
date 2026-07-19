@@ -22397,7 +22397,7 @@ var init_bootstrap = __esm({
     init_config();
     init_extension_packages();
     init_pi_detect();
-    BUNDLED_PROJECT_VERSION = true ? "0.16.7" : projectPackage.version;
+    BUNDLED_PROJECT_VERSION = true ? "0.16.8" : projectPackage.version;
     VaultBootstrap = class {
       vaultPath;
       piBinaryPath;
@@ -23388,6 +23388,13 @@ async function startFreshRuntime(connection, delayer = defaultDelayer, options =
 }
 
 // src/client.ts
+var encodeWebSocketAuthProtocol = (token) => {
+  const bytes = new TextEncoder().encode(token);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  const encoded = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return `pvm-auth.${encoded}`;
+};
 var VaultMindClient = class {
   config;
   ws = null;
@@ -23438,7 +23445,7 @@ var VaultMindClient = class {
   connect() {
     if (this.ws) return;
     try {
-      this.ws = new WebSocket(this.wsUrl, [`Authorization: Bearer ${this.config.token}`]);
+      this.ws = new WebSocket(this.wsUrl, encodeWebSocketAuthProtocol(this.config.token));
     } catch (err) {
       this.setState({ connected: false, error: String(err), reconnecting: true });
       this.scheduleReconnect();
@@ -23515,6 +23522,9 @@ var VaultMindClient = class {
   }
   async setup(body) {
     return await this.httpJson("POST", "/vm/setup", body);
+  }
+  async cancelPersonalization() {
+    return await this.httpJson("POST", "/vm/personalize/cancel");
   }
   async probeEmbedding(body) {
     return await this.httpJson("POST", "/vm/embedding/probe", body);
@@ -23662,6 +23672,14 @@ var VaultMindClient = class {
   /** GET /vault-mind/models — provider/model catalog parsed from pi's models.json */
   async getModels() {
     return await this.httpJson("GET", "/vault-mind/models");
+  }
+  /** GET /vm/model-router — ordered provider/model primary and fallback identities. */
+  async getModelRouter() {
+    return await this.httpJson("GET", "/vm/model-router");
+  }
+  /** PUT /vm/model-router — replace the ordered primary/fallback sequence. */
+  async putModelRouter(config) {
+    return await this.httpJson("PUT", "/vm/model-router", config);
   }
   /** POST /vm/token — write PVM_API_TOKEN to vault-mind.env */
   async writeToken(token) {
@@ -25886,8 +25904,7 @@ function categoryBaseline(category, loadResponse) {
       };
     }
     case "agent-models": {
-      const a = isRecord2(vm.agentLLM) ? vm.agentLLM : {};
-      return { localUrl: str(a.localUrl), remoteUrl: str(a.remoteUrl), model: str(a.model) };
+      return { sequence: structuredClone(loadResponse.modelRouter?.sequence ?? []) };
     }
     case "automation": {
       const v = readDefaultVault(vm);
@@ -26324,210 +26341,6 @@ function AdvancedCategory(options) {
 	</div>`;
 }
 
-// src/ui/views/ConfigurationSettingsView/categories/AgentModelsCategory.ts
-function AgentModelsCategory(options) {
-  const { state, save } = options;
-  const draft = () => {
-    void save?.state();
-    return state.categories["agent-models"].draft;
-  };
-  const edit = (patch) => editConfigurationCategory(state, "agent-models", patch);
-  return html`<div class="oas-settings-agent-models oas-flex oas-flex-col oas-gap-2">
-		<div class="setting-item">
-			<div class="setting-item-info">
-				<div class="setting-item-name">Pi chat model catalog</div>
-				<div class="setting-item-description">
-					Read-only Pi chat model catalog (GET /vault-mind/models). Model-router editing
-					remains unavailable until an extension-owned write route ships.
-				</div>
-			</div>
-		</div>
-		${TextField({
-    id: "oas-agent-models-local",
-    label: "Local URL",
-    description: "Base URL of the local agent LLM endpoint.",
-    value: () => String(draft().localUrl ?? ""),
-    onInput: (value) => edit({ localUrl: value })
-  })}
-		${TextField({
-    id: "oas-agent-models-remote",
-    label: "Remote URL",
-    description: "Base URL of the remote agent LLM endpoint.",
-    value: () => String(draft().remoteUrl ?? ""),
-    onInput: (value) => edit({ remoteUrl: value })
-  })}
-		${TextField({
-    id: "oas-agent-models-model",
-    label: "Model",
-    description: "Model id used for agent chat.",
-    value: () => String(draft().model ?? ""),
-    onInput: (value) => edit({ model: value })
-  })}
-		${save ? SectionSaveBar({
-    state: () => save.state(),
-    onSave: () => save.save(),
-    onReset: () => save.reset()
-  }) : ""}
-	</div>`;
-}
-
-// src/ui/views/ConfigurationSettingsView/categories/AutomationCategory.ts
-function AutomationCategory(options) {
-  const { state, save } = options;
-  const draft = () => {
-    void save?.state();
-    return state.categories.automation.draft;
-  };
-  const edit = (patch) => editConfigurationCategory(state, "automation", patch);
-  const caps = () => state.loaded?.capabilities.actions;
-  const watcherOn = () => state.loaded?.status?.watcher === true;
-  return html`<div class="oas-settings-automation oas-flex oas-flex-col oas-gap-2">
-		${checkboxRow({
-    id: "oas-automation-auto-start",
-    label: "Auto start",
-    description: "Start the bridge automatically when Obsidian loads.",
-    value: () => Boolean(draft().autoStart),
-    onChange: (checked) => edit({ autoStart: checked })
-  })}
-		${checkboxRow({
-    id: "oas-automation-auto-sync",
-    label: "Auto sync",
-    description: "Sync note changes to the index automatically.",
-    value: () => Boolean(draft().autoSync),
-    onChange: (checked) => edit({ autoSync: checked })
-  })}
-		${checkboxRow({
-    id: "oas-automation-auto-sync-tags",
-    label: "Auto sync tags",
-    description: "Sync tag changes alongside note content.",
-    value: () => Boolean(draft().autoSyncTags),
-    onChange: (checked) => edit({ autoSyncTags: checked })
-  })}
-		${TextField({
-    id: "oas-automation-auto-sync-min-length",
-    label: "Auto sync min length",
-    description: "Minimum note length (in characters) before it is eligible for auto-sync.",
-    value: () => String(draft().autoSyncMinLength ?? 0),
-    onInput: (value) => edit({ autoSyncMinLength: Number(value) || 0 })
-  })}
-		${checkboxRow({
-    id: "oas-automation-context",
-    label: "Context automation",
-    description: "Enable the pi-context extension automation.",
-    value: () => Boolean(draft().contextAutomation),
-    onChange: (checked) => edit({ contextAutomation: checked })
-  })}
-		${ItemRow({
-    name: "Watcher",
-    description: () => caps()?.canToggleWatcher ? watcherOn() ? "Watcher is running." : "Watcher is stopped." : "Watcher toggle is not supported.",
-    control: Button({
-      label: () => watcherOn() ? "Stop watching" : "Start watching",
-      disabled: () => !caps()?.canToggleWatcher,
-      onClick: () => {
-        void options.adapter.toggleWatcher();
-      }
-    })
-  })}
-		${save ? SectionSaveBar({
-    state: () => save.state(),
-    onSave: () => save.save(),
-    onReset: () => save.reset()
-  }) : ""}
-	</div>`;
-}
-
-// src/ui/views/ConfigurationSettingsView/categories/CollectionsCategory.ts
-function CollectionsCategory(_options) {
-  return html`<div class="oas-settings-collections oas-flex oas-flex-col oas-gap-2">
-		${ItemRow({
-    name: "Collections",
-    description: "Collection definitions are read-only. Management is not supported until a typed mutation contract ships."
-  })}
-	</div>`;
-}
-
-// src/ui/components/SecretField.ts
-function SecretField(opts) {
-  const descriptionId = `${opts.id}-description`;
-  const statusGetter = opts.status;
-  const statusText = () => {
-    const s = statusGetter();
-    return s.configured ? s.masked ?? "Configured" : opts.description ?? "Not configured";
-  };
-  let clearButton = "";
-  if (opts.onClear !== void 0) {
-    const onClear = opts.onClear;
-    clearButton = html`<button
-			type="button"
-			aria-label="Clear"
-			@click="${() => onClear()}"
-		>
-			Clear
-		</button>`;
-  }
-  return ItemRow({
-    name: html`<label for="${opts.id}">${opts.label}</label>`,
-    description: html`<div id="${descriptionId}">${() => statusText()}</div>`,
-    control: html`<input
-			id="${opts.id}"
-			type="password"
-			.value="${opts.value}"
-			autocomplete="${opts.autocomplete ?? "new-password"}"
-			aria-describedby="${descriptionId}"
-			disabled="${() => opts.disabled?.() ?? false}"
-			@input="${(event) => opts.onInput(event.target.value)}"
-		/>${clearButton}`
-  });
-}
-
-// src/ui/views/ConfigurationSettingsView/categories/ConnectionCategory.ts
-function ConnectionCategory(options) {
-  const { state, save } = options;
-  const draft = () => {
-    void save?.state();
-    return state.categories.connection.draft;
-  };
-  const edit = (patch) => editConfigurationCategory(state, "connection", patch);
-  return html`<div class="oas-settings-connection oas-flex oas-flex-col oas-gap-2">
-		${TextField({
-    id: "oas-connection-host",
-    label: "Host",
-    description: "Host address of the Pi bridge server.",
-    value: () => String(draft().host ?? ""),
-    onInput: (value) => edit({ host: value })
-  })}
-		${TextField({
-    id: "oas-connection-port",
-    label: "Port",
-    description: "Port the Pi bridge server listens on.",
-    value: () => String(draft().port ?? ""),
-    onInput: (value) => edit({ port: value })
-  })}
-		${SecretField({
-    id: "oas-connection-bridge-token",
-    label: "Bridge token",
-    description: "Replace the cached bridge token. Leave blank to keep the existing token.",
-    value: () => String(draft().bridgeToken ?? ""),
-    onInput: (value) => edit({ bridgeToken: value }),
-    status: () => ({
-      kind: "bridgeToken",
-      configured: state.loaded?.connection.bridgeTokenCached ?? false,
-      masked: state.loaded?.connection.bridgeTokenCached ? "\u2022\u2022\u2022\u2022\u2022\u2022" : null,
-      source: state.loaded?.connection.bridgeTokenCached ? "extension-secret-store" : "none"
-    })
-  })}
-		${() => {
-    const error = save?.state().error;
-    return error ? html`<div class="setting-item-description" role="alert">${error}</div>` : "";
-  }}
-		${save ? SectionSaveBar({
-    state: () => save.state(),
-    onSave: () => save.save(),
-    onReset: () => save.reset()
-  }) : ""}
-	</div>`;
-}
-
 // src/ui/components/EmptyState/EmptyState.ts
 function EmptyState(options) {
   return html`
@@ -26942,6 +26755,340 @@ function ModelPicker(options) {
       placeholder: "Search models\u2026"
     }
   });
+}
+
+// src/ui/components/ModelSequenceEditor/ModelSequenceEditor.ts
+var refKey = (ref) => ref ? JSON.stringify([ref.providerId, ref.modelId]) : JSON.stringify(["", ""]);
+var rowKey = (sequence, index2) => {
+  const ref = sequence[index2];
+  let occurrence = 0;
+  for (let i = 0; i < index2; i++) {
+    if (sequence[i].providerId === ref.providerId && sequence[i].modelId === ref.modelId) {
+      occurrence++;
+    }
+  }
+  return JSON.stringify([ref.providerId, ref.modelId, occurrence]);
+};
+var labelFor = (ref, catalog) => {
+  if (!ref) return "Select model\u2026";
+  const found = catalog.find((entry) => refKey(entry.ref) === refKey(ref));
+  return found?.label || ref.modelId || "Select model\u2026";
+};
+function ModelSequenceEditor(options) {
+  const sequence = () => options.sequence() ?? [];
+  const catalog = () => options.models() ?? [];
+  const commit = (next) => {
+    options.onUpdate(next);
+  };
+  const setModel = (index2, ref) => {
+    const next = [...sequence()];
+    next[index2] = ref;
+    commit(next);
+  };
+  const addFallback = () => {
+    commit([...sequence(), { providerId: "", modelId: "" }]);
+  };
+  const removeFallback = (index2) => {
+    if (index2 === 0) return;
+    commit(sequence().filter((_, i) => i !== index2));
+  };
+  const move = (index2, dir) => {
+    if (index2 === 0) return;
+    if (dir === "up" && index2 === 1) return;
+    const current = sequence();
+    if (dir === "down" && index2 === current.length - 1) return;
+    const next = [...current];
+    const [item] = next.splice(index2, 1);
+    next.splice(dir === "up" ? index2 - 1 : index2 + 1, 0, item);
+    commit(next);
+  };
+  const pickerFor = (index2) => ModelPicker({
+    models: catalog,
+    key: (entry) => refKey(entry.ref),
+    itemLabel: (entry) => entry.label,
+    value: () => refKey(sequence()[index2]),
+    selectedLabel: () => labelFor(sequence()[index2], catalog()),
+    onSelect: (entry) => setModel(index2, entry.ref)
+  });
+  return html`<div class="oas-model-sequence-editor oas-flex oas-flex-col oas-gap-4">
+		<div class="sequence-section oas-flex oas-flex-col oas-gap-2">
+			<div class="section-label oas-text-small oas-font-medium oas-opacity-60">Primary Model</div>
+			<div class="section-content">
+				${ItemRow({
+    name: "Primary Model",
+    description: "The first model the agent tries. It cannot be reordered.",
+    control: pickerFor(0)
+  })}
+			</div>
+		</div>
+
+		<div class="sequence-section oas-flex oas-flex-col oas-gap-2">
+			<div class="section-label oas-text-small oas-font-medium oas-opacity-60">Fallback Sequence</div>
+			<div class="section-content oas-flex oas-flex-col oas-gap-2">
+				${() => sequence().slice(1).map((_, i) => {
+    const actualIndex = i + 1;
+    const current = sequence();
+    const key = rowKey(current, actualIndex);
+    const isFirst = actualIndex === 1;
+    const isLast = actualIndex === current.length - 1;
+    return html`<div
+								class="sequence-row-wrapper oas-flex oas-items-center oas-gap-2"
+								.key="${key}"
+							>
+								<div class="row-index oas-text-xs oas-opacity-50 w-4 text-center">${actualIndex}</div>
+								<div class="row-content flex-1">
+									${ItemRow({
+      name: "Fallback Model",
+      control: pickerFor(actualIndex)
+    })}
+								</div>
+								<div class="row-controls oas-flex oas-gap-1">
+									${Button({
+      icon: "chevron-up",
+      ariaLabel: "Move up",
+      variant: "icon",
+      onClick: () => move(actualIndex, "up"),
+      disabled: () => isFirst
+    })}
+									${Button({
+      icon: "chevron-down",
+      ariaLabel: "Move down",
+      variant: "icon",
+      onClick: () => move(actualIndex, "down"),
+      disabled: () => isLast
+    })}
+									${Button({
+      icon: "trash",
+      ariaLabel: "Remove fallback",
+      variant: "icon",
+      onClick: () => removeFallback(actualIndex)
+    })}
+								</div>
+							</div>`;
+  })}
+				${Button({
+    label: "Add Fallback",
+    icon: "plus",
+    variant: "default",
+    onClick: addFallback
+  })}
+			</div>
+		</div
+	</div>`;
+}
+
+// src/ui/views/ConfigurationSettingsView/categories/AgentModelsCategory.ts
+function isModelReference(value) {
+  return typeof value === "object" && value !== null && "providerId" in value && typeof value.providerId === "string" && "modelId" in value && typeof value.modelId === "string";
+}
+function AgentModelsCategory(options) {
+  const { state, save } = options;
+  const draft = () => {
+    void save?.state();
+    return state.categories["agent-models"].draft;
+  };
+  const sequence = () => {
+    const value = draft().sequence;
+    return Array.isArray(value) ? value.filter(isModelReference) : [];
+  };
+  const models = () => (state.loaded?.piModels?.providers ?? []).flatMap((provider) => {
+    const providerId = provider.id ?? provider.name;
+    return provider.models.map((model) => ({
+      id: JSON.stringify([providerId, model.id]),
+      label: `${provider.name} \u2014 ${model.name}`,
+      ref: { providerId, modelId: model.id }
+    }));
+  });
+  if (!state.loaded?.capabilities.configuration.canWriteModelRouter) {
+    return html`<div class="oas-settings-agent-models oas-flex oas-flex-col oas-gap-2">
+			<div class="setting-item">
+				<div class="setting-item-info">
+					<div class="setting-item-name">Agent model sequence</div>
+					<div class="setting-item-description">
+						Model-router editing is unavailable because the connected agent runtime does not
+						support the model-router read/write contract.
+					</div>
+				</div>
+			</div>
+		</div>`;
+  }
+  return html`<div class="oas-settings-agent-models oas-flex oas-flex-col oas-gap-2">
+		<div class="setting-item">
+			<div class="setting-item-info">
+				<div class="setting-item-name">Agent model sequence</div>
+				<div class="setting-item-description">
+					Choose the primary chat model and the ordered fallbacks used when it is unavailable.
+				</div>
+			</div>
+		</div>
+		${ModelSequenceEditor({
+    sequence,
+    models,
+    onUpdate: (updated) => editConfigurationCategory(state, "agent-models", { sequence: updated })
+  })}
+		${save ? SectionSaveBar({
+    state: () => save.state(),
+    onSave: () => save.save(),
+    onReset: () => save.reset()
+  }) : ""}
+	</div>`;
+}
+
+// src/ui/views/ConfigurationSettingsView/categories/AutomationCategory.ts
+function AutomationCategory(options) {
+  const { state, save } = options;
+  const draft = () => {
+    void save?.state();
+    return state.categories.automation.draft;
+  };
+  const edit = (patch) => editConfigurationCategory(state, "automation", patch);
+  const caps = () => state.loaded?.capabilities.actions;
+  const watcherOn = () => state.loaded?.status?.watcher === true;
+  return html`<div class="oas-settings-automation oas-flex oas-flex-col oas-gap-2">
+		${checkboxRow({
+    id: "oas-automation-auto-start",
+    label: "Auto start",
+    description: "Start the bridge automatically when Obsidian loads.",
+    value: () => Boolean(draft().autoStart),
+    onChange: (checked) => edit({ autoStart: checked })
+  })}
+		${checkboxRow({
+    id: "oas-automation-auto-sync",
+    label: "Auto sync",
+    description: "Sync note changes to the index automatically.",
+    value: () => Boolean(draft().autoSync),
+    onChange: (checked) => edit({ autoSync: checked })
+  })}
+		${checkboxRow({
+    id: "oas-automation-auto-sync-tags",
+    label: "Auto sync tags",
+    description: "Sync tag changes alongside note content.",
+    value: () => Boolean(draft().autoSyncTags),
+    onChange: (checked) => edit({ autoSyncTags: checked })
+  })}
+		${TextField({
+    id: "oas-automation-auto-sync-min-length",
+    label: "Auto sync min length",
+    description: "Minimum note length (in characters) before it is eligible for auto-sync.",
+    value: () => String(draft().autoSyncMinLength ?? 0),
+    onInput: (value) => edit({ autoSyncMinLength: Number(value) || 0 })
+  })}
+		${checkboxRow({
+    id: "oas-automation-context",
+    label: "Context automation",
+    description: "Enable the pi-context extension automation.",
+    value: () => Boolean(draft().contextAutomation),
+    onChange: (checked) => edit({ contextAutomation: checked })
+  })}
+		${ItemRow({
+    name: "Watcher",
+    description: () => caps()?.canToggleWatcher ? watcherOn() ? "Watcher is running." : "Watcher is stopped." : "Watcher toggle is not supported.",
+    control: Button({
+      label: () => watcherOn() ? "Stop watching" : "Start watching",
+      disabled: () => !caps()?.canToggleWatcher,
+      onClick: () => {
+        void options.adapter.toggleWatcher();
+      }
+    })
+  })}
+		${save ? SectionSaveBar({
+    state: () => save.state(),
+    onSave: () => save.save(),
+    onReset: () => save.reset()
+  }) : ""}
+	</div>`;
+}
+
+// src/ui/views/ConfigurationSettingsView/categories/CollectionsCategory.ts
+function CollectionsCategory(_options) {
+  return html`<div class="oas-settings-collections oas-flex oas-flex-col oas-gap-2">
+		${ItemRow({
+    name: "Collections",
+    description: "Collection definitions are read-only. Management is not supported until a typed mutation contract ships."
+  })}
+	</div>`;
+}
+
+// src/ui/components/SecretField.ts
+function SecretField(opts) {
+  const descriptionId = `${opts.id}-description`;
+  const statusGetter = opts.status;
+  const statusText = () => {
+    const s = statusGetter();
+    return s.configured ? s.masked ?? "Configured" : opts.description ?? "Not configured";
+  };
+  let clearButton = "";
+  if (opts.onClear !== void 0) {
+    const onClear = opts.onClear;
+    clearButton = html`<button
+			type="button"
+			aria-label="Clear"
+			@click="${() => onClear()}"
+		>
+			Clear
+		</button>`;
+  }
+  return ItemRow({
+    name: html`<label for="${opts.id}">${opts.label}</label>`,
+    description: html`<div id="${descriptionId}">${() => statusText()}</div>`,
+    control: html`<input
+			id="${opts.id}"
+			type="password"
+			.value="${opts.value}"
+			autocomplete="${opts.autocomplete ?? "new-password"}"
+			aria-describedby="${descriptionId}"
+			disabled="${() => opts.disabled?.() ?? false}"
+			@input="${(event) => opts.onInput(event.target.value)}"
+		/>${clearButton}`
+  });
+}
+
+// src/ui/views/ConfigurationSettingsView/categories/ConnectionCategory.ts
+function ConnectionCategory(options) {
+  const { state, save } = options;
+  const draft = () => {
+    void save?.state();
+    return state.categories.connection.draft;
+  };
+  const edit = (patch) => editConfigurationCategory(state, "connection", patch);
+  return html`<div class="oas-settings-connection oas-flex oas-flex-col oas-gap-2">
+		${TextField({
+    id: "oas-connection-host",
+    label: "Host",
+    description: "Host address of the Pi bridge server.",
+    value: () => String(draft().host ?? ""),
+    onInput: (value) => edit({ host: value })
+  })}
+		${TextField({
+    id: "oas-connection-port",
+    label: "Port",
+    description: "Port the Pi bridge server listens on.",
+    value: () => String(draft().port ?? ""),
+    onInput: (value) => edit({ port: value })
+  })}
+		${SecretField({
+    id: "oas-connection-bridge-token",
+    label: "Bridge token",
+    description: "Replace the cached bridge token. Leave blank to keep the existing token.",
+    value: () => String(draft().bridgeToken ?? ""),
+    onInput: (value) => edit({ bridgeToken: value }),
+    status: () => ({
+      kind: "bridgeToken",
+      configured: state.loaded?.connection.bridgeTokenCached ?? false,
+      masked: state.loaded?.connection.bridgeTokenCached ? "\u2022\u2022\u2022\u2022\u2022\u2022" : null,
+      source: state.loaded?.connection.bridgeTokenCached ? "extension-secret-store" : "none"
+    })
+  })}
+		${() => {
+    const error = save?.state().error;
+    return error ? html`<div class="setting-item-description" role="alert">${error}</div>` : "";
+  }}
+		${save ? SectionSaveBar({
+    state: () => save.state(),
+    onSave: () => save.save(),
+    onReset: () => save.reset()
+  }) : ""}
+	</div>`;
 }
 
 // src/ui/components/EmbeddingProviderSection/EmbeddingProviderSection.ts
@@ -27928,6 +28075,24 @@ function validateConnection(draft) {
   }
   return Promise.resolve(null);
 }
+function modelSequenceFromDraft(draft) {
+  if (!Array.isArray(draft.sequence) || draft.sequence.length === 0) return null;
+  const sequence = [];
+  for (const entry of draft.sequence) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return null;
+    const candidate = entry;
+    if (typeof candidate.providerId !== "string" || candidate.providerId.length === 0 || candidate.providerId.trim() !== candidate.providerId || candidate.providerId.includes("/") || typeof candidate.modelId !== "string" || candidate.modelId.length === 0 || candidate.modelId.trim() !== candidate.modelId) {
+      return null;
+    }
+    sequence.push({ providerId: candidate.providerId, modelId: candidate.modelId });
+  }
+  return sequence;
+}
+function validateModelSequence(draft) {
+  return Promise.resolve(
+    modelSequenceFromDraft(draft) ? null : "Choose a primary model and complete or remove every fallback row."
+  );
+}
 async function persistConnection(adapter, draft) {
   const host = String(draft.host ?? "");
   const port = Number(draft.port);
@@ -27952,6 +28117,24 @@ async function persistConnection(adapter, draft) {
   };
 }
 async function persistConfig(adapter, category, draft) {
+  if (category === "agent-models") {
+    const sequence = modelSequenceFromDraft(draft);
+    if (!sequence) throw new Error("Invalid model-router sequence.");
+    await adapter.putModelRouter({ sequence });
+    return {
+      ok: true,
+      section: category,
+      config: null,
+      secretStatus: null,
+      savedAt: null,
+      effects: {
+        config: "applied",
+        secrets: "not-requested",
+        pluginPreferences: "not-requested"
+      },
+      error: null
+    };
+  }
   if (category === "advanced") {
     const {
       piBinaryPath,
@@ -27982,7 +28165,7 @@ function createCategoryController(state, adapter, category) {
   return createSectionSaveController({
     settings: state,
     category,
-    validate: (draft) => category === "connection" ? validateConnection(draft) : Promise.resolve(null),
+    validate: (draft) => category === "connection" ? validateConnection(draft) : category === "agent-models" ? validateModelSequence(draft) : Promise.resolve(null),
     persist: (draft) => category === "connection" ? persistConnection(adapter, draft) : persistConfig(adapter, category, draft),
     reload: () => reloadCategory(state, adapter, category),
     now: () => state.loaded?.loadedAt ?? ""
@@ -28164,7 +28347,7 @@ var RestConfigurationAdapter = class {
         canManageCollections: false,
         canManageInjectors: false,
         canManageIdentities: false,
-        canWriteModelRouter: false
+        canWriteModelRouter: methods.has("getModelRouter") && methods.has("putModelRouter")
       },
       actions: {
         canToggleWatcher: methods.has("toggleWatcher"),
@@ -28175,18 +28358,23 @@ var RestConfigurationAdapter = class {
   }
   async loadConfiguration() {
     const client = await this.createClient();
-    const [status, config, models] = await Promise.all([
+    const modelRouterRequest = typeof client.getModelRouter === "function" ? client.getModelRouter().catch(() => null) : Promise.resolve(null);
+    const [status, config, models, modelRouter] = await Promise.all([
       client.status(),
       client.getConfig(),
-      client.getModels()
+      client.getModels(),
+      modelRouterRequest
     ]);
+    const capabilities = await this.getCapabilities();
+    if (modelRouter === null) capabilities.configuration.canWriteModelRouter = false;
     const settings = this.options.getPluginSettings();
     const sanitizedConfig = this.sanitizeConfig(config);
     return {
-      capabilities: await this.getCapabilities(),
+      capabilities,
       status,
       config: sanitizedConfig,
       piModels: models,
+      modelRouter,
       embeddingSecrets: config.embeddingSecrets,
       connection: {
         host: settings.host,
@@ -28803,6 +28991,14 @@ var RestConfigurationAdapter = class {
   async getPiModels() {
     const client = await this.createClient();
     return client.getModels();
+  }
+  async getModelRouter() {
+    const client = await this.createClient();
+    return client.getModelRouter();
+  }
+  async putModelRouter(config) {
+    const client = await this.createClient();
+    return client.putModelRouter(config);
   }
   async toggleWatcher() {
     const client = await this.createClient();
@@ -30256,6 +30452,31 @@ function SetupWizard(options) {
 // src/ui/integrations/VaultMindView/VaultMindPanel.ts
 var import_obsidian5 = require("obsidian");
 
+// src/model-utils.ts
+var KNOWN_EMBEDDING_MODELS = [
+  "embeddinggemma",
+  "nomic-embed-text",
+  "mxbai-embed-large",
+  "all-minilm",
+  "paraphrase-multilingual"
+];
+function getModelCapabilities(model) {
+  const explicitChat = model.capabilities?.chat;
+  const explicitEmbedding = model.capabilities?.embedding;
+  if (typeof explicitChat === "boolean" || typeof explicitEmbedding === "boolean") {
+    const embedding2 = typeof explicitEmbedding === "boolean" ? explicitEmbedding : false;
+    return {
+      chat: typeof explicitChat === "boolean" ? explicitChat : !embedding2,
+      embedding: embedding2
+    };
+  }
+  const id = model.id.toLowerCase();
+  const knownModel = KNOWN_EMBEDDING_MODELS.some((name) => id.includes(name));
+  const embeddingFamily = /(^|[/_:.-])(?:bge-|embed(?:ding)?(?:$|[/_:.-]))/.test(id);
+  const embedding = knownModel || embeddingFamily;
+  return { chat: !embedding, embedding };
+}
+
 // src/ui/components/Suggest/Suggest.ts
 function Suggest(o) {
   return Popover({
@@ -30524,21 +30745,22 @@ function OptionsMenu(o) {
 // src/ui/components/QueueList/QueueList.ts
 function QueueList({ items, onRemove, onSend }) {
   const s = reactive({ collapsed: false });
-  return html`${() => items().length > 0 ? html`<div class="${() => s.collapsed ? "oas-queue is-collapsed" : "oas-queue"}">
-					<button
-						class="oas-queue-header"
-						@click="${() => {
+  return html`<div class="${() => `oas-queue${items().length === 0 ? " is-hidden" : ""}${s.collapsed ? " is-collapsed" : ""}`}"
+	>
+		<button
+			class="oas-queue-header"
+			@click="${() => {
     s.collapsed = !s.collapsed;
   }}"
-					>
-						<span class="oas-queue-chevron">${() => icon("chevron-right")}</span>
-						<span class="oas-queue-label">Queued (${() => items().length}) — sent after this turn</span>
-					</button>
-					${() => s.collapsed ? "" : html`<div class="oas-queue-body">
-									${() => items().map(
+		>
+			<span class="oas-queue-chevron">${() => icon("chevron-right")}</span>
+			<span class="oas-queue-label">Queued (${() => items().length}) — sent after this turn</span>
+		</button>
+		${() => s.collapsed ? "" : html`<div class="oas-queue-body">
+						${() => items().map(
     (m, i) => html`<div class="oas-queue-item">
-												<span class="oas-queue-text">${m}</span>
-												${onSend ? Button({
+									<span class="oas-queue-text">${m}</span>
+									${onSend ? Button({
       variant: "icon",
       icon: "send",
       ariaLabel: "Send now",
@@ -30549,15 +30771,17 @@ function QueueList({ items, onRemove, onSend }) {
       ariaLabel: "Remove from queue",
       onClick: () => onRemove(i)
     })}
-											</div>`.key(`${m}-${i}`)
+								</div>`.key(`${m}-${i}`)
   )}
-								</div>`}
-				</div>` : ""}`;
+					</div>`}
+	</div>`;
 }
 
 // src/ui/components/RunControls/RunControls.ts
 function RunControls(o) {
   const active = () => o.state() !== "idle";
+  const pause = o.onPause;
+  const resume = o.onResume;
   return html`<div class="run-controls">
 		${() => active() && o.hasText() ? html`${Button({ label: "Steer", ariaLabel: "Steer", icon: "arrow-right", variant: "cta", onClick: o.onSteer })}${Button(
     {
@@ -30576,17 +30800,29 @@ function RunControls(o) {
     disabled: () => !o.hasText(),
     onClick: o.onSend
   }) : ""}
-		${() => o.state() === "running" ? html`${Button({ variant: "icon", icon: "square-pause", ariaLabel: "Pause", onClick: o.onPause })}${Button(
-    { variant: "icon", icon: "square-stop", ariaLabel: "Stop", onClick: o.onStop }
-  )}` : ""}
-		${() => o.state() === "paused" ? html`${Button({ label: "Resume", ariaLabel: "Resume", icon: "play", variant: "cta", onClick: o.onResume })}${Button(
-    {
-      variant: "icon",
-      icon: "square-stop",
-      ariaLabel: "Stop",
-      onClick: o.onStop
-    }
-  )}` : ""}
+		${() => o.state() === "running" ? html`${pause && resume ? Button({
+    variant: "icon",
+    icon: "square-pause",
+    ariaLabel: "Pause",
+    onClick: pause
+  }) : ""}${Button({
+    variant: "icon",
+    icon: "square-stop",
+    ariaLabel: "Stop",
+    onClick: o.onStop
+  })}` : ""}
+		${() => o.state() === "paused" ? html`${pause && resume ? Button({
+    label: "Resume",
+    ariaLabel: "Resume",
+    icon: "play",
+    variant: "cta",
+    onClick: resume
+  }) : ""}${Button({
+    variant: "icon",
+    icon: "square-stop",
+    ariaLabel: "Stop",
+    onClick: o.onStop
+  })}` : ""}
 	</div>`;
 }
 
@@ -30694,6 +30930,19 @@ function Composer(opts = {}, data = DEFAULT_DATA) {
     thinkingLevel: "Standard",
     tools: []
   });
+  const runState = opts.runState ?? (() => s.runState);
+  const setFallbackRunState = (next) => {
+    if (!opts.runState) s.runState = next;
+  };
+  const supportsPause = !opts.runState || Boolean(opts.onPause && opts.onResume);
+  const pause = supportsPause ? () => {
+    setFallbackRunState("paused");
+    opts.onPause?.();
+  } : void 0;
+  const resume = supportsPause ? () => {
+    setFallbackRunState("running");
+    opts.onResume?.();
+  } : void 0;
   const fallbackModelItems = (data.models ?? []).map((model) => ({
     key: model,
     label: model,
@@ -30739,7 +30988,7 @@ function Composer(opts = {}, data = DEFAULT_DATA) {
   const send = () => {
     if (!hasText()) return;
     const text = s.text.trim();
-    s.runState = "running";
+    setFallbackRunState("running");
     clearText();
     opts.onSend?.(text);
   };
@@ -30757,8 +31006,9 @@ function Composer(opts = {}, data = DEFAULT_DATA) {
     opts.onQueue?.(text);
   };
   const submit = () => {
-    if (s.runState === "idle") send();
-    else steer();
+    const state = runState();
+    if (state === "idle") send();
+    else if (state === "running") steer();
   };
   const queueItems = () => opts.queue ? opts.queue() : s.queue;
   const removeQueued = (i) => {
@@ -30787,7 +31037,7 @@ function Composer(opts = {}, data = DEFAULT_DATA) {
     s.text = `/${name} `;
   };
   const cmdRenderItem = (name) => html`<span class="oas-suggest-cmd"><span class="oas-suggest-cmd-name">/${name}</span><span class="oas-suggest-cmd-desc">${commandDesc[name] ?? ""}</span></span>`;
-  const placeholder = () => s.runState === "idle" ? "Ask anything \u2014 @ for context, / for commands" : "Steer or queue a message\u2026";
+  const placeholder = () => runState() === "idle" ? "Ask anything \u2014 @ for context, / for commands" : "Steer or queue a message\u2026";
   const chips = html`${() => s.contextFiles.map(
     (f, i) => Chip({
       label: basename(f),
@@ -30840,20 +31090,17 @@ function Composer(opts = {}, data = DEFAULT_DATA) {
     onToolToggle: toggleTool
   })}
 		</div>${RunControls({
-    state: () => s.runState,
-    hasText,
+    state: runState,
+    hasText: () => runState() !== "paused" && hasText(),
     onSend: send,
     onSteer: steer,
     onQueue: enqueue,
-    onPause: () => {
-      s.runState = "paused";
-    },
-    onResume: () => {
-      s.runState = "running";
-    },
+    onPause: pause,
+    onResume: resume,
     onStop: () => {
-      s.runState = "idle";
-      opts.onAbort?.();
+      setFallbackRunState("idle");
+      if (opts.onStop) opts.onStop();
+      else opts.onAbort?.();
     }
   })}`;
   const above = html`<div class="${() => queueShown() ? "oas-queue-slot" : "oas-queue-slot is-hidden"}">
@@ -30933,50 +31180,65 @@ function DiffViewer({ original, modified }) {
 
 // src/ui/components/DiffCard/DiffCard.ts
 var ICON = {
-  "": "git-branch",
-  accepted: "check-circle",
-  rejected: "x-circle"
+  pending: "git-branch",
+  applying: "git-branch",
+  rejecting: "git-branch",
+  applied: "check-circle",
+  rejected: "x-circle",
+  error: "x-circle"
 };
 var TONE = {
-  "": "pending",
-  accepted: "done",
-  rejected: "error"
+  pending: "pending",
+  applying: "pending",
+  rejecting: "pending",
+  applied: "done",
+  rejected: "error",
+  error: "error"
 };
 var META = {
-  "": "Proposed edit",
-  accepted: "Accepted",
-  rejected: "Rejected"
+  pending: "Proposed edit",
+  applying: "Applying...",
+  rejecting: "Rejecting...",
+  applied: "Accepted",
+  rejected: "Rejected",
+  error: "Error"
 };
 function DiffCard({
   path: path8,
   oldContent,
   newContent,
+  status,
+  error,
   onAccept,
-  onReject
+  onReject,
+  onRetry
 }) {
-  const s = reactive({ decision: "" });
-  const accept = () => {
-    s.decision = "accepted";
-    onAccept?.();
-  };
-  const reject = () => {
-    s.decision = "rejected";
-    onReject?.();
-  };
   return Card({
-    tone: () => TONE[s.decision],
-    icon: () => ICON[s.decision],
+    tone: () => TONE[status()],
+    icon: () => ICON[status()],
     title: path8,
-    meta: () => META[s.decision],
+    meta: () => {
+      const s = status();
+      return s === "error" ? error() ?? META.error : META[s];
+    },
     body: html`<div class="oas-diff-card-viewer">
 			${DiffViewer({ original: oldContent, modified: newContent })}
 		</div>`,
     footer: html`<div class="oas-diff-card-actions">
-			${() => s.decision === "" ? html`${Button({ label: "Accept", icon: "check", variant: "cta", onClick: accept })} ${Button({ label: "Reject", icon: "x", variant: "ghost", onClick: reject })}` : ""}
+			${() => {
+      const s = status();
+      if (s === "pending") {
+        return html`${Button({ label: "Accept", icon: "check", variant: "cta", onClick: () => onAccept?.() })} ${Button({ label: "Reject", icon: "x", variant: "ghost", onClick: () => onReject?.() })}`;
+      }
+      if (s === "error") {
+        return html`${Button({ label: "Retry", icon: "refresh", variant: "cta", onClick: () => onRetry() })}`;
+      }
+      return "";
+    }}
 		</div>`,
     collapsible: true,
     defaultExpanded: true,
-    isExpanded: () => s.decision === ""
+    isExpanded: () => status() !== "applied" && status() !== "rejected"
   });
 }
 
@@ -31304,7 +31566,7 @@ function ToolCard({ toolName, status, args, result }) {
 }
 
 // src/ui/components/MessageFeed/MessageFeed.ts
-function renderMessage(m, showRole, feedId, renderMarkdown) {
+function renderMessage(m, showRole, feedId, getDiffMessage, renderMarkdown) {
   switch (m.kind) {
     case "user":
       return MessageBubble({
@@ -31342,14 +31604,29 @@ function renderMessage(m, showRole, feedId, renderMarkdown) {
         onApprove: m.onApprove,
         onDeny: m.onDeny
       });
-    case "diff":
+    case "diff": {
+      const { id, path: path8, oldContent, newContent, onAccept, onReject, onRetry } = m;
+      let lastStatus = m.status;
+      let lastError = m.error;
       return DiffCard({
-        path: m.path,
-        oldContent: m.oldContent,
-        newContent: m.newContent,
-        onAccept: m.onAccept,
-        onReject: m.onReject
+        path: path8,
+        oldContent,
+        newContent,
+        status: () => {
+          const current = getDiffMessage(id);
+          if (current) lastStatus = current.status;
+          return lastStatus;
+        },
+        error: () => {
+          const current = getDiffMessage(id);
+          if (current) lastError = current.error;
+          return lastError;
+        },
+        onAccept,
+        onReject,
+        onRetry
       });
+    }
     case "search":
       return SearchResult({ query: m.query, mode: m.mode, results: m.results });
     case "system":
@@ -31376,16 +31653,19 @@ function MessageFeed({
 }) {
   const feedId = `feed-${(feedSeq++).toString(36)}`;
   const cardCache = /* @__PURE__ */ new Map();
+  const getDiffMessage = (id) => messages().find(
+    (message) => message.kind === "diff" && message.id === id
+  );
   const getRendered = (m, showRole) => {
     if (m.kind === "permission" || m.kind === "diff") {
       let tpl = cardCache.get(m.id);
       if (!tpl) {
-        tpl = renderMessage(m, showRole, feedId, renderMarkdown);
+        tpl = renderMessage(m, showRole, feedId, getDiffMessage, renderMarkdown);
         cardCache.set(m.id, tpl);
       }
       return tpl;
     }
-    return renderMessage(m, showRole, feedId, renderMarkdown);
+    return renderMessage(m, showRole, feedId, getDiffMessage, renderMarkdown);
   };
   const awaitingReply = () => {
     const msgs = messages();
@@ -32138,6 +32418,7 @@ ${opts.onboardingError}` : ""}`,
       onClick: opts.onPersonalize,
       disabled: () => opts.isPersonalizing
     })}
+						${() => opts.isPersonalizing ? Button({ label: "Cancel", onClick: opts.onCancelPersonalization }) : null}
 					</div>
 				`
   })}`;
@@ -32506,8 +32787,15 @@ function VaultMindView(opts) {
     demo.setTab("timeline");
   };
   const panelClass = (tab) => s.activeTab === tab ? "oas-tab-panel" : "oas-tab-panel is-hidden";
-  const modelItems = () => demo.models.map((model) => toComposerModelItem(model, demo.models));
-  const currentModelItem = () => demo.currentModel ? toComposerModelItem(demo.currentModel, demo.models) : null;
+  const modelItems = () => {
+    const catalog = demo.models.filter((model) => getModelCapabilities(model).chat);
+    return catalog.map((model) => toComposerModelItem(model, catalog));
+  };
+  const currentModelItem = () => {
+    if (!demo.currentModel) return null;
+    const currentKey = modelKey(demo.currentModel);
+    return modelItems().find((model) => model.key === currentKey) ?? null;
+  };
   const onModelSelect = (model) => {
     void demo.setModel(model.provider, model.modelId);
   };
@@ -32520,6 +32808,7 @@ function VaultMindView(opts) {
         onStartSetup: opts.onStartSetup,
         onPersonalize: () => {
         },
+        onCancelPersonalization: demo.cancelPersonalization,
         models: modelItems,
         currentModel: currentModelItem,
         onModelSelect,
@@ -32551,6 +32840,7 @@ function VaultMindView(opts) {
 					${FirstRunCard({
         onStartSetup: opts.onStartSetup,
         onPersonalize,
+        onCancelPersonalization: demo.cancelPersonalization,
         models: modelItems,
         currentModel: currentModelItem,
         onModelSelect,
@@ -32564,6 +32854,7 @@ function VaultMindView(opts) {
     return FirstRunCard({
       onStartSetup: opts.onStartSetup,
       onPersonalize,
+      onCancelPersonalization: demo.cancelPersonalization,
       models: modelItems,
       currentModel: currentModelItem,
       onModelSelect,
@@ -32634,9 +32925,13 @@ function VaultMindView(opts) {
 			</div>
 
 			<div class="${() => `oas-shell-view-footer${s.activeTab === "chat" ? "" : " is-hidden"}`}">
-				${() => s.isConfigured && s.isPersonalized ? Composer(
+				<div
+					class="${() => s.isConfigured && s.isPersonalized ? "oas-composer-surface" : "oas-composer-surface is-hidden"}"
+				>
+					${() => s.isConfigured && s.isPersonalized ? Composer(
     {
       initialContext: opts.initialContext,
+      runState: () => demo.chat.streaming ? "running" : "idle",
       onSend: demo.chat.send,
       onSteer: demo.chat.steer,
       onAbort: demo.chat.abort,
@@ -32652,8 +32947,7 @@ function VaultMindView(opts) {
     },
     opts.composerData
   ) : null}
-
-
+				</div>
 			</div>
 
 			${StatusBar({
@@ -33264,6 +33558,7 @@ var DIALOG_METHODS = {
   input: true,
   editor: true
 };
+var PERSONALIZATION_FAILURE_PREFIX = "Personalization failed:";
 function mapPermissionMethod(method) {
   if (method === "select" || method === "input" || method === "editor") return method;
   return "confirm";
@@ -33302,7 +33597,7 @@ function toolFeed(msg) {
     result: msg.content
   };
 }
-function permissionFeed(msg, sendRaw) {
+function permissionFeed(msg, sendRaw, onResponse) {
   const req = msg.permissionRequest;
   if (!req) return null;
   return {
@@ -33315,13 +33610,14 @@ function permissionFeed(msg, sendRaw) {
     placeholder: req.placeholder,
     initialValue: req.initialValue,
     onResponse: (response) => {
+      onResponse?.(req.id);
       sendRaw({ type: "extension_ui_response", id: req.id, ...response });
     }
   };
 }
-function mapBridgeToFeed(msg, sendRaw) {
+function mapBridgeToFeed(msg, sendRaw, onPermissionResponse) {
   if (msg.permissionRequest) {
-    const mapped = permissionFeed(msg, sendRaw);
+    const mapped = permissionFeed(msg, sendRaw, onPermissionResponse);
     return mapped ? [mapped] : [];
   }
   if (msg.isError || msg.error) {
@@ -33485,14 +33781,13 @@ function createVaultMindController(opts) {
       console.error("[VaultMindController] Failed to load models:", err);
     }
   }
-  async function loadStatus() {
-    const status = await client.status();
+  function applyStatus(status) {
     state.isConfigured = status.configured;
     state.isPersonalized = status.personalized;
   }
   async function refreshStatus() {
     const statusAndModels = (async () => {
-      await loadStatus();
+      applyStatus(await client.status());
       if (state.isConfigured) await loadModels();
     })();
     const tools = refreshTools().catch((err) => {
@@ -33500,13 +33795,25 @@ function createVaultMindController(opts) {
     });
     await Promise.all([statusAndModels, tools]);
   }
+  let personalizationAttempt = 0;
   async function personalize() {
     if (state.isPersonalizing) return { completed: false };
+    const attempt = ++personalizationAttempt;
     state.isPersonalizing = true;
     state.onboardingError = null;
+    const cancellationBarrier = personalizationCancellationBarrier;
+    if (cancellationBarrier) {
+      await cancellationBarrier;
+      if (!state.isPersonalizing || attempt !== personalizationAttempt) {
+        return { completed: false };
+      }
+    }
     try {
       if (!connection.isConnected()) {
-        await connection.connect();
+        await Promise.resolve(connection.connect());
+      }
+      if (!state.isPersonalizing || attempt !== personalizationAttempt) {
+        return { completed: false };
       }
       connection.send({ type: "prompt", message: "/vm personalize" }).catch((err) => {
         console.warn(
@@ -33515,6 +33822,7 @@ function createVaultMindController(opts) {
         );
       });
     } catch (err) {
+      if (attempt !== personalizationAttempt) return { completed: false };
       console.error("[VaultMindController] personalize dispatch throw:", err);
       state.onboardingError = err instanceof Error ? err.message : String(err);
       state.isPersonalizing = false;
@@ -33522,11 +33830,20 @@ function createVaultMindController(opts) {
     }
     try {
       while (true) {
-        if (!state.isPersonalizing) return { completed: false };
+        if (!state.isPersonalizing || attempt !== personalizationAttempt) {
+          return { completed: false };
+        }
         try {
-          await loadStatus();
+          const status = await client.status();
+          if (!state.isPersonalizing || attempt !== personalizationAttempt) {
+            return { completed: false };
+          }
+          applyStatus(status);
         } catch (err) {
           console.warn("[VaultMindController] transient status error during personalization:", err);
+        }
+        if (!state.isPersonalizing || attempt !== personalizationAttempt) {
+          return { completed: false };
         }
         if (state.isPersonalized) {
           state.isPersonalizing = false;
@@ -33535,6 +33852,7 @@ function createVaultMindController(opts) {
         await new Promise((resolve2) => globalThis.setTimeout(resolve2, 500));
       }
     } catch (err) {
+      if (attempt !== personalizationAttempt) return { completed: false };
       console.error("[VaultMindController] personalize polling failure:", err);
       state.onboardingError = err instanceof Error ? err.message : String(err);
       state.isPersonalizing = false;
@@ -33582,6 +33900,9 @@ function createVaultMindController(opts) {
     }
   });
   const suppressedPersonalizationAssistantIds = /* @__PURE__ */ new Set();
+  const suppressedPersonalizationToolCallIds = /* @__PURE__ */ new Set();
+  const personalizationPermissionCardIds = /* @__PURE__ */ new Set();
+  let personalizationCancellationBarrier = null;
   let backendSearchResults = [];
   let searchRequestToken = 0;
   function appendFeedMessages(next) {
@@ -33632,12 +33953,45 @@ function createVaultMindController(opts) {
       chat.streaming = false;
     });
   }
-  function abortRun() {
-    if (!connection.isConnected()) return;
-    connection.send({ type: "abort" }).catch((err) => console.error("[VaultMindController] Abort failed:", err));
+  function removePersonalizationPermissionCards() {
+    if (personalizationPermissionCardIds.size === 0) return;
+    chat.messages = chat.messages.filter(
+      (message) => message.kind !== "permission" || !personalizationPermissionCardIds.has(message.id)
+    );
+    personalizationPermissionCardIds.clear();
+    refreshCurrentSessionSearchResults();
+  }
+  async function abortRun(preservePersonalizationSuppression = false) {
     chat.streaming = false;
     streamHandler.reset();
-    suppressedPersonalizationAssistantIds.clear();
+    if (!preservePersonalizationSuppression) {
+      suppressedPersonalizationAssistantIds.clear();
+      suppressedPersonalizationToolCallIds.clear();
+    }
+    if (!connection.isConnected()) return;
+    try {
+      await connection.send({ type: "abort" });
+    } catch (err) {
+      console.error("[VaultMindController] Abort failed:", err);
+    }
+  }
+  function cancelPersonalization() {
+    state.isPersonalizing = false;
+    personalizationAttempt += 1;
+    removePersonalizationPermissionCards();
+    const serverCancellation = client.cancelPersonalization().then(() => void 0).catch(
+      (err) => console.error("[VaultMindController] Server personalization cancel failed:", err)
+    );
+    const piCancellation = abortRun(true);
+    const cancellationBarrier = Promise.all([serverCancellation, piCancellation]).then(
+      () => void 0
+    );
+    personalizationCancellationBarrier = cancellationBarrier;
+    void cancellationBarrier.then(() => {
+      if (personalizationCancellationBarrier === cancellationBarrier) {
+        personalizationCancellationBarrier = null;
+      }
+    });
   }
   function reconcileAssistantMessages(msg) {
     const without = chat.messages.filter(
@@ -33661,10 +34015,23 @@ function createVaultMindController(opts) {
     }
     appendFeedMessages([feed]);
   }
+  function shouldSuppressPersonalizationOutput() {
+    return !state.isPersonalized || personalizationCancellationBarrier !== null;
+  }
+  function handlePersonalizationFailureNotice(message, notifyType) {
+    if (!state.isPersonalizing || notifyType !== "error" || !message.startsWith(PERSONALIZATION_FAILURE_PREFIX))
+      return;
+    state.isPersonalizing = false;
+    personalizationAttempt += 1;
+    state.onboardingError = message.slice(PERSONALIZATION_FAILURE_PREFIX.length).trim() || "Personalization could not be completed.";
+    chat.streaming = false;
+    streamHandler.reset();
+    removePersonalizationPermissionCards();
+  }
   const streamHandler = new StreamHandler({
     onMessageUpdate: (msg) => {
       if (msg.role !== "assistant") return;
-      if (state.isPersonalizing || suppressedPersonalizationAssistantIds.has(msg.id)) {
+      if (shouldSuppressPersonalizationOutput() || suppressedPersonalizationAssistantIds.has(msg.id)) {
         suppressedPersonalizationAssistantIds.add(msg.id);
         return;
       }
@@ -33674,17 +34041,24 @@ function createVaultMindController(opts) {
       chat.streaming = false;
       if (msg.role === "assistant") {
         const wasSuppressed = suppressedPersonalizationAssistantIds.delete(msg.id);
-        if (state.isPersonalizing || wasSuppressed) return;
+        if (shouldSuppressPersonalizationOutput() || wasSuppressed) return;
         reconcileAssistantMessages(msg);
       }
       persist(msg);
     },
     onToolResult: (msg) => {
       chat.streaming = false;
+      const toolCallId = msg.toolCallId;
+      const wasSuppressed = toolCallId ? suppressedPersonalizationToolCallIds.delete(toolCallId) : false;
+      if (shouldSuppressPersonalizationOutput() || wasSuppressed) return;
       upsertToolMessage(msg);
       persist(msg);
     },
     onToolExecutionStart: (toolCallId, toolName, args) => {
+      if (shouldSuppressPersonalizationOutput()) {
+        suppressedPersonalizationToolCallIds.add(toolCallId);
+        return;
+      }
       const running = {
         id: `tool-${toolCallId}`,
         role: "tool",
@@ -33699,6 +34073,12 @@ function createVaultMindController(opts) {
       persist(running);
     },
     onToolExecutionUpdate: (toolCallId, _toolName, partialResult) => {
+      if (shouldSuppressPersonalizationOutput() || suppressedPersonalizationToolCallIds.has(toolCallId)) {
+        if (shouldSuppressPersonalizationOutput()) {
+          suppressedPersonalizationToolCallIds.add(toolCallId);
+        }
+        return;
+      }
       const idx = chat.messages.findIndex(
         (m) => m.kind === "tool" && m.id === `tool-${toolCallId}`
       );
@@ -33712,6 +34092,7 @@ function createVaultMindController(opts) {
       modelState.current = modelState.models.find((model) => model.provider === provider && model.id === modelId) ?? null;
     },
     onNotice: ({ message, notifyType }) => {
+      handlePersonalizationFailureNotice(message, notifyType);
       appendFeedMessages([
         {
           kind: "system",
@@ -33737,6 +34118,14 @@ function createVaultMindController(opts) {
     if (event.type === "extension_ui_request") {
       const req = event;
       if (DIALOG_METHODS[req.method]) {
+        if (personalizationCancellationBarrier) {
+          sendRaw({
+            type: "extension_ui_response",
+            id: req.id,
+            cancelled: true
+          });
+          return;
+        }
         const bridge = {
           id: `perm-${req.id}`,
           role: "assistant",
@@ -33744,7 +34133,10 @@ function createVaultMindController(opts) {
           timestamp: Date.now(),
           permissionRequest: req
         };
-        const next = mapBridgeToFeed(bridge, sendRaw);
+        if (state.isPersonalizing) personalizationPermissionCardIds.add(bridge.id);
+        const next = mapBridgeToFeed(bridge, sendRaw, (requestId) => {
+          personalizationPermissionCardIds.delete(`perm-${requestId}`);
+        });
         for (const m of next) {
           if (m.kind === "permission") m.autoFocus = true;
         }
@@ -33923,7 +34315,79 @@ ${text}`.toLowerCase();
   function injectActivity(ev) {
     state.activity = [...state.activity, ev];
   }
-  client.connect();
+  function appendProposedEdit(event) {
+    const editId = event.editId;
+    if (chat.messages.some((message) => message.kind === "diff" && message.editId === editId)) {
+      return;
+    }
+    const diff = reactive({
+      kind: "diff",
+      id: `diff-${editId}`,
+      editId,
+      path: event.path,
+      oldContent: event.oldContent,
+      newContent: event.newContent,
+      status: "pending",
+      error: void 0
+    });
+    let lastAttemptedAction;
+    diff.onAccept = async () => {
+      if (diff.status !== "pending" && diff.status !== "error") return;
+      lastAttemptedAction = "apply";
+      diff.status = "applying";
+      diff.error = void 0;
+      try {
+        await client.applyEdit(editId);
+        diff.status = "applied";
+      } catch (err) {
+        diff.error = err instanceof Error ? err.message : String(err);
+        diff.status = "error";
+        throw err;
+      }
+    };
+    diff.onReject = async () => {
+      if (diff.status !== "pending" && diff.status !== "error") return;
+      lastAttemptedAction = "reject";
+      diff.status = "rejecting";
+      diff.error = void 0;
+      try {
+        await client.rejectEdit(editId);
+        diff.status = "rejected";
+      } catch (err) {
+        diff.error = err instanceof Error ? err.message : String(err);
+        diff.status = "error";
+        throw err;
+      }
+    };
+    diff.onRetry = () => {
+      if (lastAttemptedAction === "reject") return diff.onReject?.();
+      if (lastAttemptedAction === "apply") return diff.onAccept?.();
+    };
+    appendFeedMessages([diff]);
+  }
+  async function loadProposedEdits() {
+    try {
+      const edits = await client.listEdits();
+      for (const edit of edits) {
+        if (edit.status !== "pending") continue;
+        appendProposedEdit({
+          type: "vault-edit-proposed",
+          editId: edit.id,
+          path: edit.path,
+          oldContent: edit.oldText,
+          newContent: edit.newText
+        });
+      }
+    } catch {
+      console.error("[VaultMindController] Failed to hydrate pending edits.");
+    }
+  }
+  try {
+    const stored = messageStore.getMessages(currentSessionPath);
+    chat.messages = stored.flatMap((message) => mapBridgeToFeed(message, sendRaw));
+  } catch (err) {
+    console.error("[VaultMindController] Failed to load stored messages:", err);
+  }
   const unsubscribeEvents = client.subscribeEvents((event) => {
     if (event.type === "queue/snapshot") {
       state.jobs = event.jobs ?? [];
@@ -33931,8 +34395,11 @@ ${text}`.toLowerCase();
       upsertJob(event.job);
     } else if (event.type === "activity-event") {
       injectActivity(event.event);
+    } else if (event.type === "vault-edit-proposed") {
+      appendProposedEdit(event);
     }
   });
+  client.connect();
   void (async () => {
     await Promise.all([
       refreshStatus().catch(
@@ -33943,15 +34410,10 @@ ${text}`.toLowerCase();
       loadSessions(),
       loadJobs(),
       loadPending(),
-      loadActivity()
+      loadActivity(),
+      loadProposedEdits()
     ]);
     state.isInitialized = true;
-    try {
-      const stored = messageStore.getMessages(currentSessionPath);
-      chat.messages = stored.flatMap((m) => mapBridgeToFeed(m, sendRaw));
-    } catch (err) {
-      console.error("[VaultMindController] Failed to load stored messages:", err);
-    }
   })();
   const controller = {
     chat,
@@ -34051,6 +34513,7 @@ ${text}`.toLowerCase();
       }).catch((err) => console.error("[VaultMind laExportSession failed:", err));
     },
     personalize,
+    cancelPersonalization,
     setModel,
     refreshStatus,
     refreshTools
