@@ -22397,7 +22397,7 @@ var init_bootstrap = __esm({
     init_config();
     init_extension_packages();
     init_pi_detect();
-    BUNDLED_PROJECT_VERSION = true ? "0.16.6" : projectPackage.version;
+    BUNDLED_PROJECT_VERSION = true ? "0.16.7" : projectPackage.version;
     VaultBootstrap = class {
       vaultPath;
       piBinaryPath;
@@ -26924,19 +26924,21 @@ function Picker(o) {
 }
 
 // src/ui/components/ModelPicker.ts
-function ModelPicker({ models, value, onSelect }) {
+function ModelPicker(options) {
+  const key = options.key ?? ((model) => String(model));
+  const itemLabel = options.itemLabel ?? ((model) => String(model));
   return Picker({
-    label: () => value(),
+    label: () => options.selectedLabel?.() || options.value() || "Model",
     header: "Model",
     width: "240px",
     variant: {
       kind: "filterable",
-      items: models,
-      key: (item) => item,
-      label: (item) => item,
+      items: options.models,
+      key,
+      label: itemLabel,
       select: "single",
-      selected: (item) => item === value(),
-      onSelect,
+      selected: (item) => key(item) === options.value(),
+      onSelect: options.onSelect,
       placeholder: "Search models\u2026"
     }
   });
@@ -30431,6 +30433,10 @@ var DEFAULT_LEVELS = ["Standard", "Advanced"];
 function OptionsMenu(o) {
   const levels = o.thinkingLevels ?? DEFAULT_LEVELS;
   const s = reactive({ sub: "root" });
+  const models = () => typeof o.models === "function" ? o.models() : o.models;
+  const tools = () => typeof o.tools === "function" ? o.tools() : o.tools;
+  const modelKey2 = o.modelKey ?? ((model) => String(model));
+  const modelItemLabel = o.modelItemLabel ?? ((model) => String(model));
   const backRow = () => ListItem({
     label: html`<span class="oas-inline-flex oas-items-center oas-gap-2">${() => icon("arrow-left")}Back</span>`,
     onClick: () => {
@@ -30440,16 +30446,16 @@ function OptionsMenu(o) {
   const body = html`${() => {
     if (s.sub === "model")
       return html`${backRow()}<div class="oas-popover-list">
-					${o.models.map(
+				${models().map(
         (m) => ListItem({
-          label: m,
-          selected: () => m === o.model(),
+          label: modelItemLabel(m),
+          selected: () => modelKey2(m) === o.model(),
           trailing: "check",
           onClick: () => {
             o.onModel(m);
             s.sub = "root";
           }
-        }).key(m)
+        }).key(modelKey2(m))
       )}
 				</div>`;
     if (s.sub === "thinking")
@@ -30471,7 +30477,7 @@ function OptionsMenu(o) {
 							</div>` : ""}`;
     if (s.sub === "tools")
       return html`${backRow()}<div class="oas-popover-list">
-					${o.tools.map(
+					${tools().map(
         (t) => ListItem({
           label: t,
           selected: () => o.selectedTools().includes(t),
@@ -30483,7 +30489,7 @@ function OptionsMenu(o) {
     return html`<div class="oas-popover-list">
 				${ListItem({
       label: "Model",
-      description: () => o.model(),
+      description: () => o.modelLabel?.() || o.model() || "Model",
       trailing: "caret",
       onClick: () => {
         s.sub = "model";
@@ -30621,13 +30627,14 @@ function ThinkingPicker({
 
 // src/ui/components/ToolsPicker.ts
 function ToolsPicker({ tools, selected, onToggle }) {
+  const items = () => typeof tools === "function" ? tools() : tools;
   return Picker({
     label: () => `Tools (${selected().length})`,
     header: "Tools",
     width: "240px",
     variant: {
       kind: "filterable",
-      items: () => tools,
+      items,
       key: (i) => i,
       label: (i) => i,
       select: "multi",
@@ -30682,11 +30689,49 @@ function Composer(opts = {}, data = DEFAULT_DATA) {
     runState: opts.initialRunState ?? "idle",
     queue: opts.initialQueue ? [...opts.initialQueue] : [],
     contextFiles: opts.initialContext ? [...opts.initialContext] : [],
-    model: data.models[0],
+    model: data.models?.[0] ?? "",
     thinkingOn: true,
     thinkingLevel: "Standard",
-    tools: ["Vault search"]
+    tools: []
   });
+  const fallbackModelItems = (data.models ?? []).map((model) => ({
+    key: model,
+    label: model,
+    provider: "",
+    modelId: model
+  }));
+  const modelItems = opts.modelItems ?? (() => fallbackModelItems);
+  const currentModel = () => opts.currentModel?.() ?? modelItems().find((model) => model.key === s.model) ?? null;
+  const selectModel = (model) => {
+    if (opts.modelItems) {
+      opts.onModelItemSelect?.(model);
+      return;
+    }
+    s.model = model.key;
+    opts.onModelSelect?.(model.modelId);
+  };
+  const toolItems = opts.tools ?? (() => data.tools);
+  let previousToolItems = null;
+  const currentToolItems = () => {
+    const available = toolItems();
+    const catalogChanged = previousToolItems === null || previousToolItems.length !== available.length || previousToolItems.some((tool, index2) => tool !== available[index2]);
+    if (catalogChanged) {
+      const valid = s.tools.filter((tool) => available.includes(tool));
+      s.tools = valid.length > 0 ? valid : available.length > 0 ? [available[0]] : [];
+      previousToolItems = [...available];
+    }
+    return available;
+  };
+  const selectedTools = () => {
+    const available = currentToolItems();
+    return s.tools.filter((tool) => available.includes(tool));
+  };
+  const toggleTool = (tool) => {
+    const available = currentToolItems();
+    if (!available.includes(tool)) return;
+    const selected = selectedTools();
+    s.tools = selected.includes(tool) ? selected.filter((candidate) => candidate !== tool) : [...selected, tool];
+  };
   const hasText = () => s.text.trim().length > 0;
   const clearText = () => {
     s.text = "";
@@ -30753,12 +30798,12 @@ function Composer(opts = {}, data = DEFAULT_DATA) {
   )}`;
   const footer = html`<div class="oas-composer-pickers oas-collapse-wide">
 			${ModelPicker({
-    models: () => data.models,
-    value: () => s.model,
-    onSelect: (m) => {
-      s.model = m;
-      opts.onModelSelect?.(m);
-    }
+    models: modelItems,
+    value: () => currentModel()?.key ?? "",
+    selectedLabel: () => currentModel()?.label ?? "Model",
+    key: (model) => model.key,
+    itemLabel: (model) => model.label,
+    onSelect: selectModel
   })}${ThinkingPicker({
     enabled: () => s.thinkingOn,
     level: () => s.thinkingLevel,
@@ -30769,21 +30814,19 @@ function Composer(opts = {}, data = DEFAULT_DATA) {
       s.thinkingLevel = l;
     }
   })}${ToolsPicker({
-    tools: data.tools,
-    selected: () => s.tools,
-    onToggle: (t) => {
-      s.tools = s.tools.includes(t) ? s.tools.filter((x) => x !== t) : [...s.tools, t];
-    }
+    tools: currentToolItems,
+    selected: selectedTools,
+    onToggle: toggleTool
   })}
 		</div>
 		<div class="oas-composer-options oas-collapse-narrow">
 			${OptionsMenu({
-    models: data.models,
-    model: () => s.model,
-    onModel: (m) => {
-      s.model = m;
-      opts.onModelSelect?.(m);
-    },
+    models: modelItems,
+    model: () => currentModel()?.key ?? "",
+    modelLabel: () => currentModel()?.label ?? "Model",
+    modelKey: (model) => model.key,
+    modelItemLabel: (model) => model.label,
+    onModel: selectModel,
     thinkingOn: () => s.thinkingOn,
     thinkingLevel: () => s.thinkingLevel,
     onThinkingToggle: () => {
@@ -30792,11 +30835,9 @@ function Composer(opts = {}, data = DEFAULT_DATA) {
     onThinkingLevel: (l) => {
       s.thinkingLevel = l;
     },
-    tools: data.tools,
-    selectedTools: () => s.tools,
-    onToolToggle: (t) => {
-      s.tools = s.tools.includes(t) ? s.tools.filter((x) => x !== t) : [...s.tools, t];
-    }
+    tools: currentToolItems,
+    selectedTools,
+    onToolToggle: toggleTool
   })}
 		</div>${RunControls({
     state: () => s.runState,
@@ -30991,7 +31032,8 @@ function MessageBubble(o) {
     steering ? "is-steer" : ""
   ].filter(Boolean).join(" ");
   if (renderMarkdown) {
-    const key = o.id ? `md-${o.id}` : `msg-${(uid2++).toString(36)}`;
+    const instance = (uid2++).toString(36);
+    const key = o.id ? `md-${o.id}-${instance}` : `msg-${instance}`;
     let tries = 0;
     const fill = () => {
       const el = document.querySelector(`[data-md="${key}"]`);
@@ -32083,8 +32125,11 @@ ${opts.onboardingError}` : ""}`,
     footer: html`
 					<div class="oas-card-footer oas-flex-row">
 						${() => !opts.isPersonalizing ? ModelPicker({
-      models: () => opts.models,
-      value: () => opts.currentModel() ?? "",
+      models: opts.models,
+      value: () => opts.currentModel()?.key ?? "",
+      selectedLabel: () => opts.currentModel()?.label ?? "Model",
+      key: (model) => model.key,
+      itemLabel: (model) => model.label,
       onSelect: opts.onModelSelect
     }) : null}
 						${Button({
@@ -32116,41 +32161,49 @@ var MODE_DESCRIPTION = {
   full: "Runs every search tool via an agent and combines results."
 };
 var MODE_ORDER2 = ["auto", "hybrid", "semantic", "fts", "graph", "full"];
-var SCOPE_ICON = {
-  collection: "database",
-  folder: "folder",
-  tag: "tag"
+var SEARCH_SOURCE_LABEL = {
+  vault: "Vault",
+  sessions: "Sessions",
+  tree: "This session"
 };
+var SEARCH_SOURCE_DESCRIPTION = {
+  vault: "Indexed notes and vault knowledge.",
+  sessions: "Past Pi conversations.",
+  tree: "Messages in the active conversation."
+};
+var SEARCH_SOURCE_ICON = {
+  vault: "file-text",
+  sessions: "message",
+  tree: "git-branch"
+};
+var SEARCH_SOURCE_ORDER = ["vault", "sessions", "tree"];
 function SearchComposer(o) {
-  const scopedValues = () => o.scopes().map((s) => s.value);
-  const scopeItems = (q) => {
-    const query = q.toLowerCase();
-    const taken = new Set(scopedValues());
-    return [...o.collections(), ...o.folders()].filter(
-      (v) => !taken.has(v) && v.toLowerCase().includes(query)
-    );
-  };
-  const tagItems = (q) => {
-    const query = q.toLowerCase();
-    const taken = new Set(scopedValues());
-    return o.tags().filter((t) => !taken.has(t) && t.toLowerCase().includes(query));
-  };
-  const addScopeValue = (value) => {
-    const type = o.collections().includes(value) ? "collection" : o.folders().includes(value) ? "folder" : "collection";
-    o.onAddScope({ type, value, label: value });
-  };
-  const addTag = (value) => {
-    o.onAddScope({ type: "tag", value, label: value });
-  };
-  const chips = html`${() => o.scopes().map(
-    (pill) => Chip({
-      label: pill.label,
-      icon: SCOPE_ICON[pill.type],
-      title: `${pill.type}: ${pill.value}`,
-      onRemove: () => o.onRemoveScope(pill.value)
-    }).key(`${pill.type}-${pill.value}`)
+  const chips = html`${() => o.sources().map(
+    (source) => Chip({
+      label: SEARCH_SOURCE_LABEL[source],
+      icon: SEARCH_SOURCE_ICON[source],
+      title: `Search source: ${SEARCH_SOURCE_LABEL[source]}`,
+      onRemove: () => o.onToggleSource(source)
+    }).key(source)
   )}`;
   const footer = html`<div class="oas-search-composer-footer">
+		${Picker({
+    label: () => `Sources \xB7 ${o.sources().length}`,
+    icon: "database",
+    header: "Search sources",
+    width: "240px",
+    placement: "top",
+    variant: {
+      kind: "list",
+      items: () => SEARCH_SOURCE_ORDER,
+      key: (source) => source,
+      label: (source) => SEARCH_SOURCE_LABEL[source],
+      description: (source) => SEARCH_SOURCE_DESCRIPTION[source],
+      selected: (source) => o.sources().includes(source),
+      trailing: "check",
+      onSelect: (source) => o.onToggleSource(source)
+    }
+  })}
 		${Picker({
     label: () => MODE_LABEL[o.mode()],
     icon: "search",
@@ -32172,26 +32225,8 @@ function SearchComposer(o) {
     value: o.query,
     onInput: o.onQuery,
     submitOnEnter: false,
-    placeholder: () => "Search vault & sessions\u2026  @ scope \xB7 # tag",
-    triggers: [
-      {
-        char: "@",
-        items: scopeItems,
-        onSelect: addScopeValue,
-        header: "Scope to",
-        emptyText: "No collections or folders"
-      },
-      {
-        char: "#",
-        items: tagItems,
-        onSelect: addTag,
-        header: "Tag",
-        renderItem: (t) => `#${t}`,
-        emptyText: "No tags"
-      }
-    ],
+    placeholder: () => "Search vault, sessions & this conversation\u2026",
     chips,
-    chipAction: { label: "Scope", icon: "plus", triggerChar: "@" },
     footer
   });
 }
@@ -32259,7 +32294,7 @@ function SearchView(o) {
     }
   };
   watch(
-    () => `${o.hasSearched()}|${o.results().map((h) => h.id).join(",")}`,
+    () => `${o.hasSearched()}|${JSON.stringify(o.results())}`,
     () => {
       window.setTimeout(rebuild, 0);
     }
@@ -32277,14 +32312,10 @@ function SearchView(o) {
 			${SearchComposer({
     query: o.query,
     onQuery: o.onQuery,
-    scopes: o.scopes,
-    onAddScope: o.onAddScope,
-    onRemoveScope: o.onRemoveScope,
+    sources: o.sources,
+    onToggleSource: o.onToggleSource,
     mode: o.mode,
-    onMode: o.onMode,
-    collections: o.collections,
-    folders: o.folders,
-    tags: o.tags
+    onMode: o.onMode
   })}
 		</div>
 		<div class="oas-search-view-results" data-search-list="${o.listId}">
@@ -32292,7 +32323,7 @@ function SearchView(o) {
 				${EmptyState({
     icon: "search",
     title: "Search everything",
-    description: "Your vault, past sessions, and this conversation. Type to search; @ to scope, # to tag."
+    description: "Your vault, past sessions, and this conversation. Choose sources below."
   })}
 			</div>
 			<div class="oas-search-noresults is-hidden">
@@ -32447,6 +32478,25 @@ var TABS = [
   { id: "timeline", label: "Timeline", icon: "activity" }
 ];
 var panelSeq = 0;
+var modelKey = (model) => JSON.stringify([model.provider, model.id]);
+var modelLabel = (model, catalog) => {
+  let matchingNames = 0;
+  let matchingProviderNames = 0;
+  for (const candidate of catalog) {
+    if (candidate.name !== model.name) continue;
+    matchingNames++;
+    if (candidate.provider === model.provider) matchingProviderNames++;
+  }
+  if (matchingProviderNames > 1) return `${model.name} (${model.provider}/${model.id})`;
+  if (matchingNames > 1) return `${model.name} (${model.provider})`;
+  return model.name;
+};
+var toComposerModelItem = (model, catalog) => ({
+  key: modelKey(model),
+  label: modelLabel(model, catalog),
+  provider: model.provider,
+  modelId: model.id
+});
 function VaultMindView(opts) {
   const demo = opts.controller;
   const s = demo.state;
@@ -32456,8 +32506,10 @@ function VaultMindView(opts) {
     demo.setTab("timeline");
   };
   const panelClass = (tab) => s.activeTab === tab ? "oas-tab-panel" : "oas-tab-panel is-hidden";
-  const onModelSelect = (id) => {
-    demo.setModelId(id);
+  const modelItems = () => demo.models.map((model) => toComposerModelItem(model, demo.models));
+  const currentModelItem = () => demo.currentModel ? toComposerModelItem(demo.currentModel, demo.models) : null;
+  const onModelSelect = (model) => {
+    void demo.setModel(model.provider, model.modelId);
   };
   const onPersonalize = () => demo.personalize().then((res) => {
     if (res.completed) demo.refreshStatus();
@@ -32468,8 +32520,8 @@ function VaultMindView(opts) {
         onStartSetup: opts.onStartSetup,
         onPersonalize: () => {
         },
-        models: demo.models,
-        currentModel: () => demo.currentModelId,
+        models: modelItems,
+        currentModel: currentModelItem,
         onModelSelect,
         isConfigured: false,
         isPersonalizing: false,
@@ -32499,8 +32551,8 @@ function VaultMindView(opts) {
 					${FirstRunCard({
         onStartSetup: opts.onStartSetup,
         onPersonalize,
-        models: demo.models,
-        currentModel: () => demo.currentModelId,
+        models: modelItems,
+        currentModel: currentModelItem,
         onModelSelect,
         isConfigured: true,
         isPersonalizing: true,
@@ -32512,8 +32564,8 @@ function VaultMindView(opts) {
     return FirstRunCard({
       onStartSetup: opts.onStartSetup,
       onPersonalize,
-      models: demo.models,
-      currentModel: () => demo.currentModelId,
+      models: modelItems,
+      currentModel: currentModelItem,
       onModelSelect,
       isConfigured: true,
       isPersonalizing: false,
@@ -32557,14 +32609,10 @@ function VaultMindView(opts) {
 					${SearchView({
     query: () => s.searchQuery,
     onQuery: demo.setSearchQuery,
-    scopes: () => s.searchScopes,
-    onAddScope: demo.addScope,
-    onRemoveScope: demo.removeScope,
+    sources: () => s.searchSources,
+    onToggleSource: demo.toggleSearchSource,
     mode: () => s.searchMode,
     onMode: demo.setSearchMode,
-    collections: opts.searchCollections,
-    folders: opts.searchFolders,
-    tags: opts.searchTags,
     results: () => s.searchResults,
     hasSearched: () => s.searchHasSearched,
     onOpenHit: demo.openHit,
@@ -32597,9 +32645,10 @@ function VaultMindView(opts) {
       onQueueRemove: demo.chat.removeQueued,
       onQueueSend: demo.chat.sendQueued,
       showQueue: () => demo.chat.showQueue,
-      onModelSelect: (id) => {
-        demo.setModelId(id);
-      }
+      modelItems,
+      currentModel: currentModelItem,
+      onModelItemSelect: onModelSelect,
+      tools: () => demo.tools ?? opts.composerData.tools
     },
     opts.composerData
   ) : null}
@@ -32644,7 +32693,9 @@ async function openOrRevealVaultMindLeaf(workspace, state, controller) {
   const existing = workspace.getLeavesOfType(VIEW_TYPE_VAULT_MIND);
   if (existing.length > 0) {
     if (controller) {
-      await controller.refreshStatus();
+      await controller.refreshStatus().catch((error) => {
+        console.error("[VaultMindPanel] Failed to refresh status:", error);
+      });
     }
     await workspace.revealLeaf(existing[0]);
     return existing[0];
@@ -32658,6 +32709,39 @@ async function openOrRevealVaultMindLeaf(workspace, state, controller) {
 var VaultMindPanel = class extends import_obsidian5.ItemView {
   context;
   disposer = null;
+  markdownCleanups = /* @__PURE__ */ new Set();
+  rendererClosed = true;
+  mountGeneration = 0;
+  trackedMarkdownRenderer() {
+    const renderMarkdown = this.context.renderMarkdown;
+    if (!renderMarkdown) return void 0;
+    return (content, el) => {
+      const cleanup = renderMarkdown(content, el);
+      if (!cleanup) return void 0;
+      let active = true;
+      const trackedCleanup = () => {
+        if (!active) return;
+        active = false;
+        this.markdownCleanups.delete(trackedCleanup);
+        cleanup();
+      };
+      if (this.rendererClosed) {
+        trackedCleanup();
+        return trackedCleanup;
+      }
+      this.markdownCleanups.add(trackedCleanup);
+      return trackedCleanup;
+    };
+  }
+  disposeMountedView() {
+    this.rendererClosed = true;
+    if (this.disposer) {
+      this.disposer();
+      this.disposer = null;
+    }
+    for (const cleanup of [...this.markdownCleanups]) cleanup();
+    this.contentEl.empty();
+  }
   constructor(leaf, context) {
     super(leaf);
     this.context = context;
@@ -32672,30 +32756,25 @@ var VaultMindPanel = class extends import_obsidian5.ItemView {
     return "vault-mind";
   }
   async onOpen() {
-    this.contentEl.empty();
-    try {
-      await this.context.controller.refreshStatus();
-    } catch (error) {
+    const generation = ++this.mountGeneration;
+    this.disposeMountedView();
+    await this.context.controller.refreshStatus().catch((error) => {
       console.error("[VaultMindPanel] Failed to refresh status:", error);
-    }
+    });
+    if (generation !== this.mountGeneration) return;
+    this.rendererClosed = false;
     const view = VaultMindView({
       controller: this.context.controller,
       composerData: this.context.composerData,
-      searchCollections: this.context.searchCollections,
-      searchFolders: this.context.searchFolders,
-      searchTags: this.context.searchTags,
-      renderMarkdown: this.context.renderMarkdown,
+      renderMarkdown: this.trackedMarkdownRenderer(),
       onStartSetup: this.context.onStartSetup
     });
     const result = view(this.contentEl);
     this.disposer = typeof result === "function" ? result : null;
   }
   async onClose() {
-    if (this.disposer) {
-      this.disposer();
-      this.disposer = null;
-    }
-    this.contentEl.empty();
+    this.mountGeneration++;
+    this.disposeMountedView();
   }
 };
 
@@ -32878,7 +32957,7 @@ var StreamHandler = class {
         const provider = event.provider ?? "";
         const modelId = event.modelId ?? "";
         if (provider && modelId && this.callbacks.onModelChange) {
-          this.callbacks.onModelChange(`${provider}/${modelId}`);
+          this.callbacks.onModelChange({ provider, modelId });
         }
         break;
       }
@@ -33276,6 +33355,7 @@ function normalizeSearchHit(hit) {
   return {
     id: String(hit.id ?? hit.entryId ?? hit.path ?? generateMessageId()),
     source,
+    _source: source === "session" ? "session" : void 0,
     title: String(hit.title ?? hit.name ?? hit.path ?? ""),
     snippet: String(hit.snippet ?? hit.content ?? hit.text ?? ""),
     domain: String(hit.domain ?? hit.collection ?? ""),
@@ -33287,6 +33367,51 @@ function normalizeSearchHit(hit) {
     entryId: typeof hit.entryId === "string" ? hit.entryId : void 0,
     role: typeof hit.role === "string" ? hit.role : void 0
   };
+}
+function feedSearchRecord(message) {
+  switch (message.kind) {
+    case "user":
+      return { title: "You", text: message.content, role: "user" };
+    case "assistant":
+      return { title: "Vault Mind", text: message.content, role: "assistant" };
+    case "thinking":
+      return { title: "Thinking", text: message.content, role: "assistant" };
+    case "tool":
+      return {
+        title: message.toolName || "Tool result",
+        text: [message.toolName, message.args, message.result].filter(Boolean).join("\n"),
+        role: "tool"
+      };
+    case "permission":
+      return {
+        title: message.title ?? "Permission request",
+        text: [message.title, message.prompt, ...message.options ?? []].filter(Boolean).join("\n"),
+        role: "assistant"
+      };
+    case "diff":
+      return {
+        title: message.path,
+        text: [message.path, message.oldContent, message.newContent].join("\n"),
+        role: "tool"
+      };
+    case "search":
+      return {
+        title: `Search: ${message.query}`,
+        text: [
+          message.query,
+          ...message.results.flatMap((result) => [result.path, result.snippet])
+        ].join("\n"),
+        role: "tool"
+      };
+    case "system":
+      return { title: "System", text: message.text, role: "system" };
+    case "job":
+      return {
+        title: `${message.role} job`,
+        text: [message.role, message.status, message.instruction].join("\n"),
+        role: "tool"
+      };
+  }
 }
 function mapSession(s) {
   return {
@@ -33313,8 +33438,8 @@ function createVaultMindController(opts) {
     timelineJob: "all",
     timelineQuery: "",
     searchQuery: "",
-    searchScopes: [],
-    searchMode: "hybrid",
+    searchSources: ["vault", "sessions", "tree"],
+    searchMode: "auto",
     searchResults: [],
     searchHasSearched: false,
     git: {
@@ -33340,6 +33465,13 @@ function createVaultMindController(opts) {
     models: [],
     current: null
   });
+  const toolState = reactive({
+    tools: []
+  });
+  async function refreshTools() {
+    const response = await client.listTools();
+    toolState.tools.splice(0, toolState.tools.length, ...response.tools.map((tool) => tool.name));
+  }
   async function loadModels() {
     if (!connection.isConnected()) connection.connect();
     try {
@@ -33359,8 +33491,14 @@ function createVaultMindController(opts) {
     state.isPersonalized = status.personalized;
   }
   async function refreshStatus() {
-    await loadStatus();
-    if (state.isConfigured) await loadModels();
+    const statusAndModels = (async () => {
+      await loadStatus();
+      if (state.isConfigured) await loadModels();
+    })();
+    const tools = refreshTools().catch((err) => {
+      console.error("[VaultMindController] Failed to refresh tools:", err);
+    });
+    await Promise.all([statusAndModels, tools]);
   }
   async function personalize() {
     if (state.isPersonalizing) return { completed: false };
@@ -33371,7 +33509,10 @@ function createVaultMindController(opts) {
         await connection.connect();
       }
       connection.send({ type: "prompt", message: "/vm personalize" }).catch((err) => {
-        console.warn("[VaultMindController] personalize dispatch acknowledgement timed out or failed. Still polling for durable status:", err);
+        console.warn(
+          "[VaultMindController] personalize dispatch acknowledgement timed out or failed. Still polling for durable status:",
+          err
+        );
       });
     } catch (err) {
       console.error("[VaultMindController] personalize dispatch throw:", err);
@@ -33400,10 +33541,12 @@ function createVaultMindController(opts) {
     }
     return { completed: false };
   }
-  async function setModelId(id) {
-    const target = modelState.models.find((m) => m.id === id);
+  async function setModel(provider, modelId) {
+    const target = modelState.models.find((m) => m.provider === provider && m.id === modelId);
     if (!target) {
-      console.error(`[VaultMindController] setModelId failed: unknown model id "${id}"`);
+      console.error(
+        `[VaultMindController] setModel failed: unknown model "${provider}/${modelId}"`
+      );
       return;
     }
     try {
@@ -33414,7 +33557,7 @@ function createVaultMindController(opts) {
       });
       modelState.current = target;
     } catch (err) {
-      console.error("[VaultMindController] setModelId failed:", err);
+      console.error("[VaultMindController] setModel failed:", err);
     }
   }
   const chat = reactive({
@@ -33438,9 +33581,13 @@ function createVaultMindController(opts) {
       sendPrompt(text, false);
     }
   });
+  const suppressedPersonalizationAssistantIds = /* @__PURE__ */ new Set();
+  let backendSearchResults = [];
+  let searchRequestToken = 0;
   function appendFeedMessages(next) {
     if (next.length === 0) return;
     chat.messages = [...chat.messages, ...next];
+    refreshCurrentSessionSearchResults();
   }
   function persist(msg) {
     try {
@@ -33490,12 +33637,14 @@ function createVaultMindController(opts) {
     connection.send({ type: "abort" }).catch((err) => console.error("[VaultMindController] Abort failed:", err));
     chat.streaming = false;
     streamHandler.reset();
+    suppressedPersonalizationAssistantIds.clear();
   }
   function reconcileAssistantMessages(msg) {
     const without = chat.messages.filter(
       (m) => !((m.kind === "assistant" || m.kind === "thinking") && (m.id === msg.id || m.id === `${msg.id}-thinking`))
     );
     chat.messages = [...without, ...mapBridgeToFeed(msg, sendRaw)];
+    refreshCurrentSessionSearchResults();
   }
   function upsertToolMessage(msg) {
     const runningId = msg.toolCallId ? `tool-${msg.toolCallId}` : null;
@@ -33506,6 +33655,7 @@ function createVaultMindController(opts) {
         feed.id = runningId;
         chat.messages[idx] = feed;
         chat.messages = [...chat.messages];
+        refreshCurrentSessionSearchResults();
         return;
       }
     }
@@ -33513,13 +33663,18 @@ function createVaultMindController(opts) {
   }
   const streamHandler = new StreamHandler({
     onMessageUpdate: (msg) => {
-      if (msg.role === "assistant") {
-        reconcileAssistantMessages(msg);
+      if (msg.role !== "assistant") return;
+      if (state.isPersonalizing || suppressedPersonalizationAssistantIds.has(msg.id)) {
+        suppressedPersonalizationAssistantIds.add(msg.id);
+        return;
       }
+      reconcileAssistantMessages(msg);
     },
     onMessageComplete: (msg) => {
       chat.streaming = false;
       if (msg.role === "assistant") {
+        const wasSuppressed = suppressedPersonalizationAssistantIds.delete(msg.id);
+        if (state.isPersonalizing || wasSuppressed) return;
         reconcileAssistantMessages(msg);
       }
       persist(msg);
@@ -33550,7 +33705,21 @@ function createVaultMindController(opts) {
       if (idx !== -1) {
         chat.messages[idx].result = partialResult;
         chat.messages = [...chat.messages];
+        refreshCurrentSessionSearchResults();
       }
+    },
+    onModelChange: ({ provider, modelId }) => {
+      modelState.current = modelState.models.find((model) => model.provider === provider && model.id === modelId) ?? null;
+    },
+    onNotice: ({ message, notifyType }) => {
+      appendFeedMessages([
+        {
+          kind: "system",
+          id: generateMessageId(),
+          text: message,
+          variant: notifyType === "error" || notifyType === "warning" ? "warning" : "info"
+        }
+      ]);
     },
     onError: (err) => {
       console.error("[VaultMindController] Stream error:", err);
@@ -33655,23 +33824,91 @@ function createVaultMindController(opts) {
       console.error("[VaultMindController] Failed to load activity:", err);
     }
   }
-  function runSearch() {
+  function currentSessionSearchHits(query) {
+    const normalizedQuery = query.toLowerCase();
+    const hits = [];
+    for (let index2 = chat.messages.length - 1; index2 >= 0 && hits.length < 10; index2--) {
+      const message = chat.messages[index2];
+      const record = feedSearchRecord(message);
+      const text = record.text.replace(/\s+/g, " ").trim();
+      const haystack = `${record.title}
+${text}`.toLowerCase();
+      const matchIndex = haystack.indexOf(normalizedQuery);
+      if (matchIndex < 0) continue;
+      const textMatchIndex = text.toLowerCase().indexOf(normalizedQuery);
+      const start = Math.max(0, textMatchIndex < 0 ? 0 : textMatchIndex - 80);
+      const end = Math.min(text.length, start + 240);
+      const snippet = `${start > 0 ? "\u2026" : ""}${text.slice(start, end)}${end < text.length ? "\u2026" : ""}`;
+      hits.push({
+        id: `tree:${message.id}`,
+        source: "tree",
+        title: record.title,
+        snippet,
+        domain: "Current conversation",
+        sessionId: state.currentSessionId || "current",
+        entryId: message.id,
+        role: record.role
+      });
+    }
+    return hits;
+  }
+  function mergeSearchHits(treeHits, backendHits) {
+    const merged = [...treeHits];
+    const seenIds = new Set(treeHits.map((hit) => hit.id));
+    const seenEntries = new Set(treeHits.flatMap((hit) => hit.entryId ? [hit.entryId] : []));
+    for (const hit of backendHits) {
+      if (seenIds.has(hit.id) || hit.entryId && seenEntries.has(hit.entryId)) continue;
+      if (hit.source === "session" && hit.sessionId === state.currentSessionId && hit.snippet && treeHits.some((treeHit) => {
+        const treeSnippet = treeHit.snippet?.trim().toLowerCase();
+        const sessionSnippet = hit.snippet?.trim().toLowerCase();
+        return !!(treeSnippet && sessionSnippet && (treeSnippet.includes(sessionSnippet) || sessionSnippet.includes(treeSnippet)));
+      })) {
+        continue;
+      }
+      merged.push(hit);
+      seenIds.add(hit.id);
+      if (hit.entryId) seenEntries.add(hit.entryId);
+    }
+    return merged;
+  }
+  function refreshCurrentSessionSearchResults() {
     const query = state.searchQuery.trim();
+    if (!query || !state.searchSources.includes("tree")) return;
+    state.searchResults = mergeSearchHits(currentSessionSearchHits(query), backendSearchResults);
+    state.searchHasSearched = true;
+  }
+  function isCurrentSessionBackendHit(hit) {
+    if (hit.source !== "session") return false;
+    if (hit.sessionId && hit.sessionId === state.currentSessionId) return true;
+    if (hit.path && hit.path === currentSessionPath) return true;
+    return !!hit.entryId && chat.messages.some((message) => message.id === hit.entryId);
+  }
+  function runSearch() {
+    const requestToken = ++searchRequestToken;
+    const query = state.searchQuery.trim();
+    backendSearchResults = [];
     if (!query) {
       state.searchResults = [];
       state.searchHasSearched = false;
       return;
     }
-    const collectionScope = state.searchScopes.find((s) => s.type === "collection");
-    client.searchWithMode({
-      query,
-      mode: state.searchMode,
-      collection: collectionScope?.value ?? "main",
-      limit: 10
-    }).then((result) => {
-      state.searchResults = result.hits.map(normalizeSearchHit);
-      state.searchHasSearched = true;
+    const selectedSources = [...state.searchSources];
+    const treeHits = selectedSources.includes("tree") ? currentSessionSearchHits(query) : [];
+    state.searchResults = treeHits;
+    state.searchHasSearched = true;
+    const backendSources = [];
+    if (selectedSources.includes("vault")) backendSources.push("vault");
+    if (selectedSources.includes("sessions")) backendSources.push("sessions");
+    if (backendSources.length === 0) return;
+    client.searchWithMode({ query, mode: state.searchMode, sources: backendSources, limit: 10 }).then((result) => {
+      if (requestToken !== searchRequestToken) return;
+      backendSearchResults = result.hits.map(normalizeSearchHit).filter(
+        (hit) => hit.source === "vault" ? selectedSources.includes("vault") : selectedSources.includes("sessions")
+      ).filter((hit) => !isCurrentSessionBackendHit(hit));
+      const latestTreeHits = selectedSources.includes("tree") ? currentSessionSearchHits(query) : [];
+      state.searchResults = mergeSearchHits(latestTreeHits, backendSearchResults);
     }).catch((err) => {
+      if (requestToken !== searchRequestToken) return;
       console.error("[VaultMindController] Search failed:", err);
     });
   }
@@ -33698,8 +33935,8 @@ function createVaultMindController(opts) {
   });
   void (async () => {
     await Promise.all([
-      loadStatus().catch(
-        (err) => console.error("[VaultMindController] Failed to load status:", err)
+      refreshStatus().catch(
+        (err) => console.error("[VaultMindController] Failed to refresh status and models:", err)
       ),
       loadGit(),
       loadCollections(),
@@ -33720,10 +33957,13 @@ function createVaultMindController(opts) {
     chat,
     state,
     get models() {
-      return modelState.models.map((m) => m.id);
+      return modelState.models;
     },
-    get currentModelId() {
-      return modelState.current?.id ?? null;
+    get currentModel() {
+      return modelState.current;
+    },
+    get tools() {
+      return toolState.tools;
     },
     dispose: () => {
     },
@@ -33761,13 +34001,8 @@ function createVaultMindController(opts) {
       state.searchQuery = q;
       runSearch();
     },
-    addScope: (pill) => {
-      if (state.searchScopes.some((s) => s.value === pill.value && s.type === pill.type)) return;
-      state.searchScopes = [...state.searchScopes, pill];
-      runSearch();
-    },
-    removeScope: (value) => {
-      state.searchScopes = state.searchScopes.filter((s) => s.value !== value);
+    toggleSearchSource: (source) => {
+      state.searchSources = state.searchSources.includes(source) ? state.searchSources.filter((candidate) => candidate !== source) : [...state.searchSources, source];
       runSearch();
     },
     setSearchMode: (m) => {
@@ -33795,6 +34030,7 @@ function createVaultMindController(opts) {
         messageStore.setLastSession(target);
         state.currentSessionId = session.id;
         chat.messages = messageStore.getMessages(target).flatMap((m) => mapBridgeToFeed(m, sendRaw));
+        runSearch();
       } catch (err) {
         console.error("[VaultMind laSession failed:", err);
       }
@@ -33815,8 +34051,9 @@ function createVaultMindController(opts) {
       }).catch((err) => console.error("[VaultMind laExportSession failed:", err));
     },
     personalize,
-    setModelId,
-    refreshStatus
+    setModel,
+    refreshStatus,
+    refreshTools
   };
   controller.dispose = () => {
     state.isPersonalizing = false;
@@ -34046,7 +34283,6 @@ var VaultMindPlugin = class extends import_obsidian7.Plugin {
     };
     this.registerView(VIEW_TYPE_SETUP, (leaf) => new SetupWizardPanel(leaf, setupContext));
     const composerData = {
-      models: [],
       tools: [],
       contextFiles: this.app.vault.getFiles().map((f) => f.path),
       commands: [
@@ -34056,33 +34292,9 @@ var VaultMindPlugin = class extends import_obsidian7.Plugin {
         { name: "vm reindex", desc: "Reindex vault collections" }
       ]
     };
-    void (async () => {
-      try {
-        const [models, tools] = await Promise.all([client.getModels(), client.listTools()]);
-        composerData.models = (models.providers ?? []).flatMap((p) => p.models.map((m) => m.id));
-        composerData.tools = tools.tools.map((t) => t.name);
-      } catch (err) {
-        console.error("[VaultMindPlugin] Failed to load composer data:", err);
-      }
-    })();
-    const allFiles = this.app.vault.getAllLoadedFiles();
-    const uniqueFolderPaths = /* @__PURE__ */ new Set();
-    for (const entry of allFiles) {
-      if (entry instanceof import_obsidian7.TFolder) {
-        uniqueFolderPaths.add(entry.path);
-      } else if (entry.parent) {
-        uniqueFolderPaths.add(entry.parent.path);
-      }
-    }
-    const folderPaths = Array.from(uniqueFolderPaths).sort();
-    const metadataCache = this.app.metadataCache;
-    const tagEntries = Object.keys(metadataCache.getTags?.() ?? {}).sort();
     const panelContext = {
       controller,
       composerData,
-      searchCollections: () => controller.state.collections.map((c) => c.name),
-      searchFolders: () => folderPaths,
-      searchTags: () => tagEntries,
       renderMarkdown: (content, el) => {
         const component2 = new import_obsidian7.Component();
         component2.load();
