@@ -25851,17 +25851,206 @@ function Button({
 	</button>`;
 }
 
-// src/ui/views/ConfigurationSettingsView/baselines.ts
+// src/ui/configuration/section-mappers.ts
+function mapEmbeddingDraft(draft, _confirmed) {
+  switch (draft.mode) {
+    case "local":
+      return {
+        localUrl: draft.localUrl,
+        remoteUrl: "",
+        workspace: "",
+        model: draft.model,
+        dim: draft.dim,
+        fallback: { enabled: false }
+      };
+    case "remote":
+      return {
+        localUrl: "",
+        remoteUrl: draft.remoteUrl,
+        workspace: draft.workspace,
+        model: draft.model,
+        dim: draft.dim,
+        fallback: { enabled: false }
+      };
+    case "both":
+      return {
+        localUrl: draft.localUrl,
+        remoteUrl: draft.remoteUrl,
+        workspace: draft.workspace,
+        model: draft.model,
+        dim: draft.dim,
+        fallback: { enabled: true }
+      };
+    case "skip":
+      return {
+        localUrl: "",
+        remoteUrl: "",
+        workspace: "",
+        model: "",
+        dim: draft.dim,
+        fallback: { enabled: false }
+      };
+  }
+}
+var EMBEDDING_SECRET_KEYS = [
+  "localApiKey",
+  "remoteApiKey",
+  "remoteReadApiKey",
+  "remoteWriteApiKey"
+];
 function isRecord2(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
-function readVaultMind(loadResponse) {
+function cloneRecord(value) {
+  return isRecord2(value) ? { ...value } : {};
+}
+function requireConfirmed(confirmed, section) {
+  if (!confirmed) {
+    throw new Error(
+      `Configuration baseline for section "${section}" is unavailable; cannot map a non-vaultMind patch without the confirmed top-level object.`
+    );
+  }
+  return confirmed;
+}
+function assignIfPresent(target, source, key) {
+  if (Object.hasOwn(source, key)) target[key] = source[key];
+}
+function readVaultMind(confirmed) {
+  return cloneRecord(confirmed.vaultMind);
+}
+function readEmbeddingConfig(confirmed) {
+  return cloneRecord(readVaultMind(confirmed).embedding);
+}
+function readFolders(confirmed) {
+  return cloneRecord(readVaultMind(confirmed).folders);
+}
+function readDefaultVaultConfig(confirmed) {
+  const vaultMind = readVaultMind(confirmed);
+  const vaults = cloneRecord(vaultMind.vaults);
+  return cloneRecord(vaults.default);
+}
+function stringOrEmpty(value) {
+  return typeof value === "string" ? value : "";
+}
+function numberOrNull(value) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+function toEmbeddingDraft(patch) {
+  const mode = patch.mode === "local" || patch.mode === "remote" || patch.mode === "both" || patch.mode === "skip" ? patch.mode : "skip";
+  return {
+    mode,
+    localUrl: stringOrEmpty(patch.localUrl),
+    remoteUrl: stringOrEmpty(patch.remoteUrl),
+    workspace: stringOrEmpty(patch.workspace),
+    model: stringOrEmpty(patch.model),
+    dim: numberOrNull(patch.dim),
+    localApiKey: stringOrEmpty(patch.localApiKey),
+    remoteApiKey: stringOrEmpty(patch.remoteApiKey),
+    remoteReadApiKey: stringOrEmpty(patch.remoteReadApiKey),
+    remoteWriteApiKey: stringOrEmpty(patch.remoteWriteApiKey)
+  };
+}
+function extractEmbeddingSecrets(draft) {
+  const request = {};
+  for (const key of EMBEDDING_SECRET_KEYS) {
+    const value = draft[key];
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed.length > 0) request[key] = trimmed;
+  }
+  return Object.keys(request).length > 0 ? request : void 0;
+}
+function mapConfigSectionDraft(section, patch, confirmed) {
+  switch (section) {
+    case "embedding": {
+      const baseline = requireConfirmed(confirmed, section);
+      return {
+        vaultMind: {
+          embedding: mapEmbeddingDraft(toEmbeddingDraft(patch), readEmbeddingConfig(baseline))
+        }
+      };
+    }
+    case "automation": {
+      const baseline = requireConfirmed(confirmed, section);
+      const defaultVault = readDefaultVaultConfig(baseline);
+      defaultVault.autoStart = Boolean(patch.autoStart);
+      defaultVault.autoSync = Boolean(patch.autoSync);
+      defaultVault.autoSyncMinLength = typeof patch.autoSyncMinLength === "number" && Number.isFinite(patch.autoSyncMinLength) ? patch.autoSyncMinLength : 0;
+      const extensionCompatibility = cloneRecord(baseline.extensionCompatibility);
+      const piContext = cloneRecord(extensionCompatibility["pi-context"]);
+      piContext.enabled = Boolean(patch.contextAutomation);
+      extensionCompatibility["pi-context"] = piContext;
+      return {
+        vaultMind: {
+          vaults: {
+            default: defaultVault
+          }
+        },
+        extensionCompatibility
+      };
+    }
+    case "indexing": {
+      const vaultMind = {};
+      for (const key of ["dataDir", "ftsEnabled", "autoIndex", "dedupMode", "dedupThreshold"]) {
+        assignIfPresent(vaultMind, patch, key);
+      }
+      return { vaultMind };
+    }
+    case "knowledge-graph": {
+      const baseline = requireConfirmed(confirmed, section);
+      const graph = cloneRecord(readVaultMind(baseline).graph);
+      graph.enabled = Boolean(patch.enabled);
+      graph.canvasSync = Boolean(patch.canvasSync);
+      graph.canvasPath = typeof patch.canvasPath === "string" ? patch.canvasPath : "";
+      return { vaultMind: { graph } };
+    }
+    case "vault-layout": {
+      const baseline = requireConfirmed(confirmed, section);
+      const folders = readFolders(baseline);
+      folders.inbox = typeof patch.inbox === "string" ? patch.inbox : "";
+      folders.library = typeof patch.library === "string" ? patch.library : "";
+      folders.presentations = typeof patch.presentations === "string" ? patch.presentations : "";
+      folders.journal = typeof patch.journal === "string" ? patch.journal : "";
+      const defaultVault = readDefaultVaultConfig(baseline);
+      defaultVault.collectionPrefix = typeof patch.collectionPrefix === "string" ? patch.collectionPrefix : "";
+      return {
+        vaultMind: {
+          folders,
+          vaults: {
+            default: defaultVault
+          }
+        }
+      };
+    }
+    case "advanced": {
+      const baseline = requireConfirmed(confirmed, section);
+      const embedding = readEmbeddingConfig(baseline);
+      embedding.sync = typeof patch.sync === "string" ? patch.sync : "";
+      embedding.collectionModels = typeof patch.collectionModels === "string" ? patch.collectionModels : "";
+      embedding.coalesce = Boolean(patch.coalesce);
+      const vaultMind = { embedding };
+      assignIfPresent(vaultMind, patch, "files");
+      assignIfPresent(vaultMind, patch, "httpPort");
+      return { vaultMind };
+    }
+    default:
+      throw new Error(
+        `Section "${section}" is not supported by the configuration patch mapper; supported editable sections are embedding, automation, indexing, knowledge-graph, vault-layout, and advanced.`
+      );
+  }
+}
+
+// src/ui/views/ConfigurationSettingsView/baselines.ts
+function isRecord3(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function readVaultMind2(loadResponse) {
   const vaultMind = loadResponse.config?.config?.vaultMind;
-  return isRecord2(vaultMind) ? vaultMind : {};
+  return isRecord3(vaultMind) ? vaultMind : {};
 }
 function readDefaultVault(vaultMind) {
   const vaults = vaultMind.vaults;
-  if (isRecord2(vaults) && isRecord2(vaults.default)) return vaults.default;
+  if (isRecord3(vaults) && isRecord3(vaults.default)) return vaults.default;
   return {};
 }
 function str(value, fallback = "") {
@@ -25873,20 +26062,20 @@ function num(value, fallback = 0) {
 function bool(value, fallback = false) {
   return typeof value === "boolean" ? value : fallback;
 }
-function readEmbeddingConfig(loadResponse) {
+function readEmbeddingConfig2(loadResponse) {
   const vaultMind = loadResponse.config?.config?.vaultMind;
-  if (isRecord2(vaultMind) && isRecord2(vaultMind.embedding)) return vaultMind.embedding;
+  if (isRecord3(vaultMind) && isRecord3(vaultMind.embedding)) return vaultMind.embedding;
   return {};
 }
 function categoryBaseline(category, loadResponse) {
-  const vm = readVaultMind(loadResponse);
+  const vm = readVaultMind2(loadResponse);
   switch (category) {
     case "connection": {
       const c = loadResponse.connection;
       return { host: c.host, port: c.port, bridgeToken: "" };
     }
     case "embedding": {
-      const e = readEmbeddingConfig(loadResponse);
+      const e = readEmbeddingConfig2(loadResponse);
       const localUrl = str(e.localUrl);
       const remoteUrl = str(e.remoteUrl);
       const mode = localUrl && remoteUrl ? "both" : localUrl ? "local" : remoteUrl ? "remote" : "skip";
@@ -25909,11 +26098,10 @@ function categoryBaseline(category, loadResponse) {
     case "automation": {
       const v = readDefaultVault(vm);
       const ec = loadResponse.config?.config?.extensionCompatibility;
-      const pic = isRecord2(ec) && isRecord2(ec["pi-context"]) ? ec["pi-context"] : {};
+      const pic = isRecord3(ec) && isRecord3(ec["pi-context"]) ? ec["pi-context"] : {};
       return {
         autoStart: bool(v.autoStart),
         autoSync: bool(v.autoSync),
-        autoSyncTags: bool(v.autoSyncTags),
         autoSyncMinLength: num(v.autoSyncMinLength),
         contextAutomation: bool(pic.enabled)
       };
@@ -25928,7 +26116,7 @@ function categoryBaseline(category, loadResponse) {
       };
     }
     case "knowledge-graph": {
-      const g = isRecord2(vm.graph) ? vm.graph : {};
+      const g = isRecord3(vm.graph) ? vm.graph : {};
       return {
         enabled: bool(g.enabled),
         canvasSync: bool(g.canvasSync),
@@ -25936,7 +26124,7 @@ function categoryBaseline(category, loadResponse) {
       };
     }
     case "vault-layout": {
-      const f = isRecord2(vm.folders) ? vm.folders : {};
+      const f = isRecord3(vm.folders) ? vm.folders : {};
       const v = readDefaultVault(vm);
       return {
         inbox: str(f.inbox),
@@ -25948,7 +26136,7 @@ function categoryBaseline(category, loadResponse) {
       };
     }
     case "advanced": {
-      const e = isRecord2(vm.embedding) ? vm.embedding : {};
+      const e = isRecord3(vm.embedding) ? vm.embedding : {};
       const prefs = loadResponse.pluginPreferences;
       return {
         sync: str(e.sync),
@@ -26096,7 +26284,7 @@ var SECRET_KEYS = [
   "remoteReadApiKey",
   "remoteWriteApiKey"
 ];
-function isRecord3(value) {
+function isRecord4(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function clone(value) {
@@ -26110,7 +26298,7 @@ function dirtySaveState() {
 }
 function readEmbeddingBaseline(loadResponse) {
   const vaultMind = loadResponse.config?.config?.vaultMind;
-  if (isRecord3(vaultMind) && isRecord3(vaultMind.embedding)) {
+  if (isRecord4(vaultMind) && isRecord4(vaultMind.embedding)) {
     return clone(vaultMind.embedding);
   }
   return {};
@@ -26959,12 +27147,9 @@ function AutomationCategory(options) {
     value: () => Boolean(draft().autoSync),
     onChange: (checked) => edit({ autoSync: checked })
   })}
-		${checkboxRow({
-    id: "oas-automation-auto-sync-tags",
-    label: "Auto sync tags",
-    description: "Sync tag changes alongside note content.",
-    value: () => Boolean(draft().autoSyncTags),
-    onChange: (checked) => edit({ autoSyncTags: checked })
+		${ItemRow({
+    name: "Auto sync tags",
+    description: "Tag-based auto-sync remains config-only until a dedicated tag-list editor ships."
   })}
 		${TextField({
     id: "oas-automation-auto-sync-min-length",
@@ -28116,7 +28301,7 @@ async function persistConnection(adapter, draft) {
     error: response.error
   };
 }
-async function persistConfig(adapter, category, draft) {
+async function persistConfig(adapter, state, category, draft) {
   if (category === "agent-models") {
     const sequence = modelSequenceFromDraft(draft);
     if (!sequence) throw new Error("Invalid model-router sequence.");
@@ -28135,26 +28320,33 @@ async function persistConfig(adapter, category, draft) {
       error: null
     };
   }
+  const confirmedConfig = state.loaded?.config?.config ?? null;
+  let patchDraft = { ...draft };
+  let pluginPreferences;
   if (category === "advanced") {
     const {
       piBinaryPath,
       checkExtensionOnStartup = false,
       includeEditorContext = false,
       resumeSession = false,
-      ...patch
+      ...patch2
     } = draft;
-    return adapter.saveConfig({
-      section: category,
-      patch,
-      pluginPreferences: {
-        piBinaryPath: typeof piBinaryPath === "string" ? piBinaryPath.trim() : "",
-        checkExtensionOnStartup: Boolean(checkExtensionOnStartup),
-        includeEditorContext: Boolean(includeEditorContext),
-        resumeSession: Boolean(resumeSession)
-      }
-    });
+    patchDraft = patch2;
+    pluginPreferences = {
+      piBinaryPath: typeof piBinaryPath === "string" ? piBinaryPath.trim() : "",
+      checkExtensionOnStartup: Boolean(checkExtensionOnStartup),
+      includeEditorContext: Boolean(includeEditorContext),
+      resumeSession: Boolean(resumeSession)
+    };
   }
-  return adapter.saveConfig({ section: category, patch: { ...draft } });
+  const patch = mapConfigSectionDraft(category, patchDraft, confirmedConfig);
+  const embeddingSecrets = category === "embedding" ? extractEmbeddingSecrets(draft) : void 0;
+  return adapter.saveConfig({
+    section: category,
+    patch,
+    ...embeddingSecrets ? { embeddingSecrets } : {},
+    ...pluginPreferences ? { pluginPreferences } : {}
+  });
 }
 async function reloadCategory(state, adapter, category) {
   const fresh = await adapter.loadConfiguration();
@@ -28166,7 +28358,7 @@ function createCategoryController(state, adapter, category) {
     settings: state,
     category,
     validate: (draft) => category === "connection" ? validateConnection(draft) : category === "agent-models" ? validateModelSequence(draft) : Promise.resolve(null),
-    persist: (draft) => category === "connection" ? persistConnection(adapter, draft) : persistConfig(adapter, category, draft),
+    persist: (draft) => category === "connection" ? persistConnection(adapter, draft) : persistConfig(adapter, state, category, draft),
     reload: () => reloadCategory(state, adapter, category),
     now: () => state.loaded?.loadedAt ?? ""
   });
@@ -30136,17 +30328,17 @@ async function installThenStartRuntime(adapter, request) {
   if (!install.ok) return { install, runtime: install.runtime };
   return { install, runtime: await adapter.startRuntime() };
 }
-function isRecord4(value) {
+function isRecord5(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function applyLoadedState(state, loadRes) {
-  const vaultMind = isRecord4(loadRes.config?.config?.vaultMind) ? loadRes.config.config.vaultMind : null;
-  const embedding = vaultMind && isRecord4(vaultMind.embedding) ? vaultMind.embedding : null;
-  const folders = vaultMind && isRecord4(vaultMind.folders) ? vaultMind.folders : null;
-  const vaults = vaultMind && isRecord4(vaultMind.vaults) ? vaultMind.vaults : null;
-  const defaultVault = vaults && isRecord4(vaults.default) ? vaults.default : null;
-  const extensionCompatibility = isRecord4(loadRes.config?.config?.extensionCompatibility) ? loadRes.config.config.extensionCompatibility : null;
-  const piContext = extensionCompatibility && isRecord4(extensionCompatibility["pi-context"]) ? extensionCompatibility["pi-context"] : null;
+  const vaultMind = isRecord5(loadRes.config?.config?.vaultMind) ? loadRes.config.config.vaultMind : null;
+  const embedding = vaultMind && isRecord5(vaultMind.embedding) ? vaultMind.embedding : null;
+  const folders = vaultMind && isRecord5(vaultMind.folders) ? vaultMind.folders : null;
+  const vaults = vaultMind && isRecord5(vaultMind.vaults) ? vaultMind.vaults : null;
+  const defaultVault = vaults && isRecord5(vaults.default) ? vaults.default : null;
+  const extensionCompatibility = isRecord5(loadRes.config?.config?.extensionCompatibility) ? loadRes.config.config.extensionCompatibility : null;
+  const piContext = extensionCompatibility && isRecord5(extensionCompatibility["pi-context"]) ? extensionCompatibility["pi-context"] : null;
   if (embedding) {
     const persistedLocalUrl = typeof embedding.localUrl === "string" ? embedding.localUrl : "";
     const persistedRemoteUrl = typeof embedding.remoteUrl === "string" ? embedding.remoteUrl : "";
@@ -31519,6 +31711,197 @@ function ThinkingBlock({ content, isStreaming }) {
   });
 }
 
+// src/ui/components/tool-labels.ts
+var TOOL_LABELS = {
+  vm_search: "Search",
+  vm_query: "Query entries",
+  vm_graph_query: "Graph query",
+  vm_ingest: "Ingest note",
+  vm_export: "Export",
+  vm_promote: "Promote entry",
+  vm_sync: "Sync",
+  vm_reindex: "Reindex",
+  vm_configure: "Configure",
+  vm_append: "Append entry",
+  vm_stats: "Stats",
+  vm_status: "Status",
+  vm_describe: "Describe",
+  vm_codegraph_impact: "Code impact",
+  read: "Read file",
+  write: "Write file",
+  edit: "Edit file",
+  bash: "Run command",
+  grep: "Search text",
+  find: "Find files",
+  ls: "List files"
+};
+var SENSITIVE_KEY_PARTS = [
+  "password",
+  "secret",
+  "token",
+  "apikey",
+  "authorization",
+  "cookie",
+  "credential"
+];
+var REDACTED = "[REDACTED]";
+function titleize(raw) {
+  return raw.replace(/[_-]+/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").trim().replace(/\b\w/g, (c) => c.toUpperCase());
+}
+function normalizeKey(raw) {
+  return raw.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+function isRecord6(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function scalarText(value) {
+  return value === null ? "null" : String(value);
+}
+function parseToolPayload(raw) {
+  if (!raw) return void 0;
+  const text = raw.trim();
+  if (text.length === 0) return void 0;
+  try {
+    return { kind: "json", value: JSON.parse(text) };
+  } catch {
+    return { kind: "text", text };
+  }
+}
+function isSensitiveToolKey(key) {
+  const normalized = normalizeKey(key);
+  if (normalized === "token" || [
+    "accesstoken",
+    "refreshtoken",
+    "authtoken",
+    "sessiontoken",
+    "bearertoken",
+    "apitoken",
+    "bridgetoken"
+  ].includes(normalized)) {
+    return true;
+  }
+  return SENSITIVE_KEY_PARTS.some(
+    (part) => part === "token" ? false : normalized === part || normalized.endsWith(part)
+  );
+}
+function redactToolPayloadValue(value, parentKey) {
+  if (parentKey && isSensitiveToolKey(parentKey)) {
+    return REDACTED;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => redactToolPayloadValue(item));
+  }
+  if (isRecord6(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [key, redactToolPayloadValue(child, key)])
+    );
+  }
+  return value;
+}
+function humanizeFieldLabel(raw) {
+  return titleize(raw).replace(/\bApi\b/g, "API").replace(/\bUrl\b/g, "URL").replace(/\bId\b/g, "ID").replace(/\bJson\b/g, "JSON");
+}
+function summarizeToolPayloadValue(value, options = {}) {
+  const itemLimit = options.itemLimit ?? 3;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "No items";
+    const shown = value.slice(0, itemLimit).map((item) => summarizeToolPayloadValue(item)).join(" \xB7 ");
+    return value.length > itemLimit ? `${shown} \xB7 +${value.length - itemLimit} more` : shown;
+  }
+  if (isRecord6(value)) {
+    const entries = Object.entries(value);
+    if (entries.length === 0) return "No fields";
+    const shown = entries.slice(0, itemLimit).map(([key, child]) => `${humanizeFieldLabel(key)}: ${summarizeToolPayloadValue(child)}`).join(" \xB7 ");
+    return entries.length > itemLimit ? `${shown} \xB7 +${entries.length - itemLimit} more` : shown;
+  }
+  return scalarText(value);
+}
+function parseMaskedToolPayload(raw) {
+  const parsed = parseToolPayload(raw);
+  if (!parsed) return void 0;
+  if (parsed.kind === "text") return parsed;
+  return { kind: "json", value: redactToolPayloadValue(parsed.value) };
+}
+function formatMaskedToolPayload(raw) {
+  const parsed = parseMaskedToolPayload(raw);
+  if (!parsed) return void 0;
+  return parsed.kind === "text" ? parsed.text : JSON.stringify(parsed.value, null, 2);
+}
+function toolLabel(name) {
+  const key = name.trim();
+  if (TOOL_LABELS[key]) return TOOL_LABELS[key];
+  if (/\s/.test(key) || /^[A-Z]/.test(key) && !key.includes("_")) return key;
+  return titleize(key.replace(/^vm_/, ""));
+}
+function formatToolDetail(raw) {
+  const parsed = parseMaskedToolPayload(raw);
+  if (!parsed) return void 0;
+  if (parsed.kind === "text") return parsed.text;
+  if (Array.isArray(parsed.value)) {
+    return `${parsed.value.length} item${parsed.value.length === 1 ? "" : "s"}`;
+  }
+  if (!isRecord6(parsed.value)) {
+    return summarizeToolPayloadValue(parsed.value);
+  }
+  const parts = [];
+  if (typeof parsed.value.query === "string") parts.push(`"${parsed.value.query}"`);
+  for (const key of ["mode", "collection", "path", "file", "limit"]) {
+    const value = parsed.value[key];
+    if (value !== void 0 && value !== null && value !== "") {
+      parts.push(typeof value === "string" ? value : summarizeToolPayloadValue(value));
+    }
+  }
+  if (parts.length === 0) return Object.keys(parsed.value).map(humanizeFieldLabel).join(", ");
+  return parts.join(" \xB7 ");
+}
+
+// src/ui/components/StructuredPayload/StructuredPayload.ts
+function isRecord7(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function scalarText2(value) {
+  return value === null ? "null" : String(value);
+}
+function renderText2(value, emptyLabel) {
+  return html`<p class="oas-structured-payload-text">${value.length > 0 ? value : emptyLabel}</p>`;
+}
+function overflowNote(extraCount) {
+  return html`<p class="oas-structured-payload-overflow">+${extraCount} more in Details</p>`;
+}
+function renderArray(value, emptyLabel, itemLimit) {
+  if (value.length === 0) {
+    return html`<p class="oas-structured-payload-empty">${emptyLabel}</p>`;
+  }
+  const shown = value.slice(0, itemLimit);
+  const extra = value.length - shown.length;
+  return html`${html`<ul class="oas-structured-payload-list">${shown.map(
+    (item) => html`<li class="oas-structured-payload-item">${summarizeToolPayloadValue(item)}</li>`
+  )}</ul>`}${extra > 0 ? overflowNote(extra) : ""}`;
+}
+function renderObject(value, emptyLabel, itemLimit) {
+  const entries = Object.entries(value);
+  if (entries.length === 0) {
+    return html`<p class="oas-structured-payload-empty">${emptyLabel}</p>`;
+  }
+  const shown = entries.slice(0, itemLimit);
+  const extra = entries.length - shown.length;
+  return html`${html`<dl class="oas-structured-payload-grid">${shown.map(
+    ([key, child]) => html`<div class="oas-structured-payload-row"><dt class="oas-structured-payload-key">${humanizeFieldLabel(key)}</dt><dd class="oas-structured-payload-value">${summarizeToolPayloadValue(child)}</dd></div>`
+  )}</dl>`}${extra > 0 ? overflowNote(extra) : ""}`;
+}
+function StructuredPayload({
+  raw,
+  emptyLabel = "No details.",
+  itemLimit = 6
+}) {
+  const parsed = parseMaskedToolPayload(raw);
+  if (!parsed) return renderText2("", emptyLabel);
+  if (parsed.kind === "text") return renderText2(parsed.text, emptyLabel);
+  if (Array.isArray(parsed.value)) return renderArray(parsed.value, emptyLabel, itemLimit);
+  if (isRecord7(parsed.value)) return renderObject(parsed.value, emptyLabel, itemLimit);
+  return renderText2(scalarText2(parsed.value), emptyLabel);
+}
+
 // src/ui/components/ToolCard/ToolCard.ts
 var TONE4 = {
   running: "running",
@@ -31535,29 +31918,30 @@ var LABEL3 = {
   done: "Done",
   error: "Error"
 };
-var formatCode = (s) => {
-  try {
-    return JSON.stringify(JSON.parse(s), null, 2);
-  } catch {
-    return s;
-  }
-};
+function isRecord8(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function basename2(value) {
+  return value.split(/[\\/]/).at(-1) ?? value;
+}
+function requestPath(rawArgs) {
+  const parsed = parseMaskedToolPayload(rawArgs);
+  if (!parsed || parsed.kind !== "json" || !isRecord8(parsed.value)) return void 0;
+  const candidate = typeof parsed.value.path === "string" ? parsed.value.path : typeof parsed.value.file === "string" ? parsed.value.file : void 0;
+  return candidate?.trim() || void 0;
+}
 function ToolCard({ toolName, status, args, result }) {
   const hasBody = args !== void 0 || result !== void 0;
-  const body = hasBody ? html`<div class="oas-tool-card-details">
-				${args ? html`<div class="oas-tool-card-section">
-							<span class="oas-tool-card-label">Args</span>
-							<pre class="oas-tool-card-code">${formatCode(args)}</pre>
-						</div>` : ""}
-				${result ? html`<div class="oas-tool-card-section">
-							<span class="oas-tool-card-label">Result</span>
-							<pre class="oas-tool-card-code">${formatCode(result)}</pre>
-						</div>` : ""}
-			</div>` : void 0;
+  const visibleRequest = formatToolDetail(args);
+  const visibleRequestPath = requestPath(args);
+  const rawArgs = formatMaskedToolPayload(args);
+  const rawResult = formatMaskedToolPayload(result);
+  const hasRawDetails = rawArgs !== void 0 || rawResult !== void 0;
+  const body = hasBody ? html`<div class="oas-tool-card-details">${visibleRequest ? html`<div class="oas-tool-card-section"><span class="oas-tool-card-label">Request</span>${visibleRequestPath ? html`<div class="oas-tool-card-pill-row">${Chip({ label: basename2(visibleRequestPath), icon: "file", title: visibleRequestPath })}</div>` : html`<p class="oas-tool-card-summary">${visibleRequest}</p>`}</div>` : ""}${result ? html`<div class="oas-tool-card-section"><span class="oas-tool-card-label">Result</span>${StructuredPayload({ raw: result, emptyLabel: "No result." })}</div>` : ""}${hasRawDetails ? html`<details class="oas-tool-card-raw"><summary class="oas-tool-card-raw-summary"><span>Details</span><span class="oas-tool-card-raw-chevron" aria-hidden="true">${icon("chevron-right")}</span></summary><div class="oas-tool-card-raw-body">${rawArgs ? html`<div class="oas-tool-card-section"><span class="oas-tool-card-label">Raw args</span><pre class="oas-tool-card-code">${rawArgs}</pre></div>` : ""}${rawResult ? html`<div class="oas-tool-card-section"><span class="oas-tool-card-label">Raw result</span><pre class="oas-tool-card-code">${rawResult}</pre></div>` : ""}</div></details>` : ""}</div>` : void 0;
   return Card({
     tone: TONE4[status],
     icon: ICON4[status],
-    title: toolName,
+    title: toolLabel(toolName),
     meta: LABEL3[status],
     body,
     collapsible: hasBody,
@@ -32018,61 +32402,6 @@ function TabBar({
     }).key(key(tab))
   )}
 	</div>`;
-}
-
-// src/ui/components/tool-labels.ts
-var TOOL_LABELS = {
-  vm_search: "Search",
-  vm_query: "Query entries",
-  vm_graph_query: "Graph query",
-  vm_ingest: "Ingest note",
-  vm_export: "Export",
-  vm_promote: "Promote entry",
-  vm_sync: "Sync",
-  vm_reindex: "Reindex",
-  vm_configure: "Configure",
-  vm_append: "Append entry",
-  vm_stats: "Stats",
-  vm_status: "Status",
-  vm_describe: "Describe",
-  vm_codegraph_impact: "Code impact",
-  read: "Read file",
-  write: "Write file",
-  edit: "Edit file",
-  bash: "Run command",
-  grep: "Search text",
-  find: "Find files",
-  ls: "List files"
-};
-function titleize(raw) {
-  return raw.replace(/[_-]+/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").trim().replace(/\b\w/g, (c) => c.toUpperCase());
-}
-function toolLabel(name) {
-  const key = name.trim();
-  if (TOOL_LABELS[key]) return TOOL_LABELS[key];
-  if (/\s/.test(key) || /^[A-Z]/.test(key) && !key.includes("_")) return key;
-  return titleize(key.replace(/^vm_/, ""));
-}
-function formatToolDetail(raw) {
-  if (!raw) return void 0;
-  const text = raw.trim();
-  if (!text.startsWith("{")) return text;
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    return text;
-  }
-  if (typeof parsed !== "object" || parsed === null) return text;
-  const o = parsed;
-  const parts = [];
-  if (typeof o.query === "string") parts.push(`"${o.query}"`);
-  for (const key of ["mode", "collection", "path", "file", "limit"]) {
-    const v = o[key];
-    if (v !== void 0 && v !== null && v !== "") parts.push(String(v));
-  }
-  if (parts.length === 0) return Object.keys(o).join(", ");
-  return parts.join(" \xB7 ");
 }
 
 // src/ui/views/VaultMindView/records.ts
@@ -33074,17 +33403,17 @@ var VaultMindPanel = class extends import_obsidian5.ItemView {
 
 // src/ui/integrations/SetupWizard/SetupWizardPanel.ts
 var VIEW_TYPE_SETUP = "vault-mind-setup";
-function isRecord5(value) {
+function isRecord9(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function seedSetupWizardState(state, loadRes, runtime) {
-  const vaultMind = isRecord5(loadRes.config?.config?.vaultMind) ? loadRes.config.config.vaultMind : null;
-  const embedding = vaultMind && isRecord5(vaultMind.embedding) ? vaultMind.embedding : null;
-  const folders = vaultMind && isRecord5(vaultMind.folders) ? vaultMind.folders : null;
-  const vaults = vaultMind && isRecord5(vaultMind.vaults) ? vaultMind.vaults : null;
-  const defaultVault = vaults && isRecord5(vaults.default) ? vaults.default : null;
-  const extensionCompatibility = isRecord5(loadRes.config?.config?.extensionCompatibility) ? loadRes.config.config.extensionCompatibility : null;
-  const piContext = extensionCompatibility && isRecord5(extensionCompatibility["pi-context"]) ? extensionCompatibility["pi-context"] : null;
+  const vaultMind = isRecord9(loadRes.config?.config?.vaultMind) ? loadRes.config.config.vaultMind : null;
+  const embedding = vaultMind && isRecord9(vaultMind.embedding) ? vaultMind.embedding : null;
+  const folders = vaultMind && isRecord9(vaultMind.folders) ? vaultMind.folders : null;
+  const vaults = vaultMind && isRecord9(vaultMind.vaults) ? vaultMind.vaults : null;
+  const defaultVault = vaults && isRecord9(vaults.default) ? vaults.default : null;
+  const extensionCompatibility = isRecord9(loadRes.config?.config?.extensionCompatibility) ? loadRes.config.config.extensionCompatibility : null;
+  const piContext = extensionCompatibility && isRecord9(extensionCompatibility["pi-context"]) ? extensionCompatibility["pi-context"] : null;
   if (embedding) {
     const persistedLocalUrl = typeof embedding.localUrl === "string" ? embedding.localUrl : "";
     const persistedRemoteUrl = typeof embedding.remoteUrl === "string" ? embedding.remoteUrl : "";
@@ -34528,7 +34857,7 @@ ${text}`.toLowerCase();
 }
 
 // src/main.ts
-var isRecord6 = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+var isRecord10 = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 var VAULT_MIND_ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z"/><path d="M9 21h6"/><path d="M10 9a2 2 0 0 1 4 0"/><path d="M8 12h1"/><path d="M15 12h1"/><circle cx="12" cy="6" r="1"/></svg>`;
 var DEFAULT_SETTINGS = {
   host: "127.0.0.1",
@@ -34565,7 +34894,7 @@ var VaultMindPlugin = class extends import_obsidian7.Plugin {
     await this.loadSettings();
     const rawData = await this.loadData() ?? {};
     const savedData = this.withoutLegacyToken(rawData);
-    if (isRecord6(rawData) && "token" in rawData) {
+    if (isRecord10(rawData) && "token" in rawData) {
       await this.saveData(savedData);
     }
     this.messageStore = new MessageStore();
@@ -34967,7 +35296,7 @@ ${source}
     }
   }
   withoutLegacyToken(data) {
-    if (!isRecord6(data)) return {};
+    if (!isRecord10(data)) return {};
     const existing = {};
     for (const [key, value] of Object.entries(data)) {
       if (key !== "token") existing[key] = value;

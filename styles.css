@@ -3593,6 +3593,68 @@ button.oas-btn-ghost:hover {
 	color: var(--text-on-accent);
 }
 
+/* Source: packages/obsidian-ui/src/components/StructuredPayload/StructuredPayload.css */
+.oas-structured-payload-text,
+.oas-structured-payload-empty,
+.oas-structured-payload-overflow {
+	margin: 0;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-normal);
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.oas-structured-payload-empty,
+.oas-structured-payload-overflow {
+	color: var(--text-muted);
+}
+
+.oas-structured-payload-grid {
+	margin: 0;
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-2-1);
+}
+
+.oas-structured-payload-row {
+	display: grid;
+	grid-template-columns: minmax(8rem, auto) 1fr;
+	gap: var(--size-4-2);
+	align-items: start;
+}
+
+.oas-structured-payload-key,
+.oas-structured-payload-value {
+	margin: 0;
+	font-size: var(--font-ui-smaller);
+}
+
+.oas-structured-payload-key {
+	color: var(--text-muted);
+	font-weight: var(--font-semibold);
+}
+
+.oas-structured-payload-value {
+	color: var(--text-normal);
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.oas-structured-payload-list {
+	margin: 0;
+	padding-left: var(--size-4-4);
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-2-1);
+}
+
+.oas-structured-payload-item {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-normal);
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
 /* Source: packages/obsidian-ui/src/components/SystemMessage/SystemMessage.css */
 .oas-system-msg {
 	display: flex;
@@ -3711,6 +3773,20 @@ button.oas-tab.is-active {
 	letter-spacing: 0.05em;
 }
 
+.oas-tool-card-summary {
+	margin: 0;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-normal);
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.oas-tool-card-pill-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--size-2-1);
+}
+
 .oas-tool-card-code {
 	margin: 0;
 	padding: var(--size-2-2) var(--size-4-2);
@@ -3722,6 +3798,51 @@ button.oas-tab.is-active {
 	overflow-x: auto;
 	white-space: pre-wrap;
 	word-break: break-word;
+}
+
+.oas-tool-card-raw {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-secondary);
+}
+
+.oas-tool-card-raw-summary {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--size-4-2);
+	cursor: pointer;
+	padding: var(--size-2-2) var(--size-4-2);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	list-style: none;
+}
+
+.oas-tool-card-raw-summary:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 2px;
+	border-radius: var(--radius-s);
+}
+
+.oas-tool-card-raw-summary::-webkit-details-marker {
+	display: none;
+}
+
+.oas-tool-card-raw-chevron {
+	display: inline-flex;
+	color: var(--text-faint);
+	transition: transform 120ms ease;
+}
+
+.oas-tool-card-raw[open] .oas-tool-card-raw-chevron {
+	transform: rotate(90deg);
+}
+
+.oas-tool-card-raw-body {
+	padding: 0 var(--size-4-2) var(--size-4-2);
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
 }
 
 /* Source: packages/obsidian-ui/src/utilities.css */
