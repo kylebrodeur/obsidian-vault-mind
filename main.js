@@ -22397,7 +22397,7 @@ var init_bootstrap = __esm({
     init_config();
     init_extension_packages();
     init_pi_detect();
-    BUNDLED_PROJECT_VERSION = true ? "0.16.8" : projectPackage.version;
+    BUNDLED_PROJECT_VERSION = true ? "0.16.9" : projectPackage.version;
     VaultBootstrap = class {
       vaultPath;
       piBinaryPath;
@@ -29243,6 +29243,7 @@ var ConfigurationSettingsTab = class extends import_obsidian4.PluginSettingTab {
       this.disposer = null;
     }
     const container = this.containerEl;
+    container.classList.add("oas-configuration-settings-host");
     container.empty();
     const adapter = createConfigurationAdapter({
       app: this.app,
@@ -29279,6 +29280,7 @@ var ConfigurationSettingsTab = class extends import_obsidian4.PluginSettingTab {
       this.disposer();
       this.disposer = null;
     }
+    this.containerEl.classList.remove("oas-configuration-settings-host");
     this.containerEl.empty();
   }
 };

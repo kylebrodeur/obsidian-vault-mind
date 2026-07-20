@@ -4938,3 +4938,17 @@ button.oas-tab.is-active {
 	display: none;
 }
 /* END GENERATED OBSIDIAN-UI CSS */
+
+/* Vault Mind Settings owns this host only while ConfigurationSettingsTab is mounted.
+ * The shared Obsidian settings padding otherwise leaves an unnecessary frame around
+ * the view and prevents its header/body/footer shell from using the available pane. */
+.vertical-tab-content.oas-configuration-settings-host {
+	display: flex;
+	padding: 0;
+	overflow: hidden;
+}
+
+.vertical-tab-content.oas-configuration-settings-host > .oas-configuration-settings {
+	flex: 1 1 auto;
+	min-height: 0;
+}
