@@ -22397,7 +22397,7 @@ var init_bootstrap = __esm({
     init_config();
     init_extension_packages();
     init_pi_detect();
-    BUNDLED_PROJECT_VERSION = true ? "0.16.10" : projectPackage.version;
+    BUNDLED_PROJECT_VERSION = true ? "0.16.11" : projectPackage.version;
     VaultBootstrap = class {
       vaultPath;
       piBinaryPath;
@@ -35121,7 +35121,16 @@ function createVaultMindController(opts) {
     const tools = refreshTools().catch((err) => {
       console.error("[VaultMindController] Failed to refresh tools:", err);
     });
-    await Promise.all([statusAndModels, tools]);
+    const metadata = Promise.all([
+      loadGit(),
+      loadCollections(),
+      loadSessions(),
+      loadJobs(),
+      loadPending(),
+      loadActivity(),
+      loadProposedEdits()
+    ]);
+    await Promise.all([statusAndModels, tools, metadata]);
   }
   let personalizationAttempt = 0;
   async function personalize(notes) {
@@ -35734,18 +35743,9 @@ ${text}`.toLowerCase();
   });
   client.connect();
   void (async () => {
-    await Promise.all([
-      refreshStatus().catch(
-        (err) => console.error("[VaultMindController] Failed to refresh status and models:", err)
-      ),
-      loadGit(),
-      loadCollections(),
-      loadSessions(),
-      loadJobs(),
-      loadPending(),
-      loadActivity(),
-      loadProposedEdits()
-    ]);
+    await refreshStatus().catch(
+      (err) => console.error("[VaultMindController] Failed initial bridge refresh:", err)
+    );
     state.isInitialized = true;
   })();
   const controller = {
