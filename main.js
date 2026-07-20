@@ -22397,7 +22397,7 @@ var init_bootstrap = __esm({
     init_config();
     init_extension_packages();
     init_pi_detect();
-    BUNDLED_PROJECT_VERSION = true ? "0.16.9" : projectPackage.version;
+    BUNDLED_PROJECT_VERSION = true ? "0.16.10" : projectPackage.version;
     VaultBootstrap = class {
       vaultPath;
       piBinaryPath;
@@ -23395,6 +23395,14 @@ var encodeWebSocketAuthProtocol = (token) => {
   const encoded = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   return `pvm-auth.${encoded}`;
 };
+var HttpStatusError = class extends Error {
+  status;
+  constructor(status, message) {
+    super(`${status} ${message}`);
+    this.name = "HttpStatusError";
+    this.status = status;
+  }
+};
 var VaultMindClient = class {
   config;
   ws = null;
@@ -23513,7 +23521,7 @@ var VaultMindClient = class {
         if (typeof parsed.message === "string") serverMessage = parsed.message;
       } catch {
       }
-      throw new Error(`${res.status} ${serverMessage}`);
+      throw new HttpStatusError(res.status, serverMessage);
     }
     return text ? JSON.parse(text) : void 0;
   }
@@ -23661,6 +23669,30 @@ var VaultMindClient = class {
   async vmStats() {
     return await this.httpJson("GET", "/vm/stats");
   }
+  async listManagedCollections() {
+    return await this.httpJson("GET", "/vm/collections");
+  }
+  async upsertManagedCollection(name, input) {
+    return await this.httpJson("PUT", `/vm/collections/${encodeURIComponent(name)}`, input);
+  }
+  async patchManagedCollection(name, input) {
+    return await this.httpJson("PATCH", `/vm/collections/${encodeURIComponent(name)}`, input);
+  }
+  async deleteManagedCollection(name) {
+    await this.httpJson("DELETE", `/vm/collections/${encodeURIComponent(name)}`);
+  }
+  async listManagedInjectors() {
+    return await this.httpJson("GET", "/vm/injectors");
+  }
+  async upsertManagedInjector(name, input) {
+    return await this.httpJson("PUT", `/vm/injectors/${encodeURIComponent(name)}`, input);
+  }
+  async patchManagedInjector(name, input) {
+    return await this.httpJson("PATCH", `/vm/injectors/${encodeURIComponent(name)}`, input);
+  }
+  async deleteManagedInjector(name) {
+    await this.httpJson("DELETE", `/vm/injectors/${encodeURIComponent(name)}`);
+  }
   /** GET /vault-mind/config — full config + hasToken + remote block */
   async getConfig() {
     return await this.httpJson("GET", "/vault-mind/config");
@@ -23729,6 +23761,328 @@ var VaultMindClient = class {
 
 // src/main.ts
 init_config();
+
+// src/configuration/local-settings-store.ts
+function isRecord2(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function copyFields(value, target, strings = [], numbers = [], booleans = []) {
+  const destination = target;
+  for (const key of strings) {
+    if (typeof value[key] === "string") destination[key] = value[key];
+  }
+  for (const key of numbers) {
+    if (typeof value[key] === "number" && Number.isFinite(value[key])) {
+      destination[key] = value[key];
+    }
+  }
+  for (const key of booleans) {
+    if (typeof value[key] === "boolean") destination[key] = value[key];
+  }
+}
+function sanitizeConnection(value) {
+  if (!isRecord2(value)) return {};
+  const connection = {};
+  copyFields(value, connection, ["host"], ["port"]);
+  return connection;
+}
+function sanitizeEmbedding(value) {
+  if (!isRecord2(value)) return {};
+  const embedding = {};
+  copyFields(value, embedding, ["localUrl", "remoteUrl", "model"], ["dim"]);
+  if (value.mode === "local" || value.mode === "remote" || value.mode === "both" || value.mode === "skip") {
+    embedding.mode = value.mode;
+  }
+  return embedding;
+}
+function sanitizePluginPreferences(value) {
+  if (!isRecord2(value)) return {};
+  const preferences = {};
+  copyFields(
+    value,
+    preferences,
+    ["piBinaryPath"],
+    [],
+    ["checkExtensionOnStartup", "includeEditorContext", "resumeSession"]
+  );
+  return preferences;
+}
+function sanitizeModelSequence(value) {
+  if (!Array.isArray(value)) return void 0;
+  const sequence = [];
+  for (const entry of value) {
+    if (!isRecord2(entry) || typeof entry.providerId !== "string" || typeof entry.modelId !== "string") {
+      return void 0;
+    }
+    sequence.push({ providerId: entry.providerId, modelId: entry.modelId });
+  }
+  return sequence;
+}
+function sanitizeSnapshot(value) {
+  if (!isRecord2(value)) return {};
+  const snapshot = {};
+  if (isRecord2(value.connection)) snapshot.connection = sanitizeConnection(value.connection);
+  if (isRecord2(value.embedding)) snapshot.embedding = sanitizeEmbedding(value.embedding);
+  if (isRecord2(value.pluginPreferences))
+    snapshot.pluginPreferences = sanitizePluginPreferences(value.pluginPreferences);
+  if (isRecord2(value.automation)) {
+    const automation = {};
+    copyFields(
+      value.automation,
+      automation,
+      [],
+      ["autoSyncMinLength"],
+      ["autoStart", "autoSync", "contextAutomation"]
+    );
+    snapshot.automation = automation;
+  }
+  if (isRecord2(value.indexing)) {
+    const indexing = {};
+    copyFields(
+      value.indexing,
+      indexing,
+      ["dataDir", "dedupMode"],
+      ["dedupThreshold"],
+      ["ftsEnabled", "autoIndex"]
+    );
+    snapshot.indexing = indexing;
+  }
+  if (isRecord2(value.graph)) {
+    const graph = {};
+    copyFields(value.graph, graph, ["canvasPath"], [], ["enabled", "canvasSync"]);
+    snapshot.graph = graph;
+  }
+  if (isRecord2(value.vaultLayout)) {
+    const vaultLayout = {};
+    copyFields(value.vaultLayout, vaultLayout, [
+      "inbox",
+      "library",
+      "presentations",
+      "journal",
+      "vaultPath",
+      "collectionPrefix"
+    ]);
+    snapshot.vaultLayout = vaultLayout;
+  }
+  if (isRecord2(value.advanced)) {
+    const advanced = {};
+    copyFields(
+      value.advanced,
+      advanced,
+      ["sync", "collectionModels", "files", "httpPort", "version"],
+      [],
+      ["coalesce"]
+    );
+    snapshot.advanced = advanced;
+  }
+  if (isRecord2(value.agentModels)) {
+    const sequence = sanitizeModelSequence(value.agentModels.sequence);
+    if (sequence) snapshot.agentModels = { sequence };
+  }
+  return snapshot;
+}
+function sanitizeManagedFields(value, kind) {
+  if (!isRecord2(value)) return {};
+  const fields = {};
+  if (kind === "collection") {
+    copyFields(value, fields, ["name", "path", "dedupField"]);
+    if (Array.isArray(value.schema) && value.schema.every((entry) => typeof entry === "string")) {
+      fields.schema = [...value.schema];
+    }
+  } else {
+    copyFields(
+      value,
+      fields,
+      ["name", "regex", "collection", "filterField", "artifactPath"],
+      ["captureGroup"]
+    );
+  }
+  return fields;
+}
+function sanitizeMutationPayload(value, kind) {
+  if (kind === "collection" || kind === "injector") return sanitizeManagedFields(value, kind);
+  if (!isRecord2(value)) return {};
+  const payload = sanitizeSnapshot(value);
+  copyFields(value, payload, ["host"], ["port"]);
+  return payload;
+}
+function isCredentialKey(key) {
+  const normalized = key.replaceAll("_", "").replaceAll("-", "").toLowerCase();
+  return normalized === "token" || normalized === "secret" || normalized === "password" || normalized === "accesstoken" || normalized === "authtoken" || normalized === "bridgetoken" || normalized.endsWith("apikey");
+}
+function sanitizeConfigPatch(value) {
+  if (!isRecord2(value)) return void 0;
+  const sanitizeValue = (candidate) => {
+    if (candidate === null || typeof candidate === "string" || typeof candidate === "boolean") {
+      return candidate;
+    }
+    if (typeof candidate === "number" && Number.isFinite(candidate)) return candidate;
+    if (Array.isArray(candidate)) {
+      const values = candidate.map(sanitizeValue);
+      return values.some((entry) => entry === void 0) ? void 0 : values;
+    }
+    if (!isRecord2(candidate)) return void 0;
+    const result = {};
+    for (const [key, nested] of Object.entries(candidate)) {
+      if (isCredentialKey(key)) continue;
+      const sanitized = sanitizeValue(nested);
+      if (sanitized !== void 0) result[key] = sanitized;
+    }
+    return result;
+  };
+  return sanitizeValue(value);
+}
+function sanitizeBridgeBase(value, kind) {
+  if (kind === "collection" || kind === "injector") return sanitizeManagedFields(value, kind);
+  if (!isRecord2(value)) return {};
+  const bridgeBase = {};
+  copyFields(value, bridgeBase, [], [], ["autoStart", "autoIndex"]);
+  return bridgeBase;
+}
+function sanitizeSync(value) {
+  const sync = {
+    status: "idle",
+    lastError: null
+  };
+  if (!isRecord2(value)) return sync;
+  const status = value.status;
+  if (status === "idle" || status === "pending" || status === "failed" || status === "conflict") {
+    sync.status = status;
+  }
+  const lastError = value.lastError;
+  if (lastError === null) sync.lastError = null;
+  else if (typeof lastError === "string") sync.lastError = lastError;
+  if (typeof value.lastSyncedAt === "string") sync.lastSyncedAt = value.lastSyncedAt;
+  return sync;
+}
+function sanitizeMutation(value) {
+  if (!isRecord2(value)) return null;
+  const kind = typeof value.kind === "string" ? value.kind : void 0;
+  const mutation = {
+    payload: sanitizeMutationPayload(value.payload, kind)
+  };
+  if (typeof value.id === "string") mutation.id = value.id;
+  if (kind !== void 0) mutation.kind = kind;
+  if (value.section === "connection" || value.section === "embedding" || value.section === "automation" || value.section === "indexing" || value.section === "knowledge-graph" || value.section === "vault-layout" || value.section === "advanced" || value.section === "agent-models") {
+    mutation.section = value.section;
+  }
+  if (value.operation === "upsert" || value.operation === "delete")
+    mutation.operation = value.operation;
+  if (isRecord2(value.bridgeBase)) mutation.bridgeBase = sanitizeBridgeBase(value.bridgeBase, kind);
+  if (isRecord2(value.patch)) mutation.patch = sanitizeConfigPatch(value.patch);
+  if (typeof value.createdAt === "string") mutation.createdAt = value.createdAt;
+  const error = value.error;
+  if (error === null) mutation.error = null;
+  else if (typeof error === "string") mutation.error = error;
+  return mutation;
+}
+function snapshotFrom(root, settingsSync) {
+  const snapshot = sanitizeSnapshot(settingsSync?.snapshot);
+  const legacyHost = typeof root.host === "string" ? root.host : void 0;
+  const legacyPort = typeof root.port === "number" ? root.port : void 0;
+  if (legacyHost !== void 0 || legacyPort !== void 0) {
+    const connection = snapshot.connection ?? {};
+    if (connection.host === void 0 && legacyHost !== void 0) connection.host = legacyHost;
+    if (connection.port === void 0 && legacyPort !== void 0) connection.port = legacyPort;
+    snapshot.connection = connection;
+  }
+  return snapshot;
+}
+function normalizeState(value) {
+  const root = isRecord2(value) ? { ...value } : {};
+  delete root.token;
+  const rawSettingsSync = isRecord2(root.settingsSync) ? root.settingsSync : null;
+  const rawOutbox = Array.isArray(rawSettingsSync?.outbox) ? rawSettingsSync.outbox : [];
+  const outbox = rawOutbox.map((mutation) => sanitizeMutation(mutation)).filter((mutation) => mutation !== null);
+  return {
+    ...root,
+    settingsSync: {
+      version: 1,
+      snapshot: snapshotFrom(root, rawSettingsSync),
+      outbox,
+      sync: sanitizeSync(rawSettingsSync?.sync)
+    }
+  };
+}
+function persistedEnvelope(state) {
+  const persisted = { ...state };
+  delete persisted.token;
+  const sync = sanitizeSync(state.settingsSync.sync);
+  const settingsSync = {
+    version: 1,
+    snapshot: sanitizeSnapshot(state.settingsSync.snapshot),
+    outbox: state.settingsSync.outbox.map((mutation) => sanitizeMutation(mutation)).filter((mutation) => mutation !== null)
+  };
+  if (sync.status !== "idle" || sync.lastError !== null || sync.lastSyncedAt !== void 0) {
+    settingsSync.sync = sync;
+  }
+  persisted.settingsSync = settingsSync;
+  return persisted;
+}
+function isStructurallyEqual(left, right) {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+    return left.every((value, index2) => isStructurallyEqual(value, right[index2]));
+  }
+  if (!isRecord2(left) || !isRecord2(right)) return false;
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every(
+    (key) => Object.hasOwn(right, key) && isStructurallyEqual(left[key], right[key])
+  );
+}
+function createLocalSettingsStore(harness) {
+  let queue2 = Promise.resolve();
+  const serialize = (operation) => {
+    const result = queue2.then(operation);
+    queue2 = result.then(
+      () => void 0,
+      () => void 0
+    );
+    return result;
+  };
+  const readEnvelope = async () => {
+    const loaded = await harness.loadData();
+    const state = normalizeState(loaded);
+    const persisted = persistedEnvelope(state);
+    return {
+      state,
+      persisted,
+      changed: !isStructurallyEqual(loaded, persisted)
+    };
+  };
+  const persistState = async (state) => {
+    const normalized = normalizeState(state);
+    await harness.saveData(persistedEnvelope(normalized));
+    return normalized;
+  };
+  return {
+    load: () => serialize(async () => {
+      const envelope = await readEnvelope();
+      if (envelope.changed) await harness.saveData(envelope.persisted);
+      return envelope.state;
+    }),
+    update: (mutator) => serialize(async () => {
+      const { state } = await readEnvelope();
+      return persistState(await mutator(state));
+    }),
+    enqueue: (mutation) => serialize(async () => {
+      const { state } = await readEnvelope();
+      const sanitized = sanitizeMutation(mutation);
+      if (sanitized !== null) state.settingsSync.outbox.push(sanitized);
+      return persistState(state);
+    }),
+    acknowledge: (id) => serialize(async () => {
+      const { state } = await readEnvelope();
+      state.settingsSync.outbox = state.settingsSync.outbox.filter(
+        (mutation) => mutation.id !== id
+      );
+      return persistState(state);
+    })
+  };
+}
 
 // src/modals.ts
 var import_obsidian2 = require("obsidian");
@@ -25858,7 +26212,6 @@ function mapEmbeddingDraft(draft, _confirmed) {
       return {
         localUrl: draft.localUrl,
         remoteUrl: "",
-        workspace: "",
         model: draft.model,
         dim: draft.dim,
         fallback: { enabled: false }
@@ -25867,7 +26220,6 @@ function mapEmbeddingDraft(draft, _confirmed) {
       return {
         localUrl: "",
         remoteUrl: draft.remoteUrl,
-        workspace: draft.workspace,
         model: draft.model,
         dim: draft.dim,
         fallback: { enabled: false }
@@ -25876,7 +26228,6 @@ function mapEmbeddingDraft(draft, _confirmed) {
       return {
         localUrl: draft.localUrl,
         remoteUrl: draft.remoteUrl,
-        workspace: draft.workspace,
         model: draft.model,
         dim: draft.dim,
         fallback: { enabled: true }
@@ -25885,7 +26236,6 @@ function mapEmbeddingDraft(draft, _confirmed) {
       return {
         localUrl: "",
         remoteUrl: "",
-        workspace: "",
         model: "",
         dim: draft.dim,
         fallback: { enabled: false }
@@ -25898,11 +26248,11 @@ var EMBEDDING_SECRET_KEYS = [
   "remoteReadApiKey",
   "remoteWriteApiKey"
 ];
-function isRecord2(value) {
+function isRecord3(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function cloneRecord(value) {
-  return isRecord2(value) ? { ...value } : {};
+  return isRecord3(value) ? { ...value } : {};
 }
 function requireConfirmed(confirmed, section) {
   if (!confirmed) {
@@ -25919,7 +26269,9 @@ function readVaultMind(confirmed) {
   return cloneRecord(confirmed.vaultMind);
 }
 function readEmbeddingConfig(confirmed) {
-  return cloneRecord(readVaultMind(confirmed).embedding);
+  const embedding = cloneRecord(readVaultMind(confirmed).embedding);
+  delete embedding.workspace;
+  return embedding;
 }
 function readFolders(confirmed) {
   return cloneRecord(readVaultMind(confirmed).folders);
@@ -25941,7 +26293,6 @@ function toEmbeddingDraft(patch) {
     mode,
     localUrl: stringOrEmpty(patch.localUrl),
     remoteUrl: stringOrEmpty(patch.remoteUrl),
-    workspace: stringOrEmpty(patch.workspace),
     model: stringOrEmpty(patch.model),
     dim: numberOrNull(patch.dim),
     localApiKey: stringOrEmpty(patch.localApiKey),
@@ -26041,16 +26392,16 @@ function mapConfigSectionDraft(section, patch, confirmed) {
 }
 
 // src/ui/views/ConfigurationSettingsView/baselines.ts
-function isRecord3(value) {
+function isRecord4(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function readVaultMind2(loadResponse) {
   const vaultMind = loadResponse.config?.config?.vaultMind;
-  return isRecord3(vaultMind) ? vaultMind : {};
+  return isRecord4(vaultMind) ? vaultMind : {};
 }
 function readDefaultVault(vaultMind) {
   const vaults = vaultMind.vaults;
-  if (isRecord3(vaults) && isRecord3(vaults.default)) return vaults.default;
+  if (isRecord4(vaults) && isRecord4(vaults.default)) return vaults.default;
   return {};
 }
 function str(value, fallback = "") {
@@ -26064,7 +26415,7 @@ function bool(value, fallback = false) {
 }
 function readEmbeddingConfig2(loadResponse) {
   const vaultMind = loadResponse.config?.config?.vaultMind;
-  if (isRecord3(vaultMind) && isRecord3(vaultMind.embedding)) return vaultMind.embedding;
+  if (isRecord4(vaultMind) && isRecord4(vaultMind.embedding)) return vaultMind.embedding;
   return {};
 }
 function categoryBaseline(category, loadResponse) {
@@ -26083,7 +26434,6 @@ function categoryBaseline(category, loadResponse) {
         mode,
         localUrl,
         remoteUrl,
-        workspace: str(e.workspace),
         model: str(e.model),
         dim: typeof e.dim === "number" && Number.isFinite(e.dim) ? e.dim : 0,
         localApiKey: "",
@@ -26098,7 +26448,7 @@ function categoryBaseline(category, loadResponse) {
     case "automation": {
       const v = readDefaultVault(vm);
       const ec = loadResponse.config?.config?.extensionCompatibility;
-      const pic = isRecord3(ec) && isRecord3(ec["pi-context"]) ? ec["pi-context"] : {};
+      const pic = isRecord4(ec) && isRecord4(ec["pi-context"]) ? ec["pi-context"] : {};
       return {
         autoStart: bool(v.autoStart),
         autoSync: bool(v.autoSync),
@@ -26116,7 +26466,7 @@ function categoryBaseline(category, loadResponse) {
       };
     }
     case "knowledge-graph": {
-      const g = isRecord3(vm.graph) ? vm.graph : {};
+      const g = isRecord4(vm.graph) ? vm.graph : {};
       return {
         enabled: bool(g.enabled),
         canvasSync: bool(g.canvasSync),
@@ -26124,7 +26474,7 @@ function categoryBaseline(category, loadResponse) {
       };
     }
     case "vault-layout": {
-      const f = isRecord3(vm.folders) ? vm.folders : {};
+      const f = isRecord4(vm.folders) ? vm.folders : {};
       const v = readDefaultVault(vm);
       return {
         inbox: str(f.inbox),
@@ -26136,7 +26486,7 @@ function categoryBaseline(category, loadResponse) {
       };
     }
     case "advanced": {
-      const e = isRecord3(vm.embedding) ? vm.embedding : {};
+      const e = isRecord4(vm.embedding) ? vm.embedding : {};
       const prefs = loadResponse.pluginPreferences;
       return {
         sync: str(e.sync),
@@ -26284,7 +26634,7 @@ var SECRET_KEYS = [
   "remoteReadApiKey",
   "remoteWriteApiKey"
 ];
-function isRecord4(value) {
+function isRecord5(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function clone(value) {
@@ -26298,7 +26648,7 @@ function dirtySaveState() {
 }
 function readEmbeddingBaseline(loadResponse) {
   const vaultMind = loadResponse.config?.config?.vaultMind;
-  if (isRecord4(vaultMind) && isRecord4(vaultMind.embedding)) {
+  if (isRecord5(vaultMind) && isRecord5(vaultMind.embedding)) {
     return clone(vaultMind.embedding);
   }
   return {};
@@ -27185,12 +27535,91 @@ function AutomationCategory(options) {
 }
 
 // src/ui/views/ConfigurationSettingsView/categories/CollectionsCategory.ts
-function CollectionsCategory(_options) {
+function CollectionsCategory(options) {
+  const state = reactive({
+    name: "",
+    path: "collections/new.jsonl",
+    schema: "id, fact",
+    records: [],
+    loading: false,
+    error: null
+  });
+  const load = async () => {
+    state.loading = true;
+    state.error = null;
+    try {
+      state.records = [...await options.adapter.listCollections()];
+    } catch (error) {
+      state.error = error instanceof Error ? error.message : String(error);
+    } finally {
+      state.loading = false;
+    }
+  };
+  const save = async () => {
+    const schema = state.schema.split(",").map((field) => field.trim()).filter(Boolean);
+    state.error = null;
+    try {
+      await options.adapter.upsertCollection({
+        name: state.name.trim(),
+        path: state.path.trim(),
+        schema
+      });
+      state.name = "";
+      await load();
+    } catch (error) {
+      state.error = error instanceof Error ? error.message : String(error);
+    }
+  };
+  const remove = async (name) => {
+    state.error = null;
+    try {
+      await options.adapter.deleteCollection(name);
+      await load();
+    } catch (error) {
+      state.error = error instanceof Error ? error.message : String(error);
+    }
+  };
+  const edit = (record) => {
+    state.name = record.name;
+    state.path = record.path;
+    state.schema = record.schema.join(", ");
+    state.error = null;
+  };
+  void load();
   return html`<div class="oas-settings-collections oas-flex oas-flex-col oas-gap-2">
-		${ItemRow({
-    name: "Collections",
-    description: "Collection definitions are read-only. Management is not supported until a typed mutation contract ships."
-  })}
+		<div class="setting-item">
+			<div class="setting-item-info">
+				<div class="setting-item-name">Collections</div>
+				<div class="setting-item-description">Vault-relative JSONL collections used by Vault Mind. Removing one preserves its data file and is blocked while it is referenced.</div>
+			</div>
+		</div>
+		<form class="setting-item" @submit="${(event) => {
+    event.preventDefault();
+    void save();
+  }}">
+			<div class="setting-item-control oas-flex oas-flex-col oas-gap-2">
+				<input aria-label="Collection name" placeholder="Collection name" .value="${() => state.name}" @input="${(event) => {
+    const input = event.target;
+    if (input instanceof HTMLInputElement) state.name = input.value;
+  }}" />
+				<input aria-label="Collection path" placeholder="collections/name.jsonl" .value="${() => state.path}" @input="${(event) => {
+    const input = event.target;
+    if (input instanceof HTMLInputElement) state.path = input.value;
+  }}" />
+				<input aria-label="Collection schema" placeholder="id, fact" .value="${() => state.schema}" @input="${(event) => {
+    const input = event.target;
+    if (input instanceof HTMLInputElement) state.schema = input.value;
+  }}" />
+				<button class="mod-cta" type="submit" disabled="${() => state.loading}">Save collection</button>
+			</div>
+		</form>
+		<div class="setting-item-description" role="alert">${() => state.error ?? ""}</div>
+		${() => state.records.map(
+    (record) => html`<div class="setting-item">
+			<div class="setting-item-info"><div class="setting-item-name">${record.name}</div><div class="setting-item-description">${record.path} · ${record.schema.join(", ")} · ${record.count} entries</div></div>
+			<div class="setting-item-control"><button type="button" @click="${() => edit(record)}">Edit</button><button type="button" @click="${() => void remove(record.name)}">Delete</button></div>
+		</div>`.key(record.name)
+  )}
 	</div>`;
 }
 
@@ -27412,13 +27841,6 @@ function providerGroup(opts, target) {
       onInput: (value) => opts.onChange({ remoteUrl: value }),
       autocomplete: "url"
     })}
-		${TextField({
-      id: "oas-embedding-workspace",
-      label: "Workspace",
-      description: "Workspace/tenant name required by the remote provider, if any.",
-      value: () => draft().workspace,
-      onInput: (value) => opts.onChange({ workspace: value })
-    })}
 		${SecretField({
       id: "oas-secret-remote-api-key",
       label: "Remote API key",
@@ -27530,6 +27952,21 @@ function sharedModelFields(opts) {
 function groupHeading(label, description) {
   return html`<div class="setting-item setting-item-heading"><div class="setting-item-info"><div class="setting-item-name">${label}</div><div class="setting-item-description">${description}</div></div></div>`;
 }
+function remoteModalGuidance() {
+  return html`<div class="setting-item setting-item-heading">
+		<div class="setting-item-info">
+			<div class="setting-item-name">Remote Modal setup</div>
+			<div class="setting-item-description">Local mode remains usable without Remote.</div>
+		</div>
+	</div>
+	<div class="setting-item">
+		<div class="setting-item-info">
+			<div class="setting-item-description">Run ./scripts/install-modal.sh from the repository to see the required secret, deployment, and token handoff steps.</div>
+			<div class="setting-item-description">Enter service authentication in Remote API key or Remote read/write API key fields, never bridge authentication.</div>
+			<div class="setting-item-description">If Test &amp; Fetch Models fails, check the Modal deploy, the token, and that the HuggingFace Gemma license/secret is configured.</div>
+		</div>
+	</div>`;
+}
 function EmbeddingProviderSection(opts) {
   const draft = opts.draft;
   return html`<div class="oas-embedding-provider-section oas-flex oas-flex-col oas-gap-2">
@@ -27543,7 +27980,10 @@ function EmbeddingProviderSection(opts) {
       return html`<div class="oas-embedding-provider-group">${providerGroup(opts, "local")}${sharedModelFields(opts)}</div>`;
     }
     if (mode === "remote") {
-      return html`<div class="oas-embedding-provider-group">${providerGroup(opts, "remote")}${sharedModelFields(opts)}</div>`;
+      return html`<div class="oas-embedding-provider-group">
+					${remoteModalGuidance()}
+					${providerGroup(opts, "remote")}${sharedModelFields(opts)}
+				</div>`;
     }
     return html`<div class="oas-embedding-provider-group">
 				${groupHeading("Local", "Local embedding endpoint and credentials.")}
@@ -27551,6 +27991,7 @@ function EmbeddingProviderSection(opts) {
 			</div>
 			<div class="oas-embedding-provider-group">
 				${groupHeading("Remote", "Remote embedding endpoint and credentials.")}
+				${remoteModalGuidance()}
 				${providerGroup(opts, "remote")}
 			</div>
 			<div class="oas-embedding-shared-fields">
@@ -27608,9 +28049,8 @@ function resetProbeTarget(probeState, target) {
 function inferMode(record) {
   const localUrl = typeof record.localUrl === "string" ? record.localUrl : "";
   const remoteUrl = typeof record.remoteUrl === "string" ? record.remoteUrl : "";
-  const workspace = typeof record.workspace === "string" ? record.workspace : "";
   const hasLocal = localUrl.length > 0;
-  const hasRemote = remoteUrl.length > 0 || workspace.length > 0;
+  const hasRemote = remoteUrl.length > 0;
   if (hasLocal && hasRemote) return "both";
   if (hasLocal) return "local";
   if (hasRemote) return "remote";
@@ -27629,7 +28069,6 @@ function syncDraftFromRecord(draft, record) {
   draft.mode = inferMode(record);
   draft.localUrl = typeof record.localUrl === "string" ? record.localUrl : "";
   draft.remoteUrl = typeof record.remoteUrl === "string" ? record.remoteUrl : "";
-  draft.workspace = typeof record.workspace === "string" ? record.workspace : "";
   draft.model = typeof record.model === "string" ? record.model : "";
   draft.dim = typeof record.dim === "number" ? record.dim : 0;
   draft.localApiKey = typeof record.localApiKey === "string" ? record.localApiKey : "";
@@ -27664,7 +28103,6 @@ function EmbeddingCategory(options) {
     mode: inferMode(state.categories.embedding.draft),
     localUrl: typeof state.categories.embedding.draft.localUrl === "string" ? state.categories.embedding.draft.localUrl : "",
     remoteUrl: typeof state.categories.embedding.draft.remoteUrl === "string" ? state.categories.embedding.draft.remoteUrl : "",
-    workspace: typeof state.categories.embedding.draft.workspace === "string" ? state.categories.embedding.draft.workspace : "",
     model: typeof state.categories.embedding.draft.model === "string" ? state.categories.embedding.draft.model : "",
     dim: typeof state.categories.embedding.draft.dim === "number" ? state.categories.embedding.draft.dim : 0,
     localApiKey: typeof state.categories.embedding.draft.localApiKey === "string" ? String(state.categories.embedding.draft.localApiKey) : "",
@@ -27705,7 +28143,7 @@ function EmbeddingCategory(options) {
     if ("localUrl" in patch || "localApiKey" in patch) {
       resetProbeTarget(probeState, "local");
     }
-    if ("remoteUrl" in patch || "workspace" in patch || "remoteApiKey" in patch || "remoteReadApiKey" in patch || "remoteWriteApiKey" in patch) {
+    if ("remoteUrl" in patch || "remoteApiKey" in patch || "remoteReadApiKey" in patch || "remoteWriteApiKey" in patch) {
       resetProbeTarget(probeState, "remote");
     }
     if ("model" in patch || "dim" in patch) {
@@ -27731,7 +28169,6 @@ function EmbeddingCategory(options) {
       const response = await adapter.probeEmbedding({
         target,
         url: target === "local" ? currentDraft.localUrl : currentDraft.remoteUrl,
-        workspace: target === "remote" ? currentDraft.workspace : void 0,
         model: currentDraft.model,
         transientSecrets
       });
@@ -27854,12 +28291,91 @@ function IndexingCategory(options) {
 }
 
 // src/ui/views/ConfigurationSettingsView/categories/InjectorsCategory.ts
-function InjectorsCategory(_options) {
+function InjectorsCategory(options) {
+  const state = reactive({
+    name: "",
+    regex: "",
+    collection: "main",
+    records: [],
+    loading: false,
+    error: null
+  });
+  const load = async () => {
+    state.loading = true;
+    state.error = null;
+    try {
+      state.records = [...await options.adapter.listInjectors()];
+    } catch (error) {
+      state.error = error instanceof Error ? error.message : String(error);
+    } finally {
+      state.loading = false;
+    }
+  };
+  const save = async () => {
+    state.error = null;
+    try {
+      await options.adapter.upsertInjector({
+        name: state.name.trim(),
+        regex: state.regex,
+        collection: state.collection.trim()
+      });
+      state.name = "";
+      state.regex = "";
+      await load();
+    } catch (error) {
+      state.error = error instanceof Error ? error.message : String(error);
+    }
+  };
+  const remove = async (name) => {
+    state.error = null;
+    try {
+      await options.adapter.deleteInjector(name);
+      await load();
+    } catch (error) {
+      state.error = error instanceof Error ? error.message : String(error);
+    }
+  };
+  const edit = (record) => {
+    state.name = record.name;
+    state.regex = record.regex;
+    state.collection = record.collection;
+    state.error = null;
+  };
+  void load();
   return html`<div class="oas-settings-injectors oas-flex oas-flex-col oas-gap-2">
-		${ItemRow({
-    name: "Injectors",
-    description: "Injector definitions are read-only. Management is not supported until a typed mutation contract ships."
-  })}
+		<div class="setting-item">
+			<div class="setting-item-info">
+				<div class="setting-item-name">Injectors</div>
+				<div class="setting-item-description">Regex rules route captured content into an existing collection. Invalid patterns and unknown targets are rejected before save.</div>
+			</div>
+		</div>
+		<form class="setting-item" @submit="${(event) => {
+    event.preventDefault();
+    void save();
+  }}">
+			<div class="setting-item-control oas-flex oas-flex-col oas-gap-2">
+				<input aria-label="Injector name" placeholder="Injector name" .value="${() => state.name}" @input="${(event) => {
+    const input = event.target;
+    if (input instanceof HTMLInputElement) state.name = input.value;
+  }}" />
+				<input aria-label="Injector regular expression" placeholder="Regex" .value="${() => state.regex}" @input="${(event) => {
+    const input = event.target;
+    if (input instanceof HTMLInputElement) state.regex = input.value;
+  }}" />
+				<input aria-label="Target collection" placeholder="Target collection" .value="${() => state.collection}" @input="${(event) => {
+    const input = event.target;
+    if (input instanceof HTMLInputElement) state.collection = input.value;
+  }}" />
+				<button class="mod-cta" type="submit" disabled="${() => state.loading}">Save injector</button>
+			</div>
+		</form>
+		<div class="setting-item-description" role="alert">${() => state.error ?? ""}</div>
+		${() => state.records.map(
+    (record) => html`<div class="setting-item">
+			<div class="setting-item-info"><div class="setting-item-name">${record.name}</div><div class="setting-item-description">${record.regex} → ${record.collection}</div></div>
+			<div class="setting-item-control"><button type="button" @click="${() => edit(record)}">Edit</button><button type="button" @click="${() => void remove(record.name)}">Delete</button></div>
+		</div>`.key(record.name)
+  )}
 	</div>`;
 }
 
@@ -28226,14 +28742,14 @@ var CATEGORY_ENTRIES = [
     label: "Collections",
     description: "Collection management settings.",
     render: CollectionsCategory,
-    editable: false
+    editable: true
   },
   {
     id: "injectors",
     label: "Injectors",
     description: "Content injection and templating configuration.",
     render: InjectorsCategory,
-    editable: false
+    editable: true
   },
   {
     id: "identities",
@@ -28515,6 +29031,418 @@ var RestConfigurationAdapter = class {
     if (!this.isRecord(defaultVault)) return void 0;
     return defaultVault;
   }
+  snapshotFromLoadResponse(response) {
+    const config = response.config?.config;
+    const vaultMind = config && this.isRecord(config.vaultMind) ? config.vaultMind : {};
+    const embedding = this.isRecord(vaultMind.embedding) ? vaultMind.embedding : {};
+    const vaults = this.isRecord(vaultMind.vaults) ? vaultMind.vaults : {};
+    const defaultVault = this.isRecord(vaults.default) ? vaults.default : {};
+    const folders = this.isRecord(vaultMind.folders) ? vaultMind.folders : {};
+    const graph = this.isRecord(vaultMind.graph) ? vaultMind.graph : {};
+    const compatibility = config && this.isRecord(config.extensionCompatibility) ? config.extensionCompatibility : {};
+    const piContext = this.isRecord(compatibility["pi-context"]) ? compatibility["pi-context"] : {};
+    const localUrl = typeof embedding.localUrl === "string" ? embedding.localUrl : "";
+    const remoteUrl = typeof embedding.remoteUrl === "string" ? embedding.remoteUrl : "";
+    return {
+      connection: { host: response.connection.host, port: response.connection.port },
+      pluginPreferences: { ...response.pluginPreferences },
+      embedding: {
+        mode: localUrl && remoteUrl ? "both" : localUrl ? "local" : remoteUrl ? "remote" : "skip",
+        localUrl,
+        remoteUrl,
+        ...typeof embedding.model === "string" ? { model: embedding.model } : {},
+        ...typeof embedding.dim === "number" ? { dim: embedding.dim } : {}
+      },
+      automation: {
+        ...typeof defaultVault.autoStart === "boolean" ? { autoStart: defaultVault.autoStart } : {},
+        ...typeof defaultVault.autoSync === "boolean" ? { autoSync: defaultVault.autoSync } : {},
+        ...typeof defaultVault.autoSyncMinLength === "number" ? { autoSyncMinLength: defaultVault.autoSyncMinLength } : {},
+        ...typeof piContext.enabled === "boolean" ? { contextAutomation: piContext.enabled } : {}
+      },
+      indexing: {
+        ...typeof vaultMind.dataDir === "string" ? { dataDir: vaultMind.dataDir } : {},
+        ...typeof vaultMind.ftsEnabled === "boolean" ? { ftsEnabled: vaultMind.ftsEnabled } : {},
+        ...typeof vaultMind.autoIndex === "boolean" ? { autoIndex: vaultMind.autoIndex } : {},
+        ...typeof vaultMind.dedupMode === "string" ? { dedupMode: vaultMind.dedupMode } : {},
+        ...typeof vaultMind.dedupThreshold === "number" ? { dedupThreshold: vaultMind.dedupThreshold } : {}
+      },
+      graph: {
+        ...typeof graph.enabled === "boolean" ? { enabled: graph.enabled } : {},
+        ...typeof graph.canvasSync === "boolean" ? { canvasSync: graph.canvasSync } : {},
+        ...typeof graph.canvasPath === "string" ? { canvasPath: graph.canvasPath } : {}
+      },
+      vaultLayout: {
+        ...typeof folders.inbox === "string" ? { inbox: folders.inbox } : {},
+        ...typeof folders.library === "string" ? { library: folders.library } : {},
+        ...typeof folders.presentations === "string" ? { presentations: folders.presentations } : {},
+        ...typeof folders.journal === "string" ? { journal: folders.journal } : {},
+        ...typeof defaultVault.path === "string" ? { vaultPath: defaultVault.path } : {},
+        ...typeof defaultVault.collectionPrefix === "string" ? { collectionPrefix: defaultVault.collectionPrefix } : {}
+      },
+      advanced: {
+        ...typeof embedding.sync === "string" ? { sync: embedding.sync } : {},
+        ...typeof embedding.collectionModels === "string" ? { collectionModels: embedding.collectionModels } : {},
+        ...typeof embedding.coalesce === "boolean" ? { coalesce: embedding.coalesce } : {},
+        ...typeof vaultMind.files === "string" ? { files: vaultMind.files } : {},
+        ...typeof vaultMind.httpPort === "string" ? { httpPort: vaultMind.httpPort } : {},
+        ...typeof response.config?.version === "string" ? { version: response.config.version } : {}
+      },
+      ...response.modelRouter ? { agentModels: { sequence: [...response.modelRouter.sequence] } } : {}
+    };
+  }
+  async persistLocalSnapshot(snapshot, lastError) {
+    const store = this.options.localSettingsStore;
+    if (!store) return;
+    await store.update((state) => ({
+      ...state,
+      settingsSync: {
+        ...state.settingsSync,
+        snapshot,
+        sync: state.settingsSync.sync.status === "conflict" ? state.settingsSync.sync : {
+          status: lastError ? "failed" : "idle",
+          lastError,
+          ...lastError ? {} : { lastSyncedAt: this.options.now() }
+        }
+      }
+    }));
+  }
+  snapshotWithConfigMutation(snapshot, request) {
+    const next = structuredClone(snapshot);
+    if (request.pluginPreferences) next.pluginPreferences = { ...request.pluginPreferences };
+    const vaultMind = this.isRecord(request.patch.vaultMind) ? request.patch.vaultMind : {};
+    const embedding = this.isRecord(vaultMind.embedding) ? vaultMind.embedding : {};
+    const vaults = this.isRecord(vaultMind.vaults) ? vaultMind.vaults : {};
+    const defaultVault = this.isRecord(vaults.default) ? vaults.default : {};
+    const folders = this.isRecord(vaultMind.folders) ? vaultMind.folders : {};
+    const graph = this.isRecord(vaultMind.graph) ? vaultMind.graph : {};
+    const compatibility = this.isRecord(request.patch.extensionCompatibility) ? request.patch.extensionCompatibility : {};
+    const piContext = this.isRecord(compatibility["pi-context"]) ? compatibility["pi-context"] : {};
+    switch (request.section) {
+      case "embedding":
+        next.embedding = {
+          localUrl: typeof embedding.localUrl === "string" ? embedding.localUrl : "",
+          remoteUrl: typeof embedding.remoteUrl === "string" ? embedding.remoteUrl : "",
+          model: typeof embedding.model === "string" ? embedding.model : "",
+          ...typeof embedding.dim === "number" ? { dim: embedding.dim } : {},
+          mode: typeof embedding.localUrl === "string" && embedding.localUrl && typeof embedding.remoteUrl === "string" && embedding.remoteUrl ? "both" : typeof embedding.localUrl === "string" && embedding.localUrl ? "local" : typeof embedding.remoteUrl === "string" && embedding.remoteUrl ? "remote" : "skip"
+        };
+        break;
+      case "automation":
+        next.automation = {
+          autoStart: Boolean(defaultVault.autoStart),
+          autoSync: Boolean(defaultVault.autoSync),
+          autoSyncMinLength: typeof defaultVault.autoSyncMinLength === "number" ? defaultVault.autoSyncMinLength : 0,
+          contextAutomation: Boolean(piContext.enabled)
+        };
+        break;
+      case "indexing":
+        next.indexing = {
+          ...typeof vaultMind.dataDir === "string" ? { dataDir: vaultMind.dataDir } : {},
+          ...typeof vaultMind.ftsEnabled === "boolean" ? { ftsEnabled: vaultMind.ftsEnabled } : {},
+          ...typeof vaultMind.autoIndex === "boolean" ? { autoIndex: vaultMind.autoIndex } : {},
+          ...typeof vaultMind.dedupMode === "string" ? { dedupMode: vaultMind.dedupMode } : {},
+          ...typeof vaultMind.dedupThreshold === "number" ? { dedupThreshold: vaultMind.dedupThreshold } : {}
+        };
+        break;
+      case "knowledge-graph":
+        next.graph = {
+          enabled: Boolean(graph.enabled),
+          canvasSync: Boolean(graph.canvasSync),
+          canvasPath: typeof graph.canvasPath === "string" ? graph.canvasPath : ""
+        };
+        break;
+      case "vault-layout":
+        next.vaultLayout = {
+          inbox: typeof folders.inbox === "string" ? folders.inbox : "",
+          library: typeof folders.library === "string" ? folders.library : "",
+          presentations: typeof folders.presentations === "string" ? folders.presentations : "",
+          journal: typeof folders.journal === "string" ? folders.journal : "",
+          vaultPath: typeof defaultVault.path === "string" ? defaultVault.path : "",
+          collectionPrefix: typeof defaultVault.collectionPrefix === "string" ? defaultVault.collectionPrefix : ""
+        };
+        break;
+      case "advanced":
+        next.advanced = {
+          sync: typeof embedding.sync === "string" ? embedding.sync : "",
+          collectionModels: typeof embedding.collectionModels === "string" ? embedding.collectionModels : "",
+          coalesce: Boolean(embedding.coalesce),
+          files: typeof vaultMind.files === "string" ? vaultMind.files : "",
+          httpPort: typeof vaultMind.httpPort === "string" ? vaultMind.httpPort : "",
+          version: snapshot.advanced?.version
+        };
+        break;
+    }
+    return next;
+  }
+  isLocalSettingsSection(section) {
+    return section === "connection" || section === "embedding" || section === "automation" || section === "indexing" || section === "knowledge-graph" || section === "vault-layout" || section === "advanced" || section === "agent-models";
+  }
+  bridgeBaseFromSnapshot(snapshot) {
+    return {
+      ...typeof snapshot.automation?.autoStart === "boolean" ? { autoStart: snapshot.automation.autoStart } : {},
+      ...typeof snapshot.indexing?.autoIndex === "boolean" ? { autoIndex: snapshot.indexing.autoIndex } : {}
+    };
+  }
+  bridgeBaseFromConfig(response) {
+    const config = response.config;
+    const vaultMind = config && this.isRecord(config.vaultMind) ? config.vaultMind : {};
+    const defaultVault = this.getVaultMindDefault(config);
+    return {
+      ...typeof defaultVault?.autoStart === "boolean" ? { autoStart: defaultVault.autoStart } : {},
+      ...typeof vaultMind.autoIndex === "boolean" ? { autoIndex: vaultMind.autoIndex } : {}
+    };
+  }
+  hasBridgeBase(base) {
+    return typeof base?.autoStart === "boolean" || typeof base?.autoIndex === "boolean";
+  }
+  bridgeBaseChanged(expected, actual) {
+    return typeof expected.autoStart === "boolean" && expected.autoStart !== actual.autoStart || typeof expected.autoIndex === "boolean" && expected.autoIndex !== actual.autoIndex;
+  }
+  async queueOfflineConfig(request, error) {
+    if (!this.isLocalSettingsSection(request.section)) return false;
+    const store = this.options.localSettingsStore;
+    if (!store) return false;
+    const message = error instanceof Error ? error.message : String(error);
+    const section = request.section;
+    const createdAt = this.options.now();
+    const id = globalThis.crypto.randomUUID();
+    await store.update((current) => {
+      const snapshot = this.snapshotWithConfigMutation(current.settingsSync.snapshot, request);
+      const mutation = {
+        id,
+        kind: "config",
+        section,
+        payload: snapshot,
+        bridgeBase: this.bridgeBaseFromSnapshot(current.settingsSync.snapshot),
+        patch: request.patch ? structuredClone(request.patch) : void 0,
+        createdAt,
+        error: null
+      };
+      return {
+        ...current,
+        settingsSync: {
+          ...current.settingsSync,
+          snapshot,
+          outbox: [...current.settingsSync.outbox, mutation],
+          sync: { status: "pending", lastError: message }
+        }
+      };
+    });
+    return true;
+  }
+  isBridgeUnavailable(error) {
+    if (error instanceof HttpStatusError) return false;
+    if (error instanceof TypeError) return true;
+    const message = error instanceof Error ? error.message : String(error);
+    return /bridge unavailable|connection refused|econnrefused|failed to fetch|network error/i.test(
+      message
+    );
+  }
+  async queueOfflineModelRouter(config, error) {
+    const store = this.options.localSettingsStore;
+    if (!store) return false;
+    const message = error instanceof Error ? error.message : String(error);
+    const createdAt = this.options.now();
+    await store.update((current) => {
+      const snapshot = {
+        ...current.settingsSync.snapshot,
+        agentModels: { sequence: structuredClone(config.sequence) }
+      };
+      const mutation = {
+        id: globalThis.crypto.randomUUID(),
+        kind: "config",
+        section: "agent-models",
+        payload: snapshot,
+        createdAt,
+        error: null
+      };
+      return {
+        ...current,
+        settingsSync: {
+          ...current.settingsSync,
+          snapshot,
+          outbox: [...current.settingsSync.outbox, mutation],
+          sync: { status: "pending", lastError: message }
+        }
+      };
+    });
+    return true;
+  }
+  async flushLocalOutbox(client) {
+    const store = this.options.localSettingsStore;
+    if (!store) return true;
+    const state = await store.load();
+    const queued = state.settingsSync.outbox.filter((mutation) => mutation.kind === "config");
+    if (queued.length === 0) return true;
+    let bridgeBase = null;
+    for (const mutation of queued) {
+      if (!mutation.id || !mutation.section) {
+        await store.update((current) => ({
+          ...current,
+          settingsSync: {
+            ...current.settingsSync,
+            sync: {
+              status: "failed",
+              lastError: "Queued configuration is missing replay metadata; save the section again."
+            }
+          }
+        }));
+        return false;
+      }
+      try {
+        if (mutation.section === "agent-models") {
+          const sequence = mutation.payload.agentModels?.sequence;
+          if (!sequence || typeof client.putModelRouter !== "function") {
+            throw new Error("Model routing is unavailable; reconnect and retry this change.");
+          }
+          await client.putModelRouter({ sequence });
+        } else {
+          if (!mutation.patch) {
+            throw new Error("Queued configuration cannot be replayed; save the section again.");
+          }
+          if (this.hasBridgeBase(mutation.bridgeBase)) {
+            bridgeBase ??= this.bridgeBaseFromConfig(await client.getConfig());
+            if (this.bridgeBaseChanged(mutation.bridgeBase, bridgeBase)) {
+              const message = "Changed remotely; resolve before syncing.";
+              await store.update((current) => ({
+                ...current,
+                settingsSync: {
+                  ...current.settingsSync,
+                  outbox: current.settingsSync.outbox.map(
+                    (queuedMutation) => queuedMutation.id === mutation.id ? { ...queuedMutation, error: message } : queuedMutation
+                  ),
+                  sync: { status: "conflict", lastError: message }
+                }
+              }));
+              return false;
+            }
+          }
+          await client.updateConfig(mutation.patch);
+          if (bridgeBase !== null) {
+            bridgeBase = this.bridgeBaseFromSnapshot(mutation.payload);
+          }
+        }
+        await store.acknowledge(mutation.id);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await store.update((current) => ({
+          ...current,
+          settingsSync: {
+            ...current.settingsSync,
+            sync: { status: "failed", lastError: message }
+          }
+        }));
+        return false;
+      }
+    }
+    const remaining = (await store.load()).settingsSync.outbox;
+    await store.update((current) => ({
+      ...current,
+      settingsSync: {
+        ...current.settingsSync,
+        sync: remaining.length === 0 ? { status: "idle", lastError: null, lastSyncedAt: this.options.now() } : { status: "pending", lastError: null }
+      }
+    }));
+    return !remaining.some((mutation) => mutation.kind === "config");
+  }
+  async localLoadResponse(error) {
+    const store = this.options.localSettingsStore;
+    if (!store) return null;
+    let snapshot = (await store.load()).settingsSync.snapshot;
+    if (Object.keys(snapshot).length === 0) {
+      const settings = this.options.getPluginSettings();
+      snapshot = {
+        connection: { host: settings.host, port: settings.port },
+        pluginPreferences: {
+          piBinaryPath: settings.piBinaryPath,
+          checkExtensionOnStartup: settings.checkExtensionOnStartup,
+          includeEditorContext: settings.includeEditorContext,
+          resumeSession: settings.resumeSession
+        }
+      };
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    await this.persistLocalSnapshot(snapshot, message);
+    const preferences = snapshot.pluginPreferences ?? this.options.getPluginSettings();
+    const connection = snapshot.connection ?? this.options.getPluginSettings();
+    const automation = snapshot.automation ?? {};
+    const indexing = snapshot.indexing ?? {};
+    const graph = snapshot.graph ?? {};
+    const vaultLayout = snapshot.vaultLayout ?? {};
+    const embedding = snapshot.embedding ?? {};
+    const advanced = snapshot.advanced ?? {};
+    const modelRouter = snapshot.agentModels?.sequence ? { sequence: [...snapshot.agentModels.sequence] } : null;
+    return {
+      capabilities: await this.getCapabilities(),
+      status: null,
+      config: {
+        config: {
+          vaultMind: {
+            embedding: {
+              localUrl: embedding.localUrl ?? "",
+              remoteUrl: embedding.remoteUrl ?? "",
+              model: embedding.model ?? "",
+              dim: embedding.dim ?? null,
+              sync: advanced.sync ?? "",
+              collectionModels: advanced.collectionModels ?? "",
+              coalesce: advanced.coalesce ?? false
+            },
+            vaults: {
+              default: {
+                path: vaultLayout.vaultPath ?? "",
+                collectionPrefix: vaultLayout.collectionPrefix ?? "",
+                autoStart: automation.autoStart ?? false,
+                autoSync: automation.autoSync ?? false,
+                autoSyncMinLength: automation.autoSyncMinLength ?? 0
+              }
+            },
+            folders: {
+              inbox: vaultLayout.inbox ?? "",
+              library: vaultLayout.library ?? "",
+              presentations: vaultLayout.presentations ?? "",
+              journal: vaultLayout.journal ?? ""
+            },
+            dataDir: indexing.dataDir ?? "",
+            ftsEnabled: indexing.ftsEnabled ?? false,
+            autoIndex: indexing.autoIndex ?? false,
+            dedupMode: indexing.dedupMode ?? "off",
+            dedupThreshold: indexing.dedupThreshold ?? 0,
+            graph: {
+              enabled: graph.enabled ?? false,
+              canvasSync: graph.canvasSync ?? false,
+              canvasPath: graph.canvasPath ?? ""
+            },
+            files: advanced.files ?? "",
+            httpPort: advanced.httpPort ?? ""
+          },
+          extensionCompatibility: {
+            "pi-context": { enabled: automation.contextAutomation ?? false }
+          }
+        },
+        hasToken: false,
+        remote: null,
+        version: advanced.version ?? "",
+        embeddingSecrets: { secrets: [] }
+      },
+      piModels: null,
+      modelRouter,
+      embeddingSecrets: { secrets: [] },
+      connection: {
+        host: connection.host ?? "127.0.0.1",
+        port: connection.port ?? 11435,
+        bridgeTokenCached: Boolean(await this.options.readBridgeToken()),
+        extensionTokenConfigured: false
+      },
+      pluginPreferences: {
+        piBinaryPath: preferences.piBinaryPath ?? "pi",
+        checkExtensionOnStartup: preferences.checkExtensionOnStartup ?? true,
+        includeEditorContext: preferences.includeEditorContext ?? true,
+        resumeSession: preferences.resumeSession ?? true
+      },
+      folders: await this.listFolders(),
+      loadedAt: this.options.now()
+    };
+  }
   async getCapabilities() {
     const client = await this.createClient();
     const methods = this.getClientMethods(client);
@@ -28536,8 +29464,8 @@ var RestConfigurationAdapter = class {
       },
       configuration: {
         canPatch: methods.has("updateConfig"),
-        canManageCollections: false,
-        canManageInjectors: false,
+        canManageCollections: methods.has("listManagedCollections") && methods.has("upsertManagedCollection") && methods.has("deleteManagedCollection"),
+        canManageInjectors: methods.has("listManagedInjectors") && methods.has("upsertManagedInjector") && methods.has("deleteManagedInjector"),
         canManageIdentities: false,
         canWriteModelRouter: methods.has("getModelRouter") && methods.has("putModelRouter")
       },
@@ -28549,40 +29477,55 @@ var RestConfigurationAdapter = class {
     };
   }
   async loadConfiguration() {
-    const client = await this.createClient();
-    const modelRouterRequest = typeof client.getModelRouter === "function" ? client.getModelRouter().catch(() => null) : Promise.resolve(null);
-    const [status, config, models, modelRouter] = await Promise.all([
-      client.status(),
-      client.getConfig(),
-      client.getModels(),
-      modelRouterRequest
-    ]);
-    const capabilities = await this.getCapabilities();
-    if (modelRouter === null) capabilities.configuration.canWriteModelRouter = false;
-    const settings = this.options.getPluginSettings();
-    const sanitizedConfig = this.sanitizeConfig(config);
-    return {
-      capabilities,
-      status,
-      config: sanitizedConfig,
-      piModels: models,
-      modelRouter,
-      embeddingSecrets: config.embeddingSecrets,
-      connection: {
-        host: settings.host,
-        port: settings.port,
-        bridgeTokenCached: !!await this.options.readBridgeToken(),
-        extensionTokenConfigured: config.hasToken
-      },
-      pluginPreferences: {
-        piBinaryPath: settings.piBinaryPath,
-        checkExtensionOnStartup: settings.checkExtensionOnStartup,
-        includeEditorContext: settings.includeEditorContext,
-        resumeSession: settings.resumeSession
-      },
-      folders: await this.listFolders(),
-      loadedAt: this.options.now()
-    };
+    try {
+      const client = await this.createClient();
+      const flushedLocalOutbox = await this.flushLocalOutbox(client);
+      if (!flushedLocalOutbox) {
+        const pendingError = (await this.options.localSettingsStore?.load())?.settingsSync.sync.lastError ?? "Saved settings are waiting to sync with Vault Mind.";
+        const local = await this.localLoadResponse(new Error(pendingError));
+        if (local) return local;
+      }
+      const modelRouterRequest = typeof client.getModelRouter === "function" ? client.getModelRouter().catch(() => null) : Promise.resolve(null);
+      const [status, config, models, modelRouter] = await Promise.all([
+        client.status(),
+        client.getConfig(),
+        client.getModels(),
+        modelRouterRequest
+      ]);
+      const capabilities = await this.getCapabilities();
+      if (modelRouter === null) capabilities.configuration.canWriteModelRouter = false;
+      const settings = this.options.getPluginSettings();
+      const response = {
+        capabilities,
+        status,
+        config: this.sanitizeConfig(config),
+        piModels: models,
+        modelRouter,
+        embeddingSecrets: config.embeddingSecrets,
+        connection: {
+          host: settings.host,
+          port: settings.port,
+          bridgeTokenCached: Boolean(await this.options.readBridgeToken()),
+          extensionTokenConfigured: config.hasToken
+        },
+        pluginPreferences: {
+          piBinaryPath: settings.piBinaryPath,
+          checkExtensionOnStartup: settings.checkExtensionOnStartup,
+          includeEditorContext: settings.includeEditorContext,
+          resumeSession: settings.resumeSession
+        },
+        folders: await this.listFolders(),
+        loadedAt: this.options.now()
+      };
+      if (flushedLocalOutbox) {
+        await this.persistLocalSnapshot(this.snapshotFromLoadResponse(response), null);
+      }
+      return response;
+    } catch (error) {
+      const local = await this.localLoadResponse(error);
+      if (local) return local;
+      throw error;
+    }
   }
   sanitizeConfig(config) {
     const sanitized = structuredClone(config);
@@ -28795,26 +29738,6 @@ var RestConfigurationAdapter = class {
         error: e instanceof Error ? e.message : String(e)
       };
     }
-    if (request.vault !== baselineVault) {
-      const snapshot = this.getVaultMindDefault(currentConfig.config);
-      if (snapshot) {
-        try {
-          await client.updateConfig({
-            vaultMind: { vaults: { default: { ...snapshot, path: request.vault } } }
-          });
-        } catch (e) {
-          return {
-            ok: false,
-            effects: {
-              config: "applied",
-              secrets: "not-requested",
-              pluginPreferences: "not-requested"
-            },
-            error: `Vault sibling restoration failed: ${e instanceof Error ? e.message : e}`
-          };
-        }
-      }
-    }
     const secrets = this.extractSecrets(request.embedding);
     if (Object.keys(secrets).length > 0) {
       try {
@@ -28840,13 +29763,11 @@ var RestConfigurationAdapter = class {
         break;
       case "remote":
         if (embedding.remoteUrl) setup.remoteUrl = embedding.remoteUrl;
-        if (embedding.workspace) setup.workspace = embedding.workspace;
         if (embedding.model) setup.model = embedding.model;
         break;
       case "both":
         if (embedding.localUrl) setup.localUrl = embedding.localUrl;
         if (embedding.remoteUrl) setup.remoteUrl = embedding.remoteUrl;
-        if (embedding.workspace) setup.workspace = embedding.workspace;
         if (embedding.model) setup.model = embedding.model;
         break;
       case "skip":
@@ -28859,7 +29780,6 @@ var RestConfigurationAdapter = class {
     return {
       localUrl: embedding.localUrl ?? "",
       remoteUrl: embedding.remoteUrl ?? "",
-      workspace: embedding.workspace ?? "",
       model: embedding.model ?? "",
       dim: embedding.dim ?? null,
       fallback: { enabled: embedding.mode === "both" }
@@ -29020,6 +29940,19 @@ var RestConfigurationAdapter = class {
         error: validationError
       };
     }
+    if (!await this.flushLocalOutbox(client)) {
+      if (request.patch) effects.config = "failed";
+      const pendingError = (await this.options.localSettingsStore?.load())?.settingsSync.sync.lastError ?? "Saved settings are waiting to sync with Vault Mind.";
+      return {
+        ok: false,
+        section: request.section,
+        config: null,
+        secretStatus: null,
+        savedAt: null,
+        effects,
+        error: pendingError
+      };
+    }
     try {
       if (request.pluginPreferences) {
         await this.options.savePluginSettings(request.pluginPreferences);
@@ -29051,6 +29984,30 @@ var RestConfigurationAdapter = class {
     } catch (e) {
       const primaryError = e instanceof Error ? e.message : String(e);
       let errorMessage = primaryError;
+      if (effects.config === "not-requested" && this.isBridgeUnavailable(e) && await this.queueOfflineConfig(request, e)) {
+        effects.config = "applied";
+        if (request.embeddingSecrets && Object.keys(request.embeddingSecrets).length > 0) {
+          effects.secrets = "failed";
+          return {
+            ok: false,
+            section: request.section,
+            config: null,
+            secretStatus: null,
+            savedAt: null,
+            effects,
+            error: "Configuration saved locally. Reconnect to save the embedding credential."
+          };
+        }
+        return {
+          ok: true,
+          section: request.section,
+          config: null,
+          secretStatus: null,
+          savedAt: this.options.now(),
+          effects,
+          error: null
+        };
+      }
       if (request.pluginPreferences && effects.pluginPreferences === "applied") {
         try {
           await this.options.savePluginSettings({
@@ -29130,6 +30087,36 @@ var RestConfigurationAdapter = class {
   isVaultFolder(entry) {
     return "children" in entry && Array.isArray(entry.children);
   }
+  async listCollections() {
+    const client = await this.createClient();
+    return (await client.listManagedCollections()).collections;
+  }
+  async upsertCollection(input) {
+    const client = await this.createClient();
+    const existing = (await client.listManagedCollections()).collections.some(
+      (collection) => collection.name === input.name
+    );
+    return (existing ? await client.patchManagedCollection(input.name, input) : await client.upsertManagedCollection(input.name, input)).collections;
+  }
+  async deleteCollection(name) {
+    const client = await this.createClient();
+    await client.deleteManagedCollection(name);
+  }
+  async listInjectors() {
+    const client = await this.createClient();
+    return (await client.listManagedInjectors()).injectors;
+  }
+  async upsertInjector(input) {
+    const client = await this.createClient();
+    const existing = (await client.listManagedInjectors()).injectors.some(
+      (injector) => injector.name === input.name
+    );
+    return (existing ? await client.patchManagedInjector(input.name, input) : await client.upsertManagedInjector(input.name, input)).injectors;
+  }
+  async deleteInjector(name) {
+    const client = await this.createClient();
+    await client.deleteManagedInjector(name);
+  }
   async listFolders() {
     const root = this.options.app.vault.getAllLoadedFiles();
     const entries = root.filter((entry) => this.isVaultFolder(entry));
@@ -29190,7 +30177,22 @@ var RestConfigurationAdapter = class {
   }
   async putModelRouter(config) {
     const client = await this.createClient();
-    return client.putModelRouter(config);
+    if (!await this.flushLocalOutbox(client)) {
+      const pendingError = (await this.options.localSettingsStore?.load())?.settingsSync.sync.lastError ?? "Saved model routing is waiting to sync with Vault Mind.";
+      const error = new Error(pendingError);
+      if (this.isBridgeUnavailable(error) && await this.queueOfflineModelRouter(config, error)) {
+        return config;
+      }
+      throw error;
+    }
+    try {
+      return await client.putModelRouter(config);
+    } catch (error) {
+      if (this.isBridgeUnavailable(error) && await this.queueOfflineModelRouter(config, error)) {
+        return config;
+      }
+      throw error;
+    }
   }
   async toggleWatcher() {
     const client = await this.createClient();
@@ -29223,6 +30225,7 @@ function createConfigurationAdapter(context) {
     readBridgeToken: context.readBridgeToken,
     writeBridgeToken: context.writeBridgeToken,
     clientFactory: (config) => new VaultMindClient(config),
+    localSettingsStore: context.localSettingsStore,
     startRuntimeStarter: context.startRuntimeStarter
   });
 }
@@ -29251,7 +30254,8 @@ var ConfigurationSettingsTab = class extends import_obsidian4.PluginSettingTab {
       settings: this.context.settings,
       onSaveSettings: this.context.onSaveSettings,
       readBridgeToken: this.context.readBridgeToken,
-      writeBridgeToken: this.context.writeBridgeToken
+      writeBridgeToken: this.context.writeBridgeToken,
+      localSettingsStore: this.context.localSettingsStore
     });
     try {
       const loadResponse = await adapter.loadConfiguration();
@@ -29322,7 +30326,6 @@ function defaultEmbedding() {
     mode: "local",
     localUrl: "http://127.0.0.1:11434",
     remoteUrl: "",
-    workspace: "",
     model: "embeddinggemma",
     dim: 768,
     localApiKey: "",
@@ -29381,7 +30384,7 @@ function createSetupWizardState(vault) {
     secretStatus: defaultSecretStatus(),
     folders: defaultFolders(),
     folderOptions: defaultFolderOptions(),
-    preferences: { autoStart: true, contextAutomation: false }
+    preferences: reactive({ autoStart: true, contextAutomation: false })
   };
   Object.defineProperty(state, "step", {
     enumerable: true,
@@ -29443,7 +30446,7 @@ function positiveIntegerDim(dim) {
   return dim !== null && Number.isInteger(dim) && dim > 0;
 }
 function hasRemoteEndpoint(draft) {
-  return draft.remoteUrl.length > 0 || draft.workspace.length > 0;
+  return draft.remoteUrl.length > 0;
 }
 function probeVectorDim(state, target) {
   const model = state.embedding.model;
@@ -29564,7 +30567,7 @@ function updateSetupEmbedding(state, patch) {
     resetRemote = true;
   }
   if ("localUrl" in patch || "localApiKey" in patch) resetLocal = true;
-  if ("remoteUrl" in patch || "workspace" in patch || "remoteApiKey" in patch || "remoteReadApiKey" in patch || "remoteWriteApiKey" in patch) {
+  if ("remoteUrl" in patch || "remoteApiKey" in patch || "remoteReadApiKey" in patch || "remoteWriteApiKey" in patch) {
     resetRemote = true;
   }
   if ("model" in patch) {
@@ -29597,18 +30600,16 @@ function probeInputs(state, target) {
   if (target === "local") {
     return {
       url: state.embedding.localUrl,
-      workspace: "",
       model: state.embedding.model
     };
   }
   return {
     url: state.embedding.remoteUrl,
-    workspace: state.embedding.workspace,
     model: state.embedding.model
   };
 }
 function inputsEqual(a, b) {
-  return a.url === b.url && a.workspace === b.workspace && a.model === b.model;
+  return a.url === b.url && a.model === b.model;
 }
 function extractErrorMessage2(error) {
   if (typeof error === "string") return error;
@@ -29646,7 +30647,6 @@ async function probeSetupEmbedding(state, target, adapter) {
   const request = {
     target,
     url: captured.url,
-    workspace: target === "remote" ? captured.workspace : void 0,
     model: captured.model,
     transientSecrets
   };
@@ -29760,6 +30760,7 @@ function Card(options) {
     collapsible = false,
     defaultExpanded = true,
     isExpanded,
+    forceCollapsed,
     spinIcon = true
   } = options;
   const state = reactive({ expanded: collapsible ? defaultExpanded : true });
@@ -29769,7 +30770,7 @@ function Card(options) {
     if (typeof slot !== "function" || "isT" in slot) return slot ?? "";
     return slot();
   };
-  const resolveExpanded = () => isExpanded !== void 0 ? isExpanded() : state.expanded;
+  const resolveExpanded = () => forceCollapsed?.() ? false : isExpanded !== void 0 ? isExpanded() : state.expanded;
   const rootClass = () => {
     const t = resolveTone();
     let c = "oas-card";
@@ -29784,7 +30785,8 @@ function Card(options) {
     return t === "default" ? false : `border-left-color: ${TONE_COLOR[t]};`;
   };
   const toggle = () => {
-    if (collapsible && isExpanded === void 0) state.expanded = !state.expanded;
+    if (collapsible && isExpanded === void 0 && !forceCollapsed?.())
+      state.expanded = !state.expanded;
   };
   return html`<div class="${rootClass}" style="${accent}">
 		<div class="oas-card-header" @click="${toggle}">
@@ -29994,7 +30996,7 @@ function PreferencesStep({ state }) {
   return html`<div class="oas-setup-step">
 		${ItemRow({
     name: "Auto-start",
-    description: "Open the Chat tab automatically when Obsidian starts.",
+    description: "Start the bridge automatically when Obsidian loads.",
     control: Toggle(
       () => state.preferences.autoStart,
       () => {
@@ -30146,10 +31148,7 @@ function ReviewSaveStep({ state }) {
       rows.push(ItemRow({ name: "Local URL", description: () => state.embedding.localUrl }));
     }
     if (mode === "remote" || mode === "both") {
-      rows.push(
-        ItemRow({ name: "Remote URL", description: () => state.embedding.remoteUrl }),
-        ItemRow({ name: "Workspace", description: () => state.embedding.workspace })
-      );
+      rows.push(ItemRow({ name: "Remote URL", description: () => state.embedding.remoteUrl }));
     }
     rows.push(
       ItemRow({ name: "Model", description: () => state.embedding.model }),
@@ -30330,17 +31329,17 @@ async function installThenStartRuntime(adapter, request) {
   if (!install.ok) return { install, runtime: install.runtime };
   return { install, runtime: await adapter.startRuntime() };
 }
-function isRecord5(value) {
+function isRecord6(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function applyLoadedState(state, loadRes) {
-  const vaultMind = isRecord5(loadRes.config?.config?.vaultMind) ? loadRes.config.config.vaultMind : null;
-  const embedding = vaultMind && isRecord5(vaultMind.embedding) ? vaultMind.embedding : null;
-  const folders = vaultMind && isRecord5(vaultMind.folders) ? vaultMind.folders : null;
-  const vaults = vaultMind && isRecord5(vaultMind.vaults) ? vaultMind.vaults : null;
-  const defaultVault = vaults && isRecord5(vaults.default) ? vaults.default : null;
-  const extensionCompatibility = isRecord5(loadRes.config?.config?.extensionCompatibility) ? loadRes.config.config.extensionCompatibility : null;
-  const piContext = extensionCompatibility && isRecord5(extensionCompatibility["pi-context"]) ? extensionCompatibility["pi-context"] : null;
+  const vaultMind = isRecord6(loadRes.config?.config?.vaultMind) ? loadRes.config.config.vaultMind : null;
+  const embedding = vaultMind && isRecord6(vaultMind.embedding) ? vaultMind.embedding : null;
+  const folders = vaultMind && isRecord6(vaultMind.folders) ? vaultMind.folders : null;
+  const vaults = vaultMind && isRecord6(vaultMind.vaults) ? vaultMind.vaults : null;
+  const defaultVault = vaults && isRecord6(vaults.default) ? vaults.default : null;
+  const extensionCompatibility = isRecord6(loadRes.config?.config?.extensionCompatibility) ? loadRes.config.config.extensionCompatibility : null;
+  const piContext = extensionCompatibility && isRecord6(extensionCompatibility["pi-context"]) ? extensionCompatibility["pi-context"] : null;
   if (embedding) {
     const persistedLocalUrl = typeof embedding.localUrl === "string" ? embedding.localUrl : "";
     const persistedRemoteUrl = typeof embedding.remoteUrl === "string" ? embedding.remoteUrl : "";
@@ -30349,7 +31348,6 @@ function applyLoadedState(state, loadRes) {
       mode: inferredMode,
       localUrl: persistedLocalUrl || state.embedding.localUrl,
       remoteUrl: persistedRemoteUrl,
-      workspace: typeof embedding.workspace === "string" ? embedding.workspace : state.embedding.workspace,
       model: typeof embedding.model === "string" ? embedding.model : state.embedding.model,
       dim: typeof embedding.dim === "number" || embedding.dim === null ? embedding.dim : state.embedding.dim
     });
@@ -31397,6 +32395,14 @@ var META = {
   rejected: "Rejected",
   error: "Error"
 };
+function exceedsCollapsedDiffThreshold(content) {
+  if (content.length > 8e3) return true;
+  let lines = 1;
+  for (let index2 = 0; index2 < content.length; index2 += 1) {
+    if (content.charCodeAt(index2) === 10 && ++lines > 120) return true;
+  }
+  return false;
+}
 function DiffCard({
   path: path8,
   oldContent,
@@ -31407,6 +32413,7 @@ function DiffCard({
   onReject,
   onRetry
 }) {
+  const defaultExpanded = !exceedsCollapsedDiffThreshold(oldContent) && !exceedsCollapsedDiffThreshold(newContent);
   return Card({
     tone: () => TONE[status()],
     icon: () => ICON[status()],
@@ -31431,8 +32438,8 @@ function DiffCard({
     }}
 		</div>`,
     collapsible: true,
-    defaultExpanded: true,
-    isExpanded: () => status() !== "applied" && status() !== "rejected"
+    defaultExpanded,
+    forceCollapsed: () => status() === "applied" || status() === "rejected"
   });
 }
 
@@ -31753,7 +32760,7 @@ function titleize(raw) {
 function normalizeKey(raw) {
   return raw.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
-function isRecord6(value) {
+function isRecord7(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function scalarText(value) {
@@ -31793,7 +32800,7 @@ function redactToolPayloadValue(value, parentKey) {
   if (Array.isArray(value)) {
     return value.map((item) => redactToolPayloadValue(item));
   }
-  if (isRecord6(value)) {
+  if (isRecord7(value)) {
     return Object.fromEntries(
       Object.entries(value).map(([key, child]) => [key, redactToolPayloadValue(child, key)])
     );
@@ -31810,7 +32817,7 @@ function summarizeToolPayloadValue(value, options = {}) {
     const shown = value.slice(0, itemLimit).map((item) => summarizeToolPayloadValue(item)).join(" \xB7 ");
     return value.length > itemLimit ? `${shown} \xB7 +${value.length - itemLimit} more` : shown;
   }
-  if (isRecord6(value)) {
+  if (isRecord7(value)) {
     const entries = Object.entries(value);
     if (entries.length === 0) return "No fields";
     const shown = entries.slice(0, itemLimit).map(([key, child]) => `${humanizeFieldLabel(key)}: ${summarizeToolPayloadValue(child)}`).join(" \xB7 ");
@@ -31842,7 +32849,7 @@ function formatToolDetail(raw) {
   if (Array.isArray(parsed.value)) {
     return `${parsed.value.length} item${parsed.value.length === 1 ? "" : "s"}`;
   }
-  if (!isRecord6(parsed.value)) {
+  if (!isRecord7(parsed.value)) {
     return summarizeToolPayloadValue(parsed.value);
   }
   const parts = [];
@@ -31858,7 +32865,7 @@ function formatToolDetail(raw) {
 }
 
 // src/ui/components/StructuredPayload/StructuredPayload.ts
-function isRecord7(value) {
+function isRecord8(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function scalarText2(value) {
@@ -31900,7 +32907,7 @@ function StructuredPayload({
   if (!parsed) return renderText2("", emptyLabel);
   if (parsed.kind === "text") return renderText2(parsed.text, emptyLabel);
   if (Array.isArray(parsed.value)) return renderArray(parsed.value, emptyLabel, itemLimit);
-  if (isRecord7(parsed.value)) return renderObject(parsed.value, emptyLabel, itemLimit);
+  if (isRecord8(parsed.value)) return renderObject(parsed.value, emptyLabel, itemLimit);
   return renderText2(scalarText2(parsed.value), emptyLabel);
 }
 
@@ -31920,7 +32927,7 @@ var LABEL3 = {
   done: "Done",
   error: "Error"
 };
-function isRecord8(value) {
+function isRecord9(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function basename2(value) {
@@ -31928,7 +32935,7 @@ function basename2(value) {
 }
 function requestPath(rawArgs) {
   const parsed = parseMaskedToolPayload(rawArgs);
-  if (!parsed || parsed.kind !== "json" || !isRecord8(parsed.value)) return void 0;
+  if (!parsed || parsed.kind !== "json" || !isRecord9(parsed.value)) return void 0;
   const candidate = typeof parsed.value.path === "string" ? parsed.value.path : typeof parsed.value.file === "string" ? parsed.value.file : void 0;
   return candidate?.trim() || void 0;
 }
@@ -32720,39 +33727,52 @@ function ActivityView(o) {
 
 // src/ui/views/VaultMindView/FirstRunCard.ts
 function FirstRunCard(opts) {
-  return html`${() => !opts.isConfigured ? Card({
-    tone: "default",
-    icon: "settings",
-    title: "Set up Vault Mind",
-    body: "Get started with Vault Mind \u2014 configure the runtime, embedding provider, and folder layout.",
-    footer: Button({ label: "Get started", variant: "cta", onClick: opts.onStartSetup })
-  }) : Card({
-    tone: () => opts.onboardingError ? "error" : "default",
-    icon: "sparkles",
-    title: () => opts.isPersonalizing ? "Personalizing Vault Mind" : "Welcome to Vault Mind",
-    body: () => opts.isPersonalizing ? `We are preparing your vault's personalized AI. Please respond to any requests for permissions or information below.` : `Personalize your AI by giving it a role, a goal, and a specific set of instructions for your vault.${opts.onboardingError ? `
+  return Card({
+    tone: () => opts.isConfigured() && opts.onboardingError() ? "error" : "default",
+    icon: () => opts.isConfigured() ? "sparkles" : "settings",
+    title: () => !opts.isConfigured() ? "Set up Vault Mind" : opts.isPersonalizing() ? "Personalizing Vault Mind" : "Welcome to Vault Mind",
+    body: () => {
+      if (!opts.isConfigured()) {
+        return "Get started with Vault Mind \u2014 configure the runtime, embedding provider, and folder layout.";
+      }
+      if (opts.isPersonalizing()) {
+        return "We are preparing your vault's personalized AI. Please respond to any requests for permissions or information below.";
+      }
+      const onboardingError = opts.onboardingError();
+      return html`<div class="oas-flex oas-flex-col oas-gap-2">
+				<span>Personalize your AI by giving it a role, a goal, and a specific set of instructions for your vault.${onboardingError ? `
 
-${opts.onboardingError}` : ""}`,
-    footer: html`
-					<div class="oas-card-footer oas-flex-row">
-						${() => !opts.isPersonalizing ? ModelPicker({
-      models: opts.models,
-      value: () => opts.currentModel()?.key ?? "",
-      selectedLabel: () => opts.currentModel()?.label ?? "Model",
-      key: (model) => model.key,
-      itemLabel: (model) => model.label,
-      onSelect: opts.onModelSelect
-    }) : null}
-						${Button({
-      label: () => opts.isPersonalizing ? "Personalizing..." : "Personalize",
-      variant: "cta",
-      onClick: opts.onPersonalize,
-      disabled: () => opts.isPersonalizing
-    })}
-						${() => opts.isPersonalizing ? Button({ label: "Cancel", onClick: opts.onCancelPersonalization }) : null}
-					</div>
-				`
-  })}`;
+${onboardingError}` : ""}</span>
+				<label class="oas-flex oas-flex-col oas-gap-1">
+					<span>Retry notes</span>
+					<textarea class="textarea" rows="2" .value="${opts.retryNotes}" @input="${(event) => opts.onRetryNotesChange(event.target.value)}"></textarea>
+					<span>Optional. Sent only when you click Personalize; use this to revise the personalization request.</span>
+				</label>
+			</div>`;
+    },
+    footer: () => {
+      if (!opts.isConfigured()) {
+        return Button({ label: "Get started", variant: "cta", onClick: opts.onStartSetup });
+      }
+      return html`<div class="oas-card-footer oas-flex-row">
+				${() => !opts.isPersonalizing() ? ModelPicker({
+        models: opts.models,
+        value: () => opts.currentModel()?.key ?? "",
+        selectedLabel: () => opts.currentModel()?.label ?? "Model",
+        key: (model) => model.key,
+        itemLabel: (model) => model.label,
+        onSelect: opts.onModelSelect
+      }) : null}
+				${Button({
+        label: () => opts.isPersonalizing() ? "Personalizing..." : "Personalize",
+        variant: "cta",
+        onClick: opts.onPersonalize,
+        disabled: () => opts.isPersonalizing()
+      })}
+				${() => opts.isPersonalizing() ? Button({ label: "Cancel", onClick: opts.onCancelPersonalization }) : null}
+			</div>`;
+    }
+  });
 }
 
 // src/ui/components/SearchComposer/SearchComposer.ts
@@ -33130,70 +34150,45 @@ function VaultMindView(opts) {
   const onModelSelect = (model) => {
     void demo.setModel(model.provider, model.modelId);
   };
-  const onPersonalize = () => demo.personalize().then((res) => {
-    if (res.completed) demo.refreshStatus();
+  const onPersonalize = () => demo.personalize(s.personalizationRetryNotes).then((res) => {
+    if (res.completed) {
+      demo.setPersonalizationRetryNotes("");
+      demo.refreshStatus();
+    }
   });
-  const renderChat = () => {
-    if (!s.isConfigured) {
-      return FirstRunCard({
-        onStartSetup: opts.onStartSetup,
-        onPersonalize: () => {
-        },
-        onCancelPersonalization: demo.cancelPersonalization,
-        models: modelItems,
-        currentModel: currentModelItem,
-        onModelSelect,
-        isConfigured: false,
-        isPersonalizing: false,
-        onboardingError: null
-      });
-    }
-    if (s.isPersonalized) {
-      return MessageFeed({
-        messages: () => demo.chat.messages,
-        streaming: () => demo.chat.streaming,
-        renderMarkdown: opts.renderMarkdown
-      });
-    }
-    if (s.isPersonalizing) {
-      return html`
-				<div class="oas-onboarding-surface">
-					${() => {
-        const safeMessages = demo.chat.messages.filter(
-          (m) => m.kind === "permission" || m.kind === "system"
-        );
-        return safeMessages.length > 0 ? MessageFeed({
-          messages: () => safeMessages,
-          streaming: () => false,
-          renderMarkdown: opts.renderMarkdown
-        }) : null;
-      }}
-					${FirstRunCard({
-        onStartSetup: opts.onStartSetup,
-        onPersonalize,
-        onCancelPersonalization: demo.cancelPersonalization,
-        models: modelItems,
-        currentModel: currentModelItem,
-        onModelSelect,
-        isConfigured: true,
-        isPersonalizing: true,
-        onboardingError: s.onboardingError
-      })}
-				</div>
-			`;
-    }
-    return FirstRunCard({
-      onStartSetup: opts.onStartSetup,
-      onPersonalize,
-      onCancelPersonalization: demo.cancelPersonalization,
-      models: modelItems,
-      currentModel: currentModelItem,
-      onModelSelect,
-      isConfigured: true,
-      isPersonalizing: false,
-      onboardingError: s.onboardingError
-    });
-  };
+  const firstRunCard = FirstRunCard({
+    onStartSetup: opts.onStartSetup,
+    onPersonalize,
+    onCancelPersonalization: demo.cancelPersonalization,
+    models: modelItems,
+    currentModel: currentModelItem,
+    onModelSelect,
+    isConfigured: () => s.isConfigured,
+    isPersonalizing: () => s.isPersonalizing,
+    onboardingError: () => s.onboardingError,
+    retryNotes: () => s.personalizationRetryNotes,
+    onRetryNotesChange: demo.setPersonalizationRetryNotes
+  });
+  const onboardingSurface = html`<div class="oas-onboarding-surface">
+		${() => {
+    if (!s.isPersonalizing) return null;
+    const safeMessages = demo.chat.messages.filter(
+      (message) => message.kind === "permission" || message.kind === "system"
+    );
+    return safeMessages.length > 0 ? MessageFeed({
+      messages: () => safeMessages,
+      streaming: () => false,
+      renderMarkdown: opts.renderMarkdown
+    }) : null;
+  }}
+		${firstRunCard}
+	</div>`;
+  let messageFeed = null;
+  const getMessageFeed = () => messageFeed ??= MessageFeed({
+    messages: () => demo.chat.messages,
+    streaming: () => demo.chat.streaming,
+    renderMarkdown: opts.renderMarkdown
+  });
   return html`
 		<div class="oas-shell-view">
 			<div class="oas-shell-view-header">
@@ -33209,7 +34204,8 @@ function VaultMindView(opts) {
 
 			<div class="oas-shell-view-body">
 				<div class="${() => panelClass("chat")}">
-					${() => renderChat()}
+					<div class="${() => s.isConfigured && s.isPersonalized ? "is-hidden" : ""}">${onboardingSurface}</div>
+					<div class="${() => s.isConfigured && s.isPersonalized ? "" : "is-hidden"}">${() => s.isConfigured && s.isPersonalized ? getMessageFeed() : null}</div>
 				</div>
 				<div class="${() => panelClass("activity")}">
 					${ActivityView({
@@ -33405,17 +34401,17 @@ var VaultMindPanel = class extends import_obsidian5.ItemView {
 
 // src/ui/integrations/SetupWizard/SetupWizardPanel.ts
 var VIEW_TYPE_SETUP = "vault-mind-setup";
-function isRecord9(value) {
+function isRecord10(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 function seedSetupWizardState(state, loadRes, runtime) {
-  const vaultMind = isRecord9(loadRes.config?.config?.vaultMind) ? loadRes.config.config.vaultMind : null;
-  const embedding = vaultMind && isRecord9(vaultMind.embedding) ? vaultMind.embedding : null;
-  const folders = vaultMind && isRecord9(vaultMind.folders) ? vaultMind.folders : null;
-  const vaults = vaultMind && isRecord9(vaultMind.vaults) ? vaultMind.vaults : null;
-  const defaultVault = vaults && isRecord9(vaults.default) ? vaults.default : null;
-  const extensionCompatibility = isRecord9(loadRes.config?.config?.extensionCompatibility) ? loadRes.config.config.extensionCompatibility : null;
-  const piContext = extensionCompatibility && isRecord9(extensionCompatibility["pi-context"]) ? extensionCompatibility["pi-context"] : null;
+  const vaultMind = isRecord10(loadRes.config?.config?.vaultMind) ? loadRes.config.config.vaultMind : null;
+  const embedding = vaultMind && isRecord10(vaultMind.embedding) ? vaultMind.embedding : null;
+  const folders = vaultMind && isRecord10(vaultMind.folders) ? vaultMind.folders : null;
+  const vaults = vaultMind && isRecord10(vaultMind.vaults) ? vaultMind.vaults : null;
+  const defaultVault = vaults && isRecord10(vaults.default) ? vaults.default : null;
+  const extensionCompatibility = isRecord10(loadRes.config?.config?.extensionCompatibility) ? loadRes.config.config.extensionCompatibility : null;
+  const piContext = extensionCompatibility && isRecord10(extensionCompatibility["pi-context"]) ? extensionCompatibility["pi-context"] : null;
   if (embedding) {
     const persistedLocalUrl = typeof embedding.localUrl === "string" ? embedding.localUrl : "";
     const persistedRemoteUrl = typeof embedding.remoteUrl === "string" ? embedding.remoteUrl : "";
@@ -33424,7 +34420,6 @@ function seedSetupWizardState(state, loadRes, runtime) {
       mode: inferredMode,
       localUrl: persistedLocalUrl || state.embedding.localUrl,
       remoteUrl: persistedRemoteUrl,
-      workspace: typeof embedding.workspace === "string" ? embedding.workspace : state.embedding.workspace,
       model: typeof embedding.model === "string" ? embedding.model : state.embedding.model,
       dim: typeof embedding.dim === "number" || embedding.dim === null ? embedding.dim : state.embedding.dim
     });
@@ -33487,6 +34482,7 @@ var SetupWizardPanel = class extends import_obsidian6.ItemView {
       onSaveSettings: this.context.onSaveSettings,
       readBridgeToken: this.context.readBridgeToken,
       writeBridgeToken: this.context.writeBridgeToken,
+      localSettingsStore: this.context.localSettingsStore,
       startRuntimeStarter: this.context.startRuntimeStarter
     });
     const state = createSetupWizardState(this.context.vaultPath);
@@ -34086,6 +35082,7 @@ function createVaultMindController(opts) {
     isConfigured: false,
     isPersonalized: false,
     isPersonalizing: false,
+    personalizationRetryNotes: "",
     onboardingError: null
   });
   const modelState = reactive({
@@ -34127,9 +35124,10 @@ function createVaultMindController(opts) {
     await Promise.all([statusAndModels, tools]);
   }
   let personalizationAttempt = 0;
-  async function personalize() {
+  async function personalize(notes) {
     if (state.isPersonalizing) return { completed: false };
     const attempt = ++personalizationAttempt;
+    const retryNotes = (notes ?? state.personalizationRetryNotes).trim();
     state.isPersonalizing = true;
     state.onboardingError = null;
     const cancellationBarrier = personalizationCancellationBarrier;
@@ -34146,7 +35144,10 @@ function createVaultMindController(opts) {
       if (!state.isPersonalizing || attempt !== personalizationAttempt) {
         return { completed: false };
       }
-      connection.send({ type: "prompt", message: "/vm personalize" }).catch((err) => {
+      connection.send({
+        type: "prompt",
+        message: retryNotes ? `@agent-personalize: ${retryNotes}` : "/vm personalize"
+      }).catch((err) => {
         console.warn(
           "[VaultMindController] personalize dispatch acknowledgement timed out or failed. Still polling for durable status:",
           err
@@ -34178,6 +35179,7 @@ function createVaultMindController(opts) {
         }
         if (state.isPersonalized) {
           state.isPersonalizing = false;
+          state.personalizationRetryNotes = "";
           return { completed: true };
         }
         await new Promise((resolve2) => globalThis.setTimeout(resolve2, 500));
@@ -34844,6 +35846,9 @@ ${text}`.toLowerCase();
       }).catch((err) => console.error("[VaultMind laExportSession failed:", err));
     },
     personalize,
+    setPersonalizationRetryNotes: (value) => {
+      state.personalizationRetryNotes = value;
+    },
     cancelPersonalization,
     setModel,
     refreshStatus,
@@ -34859,7 +35864,7 @@ ${text}`.toLowerCase();
 }
 
 // src/main.ts
-var isRecord10 = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+var isRecord11 = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 var VAULT_MIND_ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z"/><path d="M9 21h6"/><path d="M10 9a2 2 0 0 1 4 0"/><path d="M8 12h1"/><path d="M15 12h1"/><circle cx="12" cy="6" r="1"/></svg>`;
 var DEFAULT_SETTINGS = {
   host: "127.0.0.1",
@@ -34893,12 +35898,11 @@ var VaultMindPlugin = class extends import_obsidian7.Plugin {
     for (const el of activeDocument.querySelectorAll(".notice")) {
       if (el.textContent?.includes("Vault Mind")) el.remove();
     }
-    await this.loadSettings();
-    const rawData = await this.loadData() ?? {};
-    const savedData = this.withoutLegacyToken(rawData);
-    if (isRecord10(rawData) && "token" in rawData) {
-      await this.saveData(savedData);
-    }
+    this.localSettingsStore = createLocalSettingsStore({
+      loadData: () => this.loadData(),
+      saveData: (value) => this.saveData(value)
+    });
+    const savedData = await this.loadSettings();
     this.messageStore = new MessageStore();
     this.messageStore.load(savedData.messages ?? null);
     this.registerEditorExtension(
@@ -35060,6 +36064,7 @@ var VaultMindPlugin = class extends import_obsidian7.Plugin {
       readBridgeToken,
       writeBridgeToken,
       startRuntimeStarter: runtimeStarter,
+      localSettingsStore: this.localSettingsStore,
       onOpenChatPanel: async () => {
         await openOrRevealVaultMindLeaf(this.app.workspace, void 0, controller);
       }
@@ -35071,6 +36076,7 @@ var VaultMindPlugin = class extends import_obsidian7.Plugin {
       onSaveSettings,
       readBridgeToken,
       writeBridgeToken,
+      localSettingsStore: this.localSettingsStore,
       onRunSetup: () => {
         void openOrRevealSetupWizardLeaf(this.app.workspace);
       }
@@ -35204,8 +36210,10 @@ var VaultMindPlugin = class extends import_obsidian7.Plugin {
   }
   async flushMessageStore() {
     if (!this.messageStore?.isDirty()) return;
-    const existing = this.withoutLegacyToken(await this.loadData());
-    await this.saveData({ ...existing, messages: this.messageStore.serialize() });
+    await this.localSettingsStore.update((current) => ({
+      ...current,
+      messages: this.messageStore.serialize()
+    }));
   }
   /**
    * Builds a configured VaultMindClient using the current token, host and port.
@@ -35298,7 +36306,7 @@ ${source}
     }
   }
   withoutLegacyToken(data) {
-    if (!isRecord10(data)) return {};
+    if (!isRecord11(data)) return {};
     const existing = {};
     for (const [key, value] of Object.entries(data)) {
       if (key !== "token") existing[key] = value;
@@ -35306,15 +36314,12 @@ ${source}
     return existing;
   }
   async loadSettings() {
-    this.settings = Object.assign(
-      {},
-      DEFAULT_SETTINGS,
-      this.withoutLegacyToken(await this.loadData())
-    );
+    const state = await this.localSettingsStore.load();
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, this.withoutLegacyToken(state));
+    return state;
   }
   async saveSettings() {
-    const existing = this.withoutLegacyToken(await this.loadData());
-    await this.saveData({ ...existing, ...this.settings });
+    await this.localSettingsStore.update((current) => ({ ...current, ...this.settings }));
   }
   updateStatusBar(connected, error) {
     this.connectionState = { connected, error };
