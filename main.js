@@ -22412,7 +22412,7 @@ var init_bootstrap = __esm({
     init_config();
     init_extension_packages();
     init_pi_detect();
-    BUNDLED_PROJECT_VERSION = true ? "0.16.20" : projectPackage.version;
+    BUNDLED_PROJECT_VERSION = true ? "0.16.21" : projectPackage.version;
     VaultBootstrap = class {
       vaultPath;
       piBinaryPath;
@@ -30554,7 +30554,7 @@ function defaultModelRouter() {
 }
 function defaultIndexing() {
   return reactive({
-    dataDir: "",
+    dataDir: ".vault-mind/.lancedb",
     ftsEnabled: false,
     autoIndex: false
   });
@@ -30969,6 +30969,133 @@ async function saveSetupWizard(state, adapter) {
   state.error = "Verification failed: the server is reachable but still unconfigured.";
 }
 
+// src/ui/components/FolderPicker/FolderPicker.ts
+function normalizePath2(value) {
+  return value.trim().replace(/^(\.\/)+/, "").replace(/\/$/, "").replace(/\/+/g, "/");
+}
+function hasParentTraversal2(value) {
+  return value.includes("..");
+}
+function collateFolders2(folders) {
+  const seen = /* @__PURE__ */ new Set();
+  const result = [];
+  for (const f of folders) {
+    const n = normalizePath2(f.path);
+    if (!seen.has(n)) {
+      seen.add(n);
+      result.push({ normalized: n, original: f.path });
+    }
+  }
+  result.sort((a, b) => a.normalized.localeCompare(b.normalized));
+  return result;
+}
+function FolderPicker(opts) {
+  const id = opts.id ?? "oas-folder-picker";
+  const state = reactive({ open: false, error: "", typed: false });
+  let anchor = null;
+  const allFolders = () => collateFolders2(opts.folders());
+  const queryNormalized = () => normalizePath2(opts.value());
+  const visibleFolders = () => {
+    const folders = allFolders();
+    if (!state.typed) return folders;
+    const query = queryNormalized().toLowerCase();
+    if (!query) return folders;
+    return folders.filter((folder) => folder.normalized.toLowerCase().includes(query));
+  };
+  const canCreate = () => {
+    const query = queryNormalized();
+    return state.typed && query.length > 0 && !allFolders().some((folder) => folder.normalized === query) && !hasParentTraversal2(opts.value()) && !!opts.onCreateFolder;
+  };
+  const choices = () => [
+    ...visibleFolders().map(
+      (folder) => ({ kind: "folder", path: folder.normalized })
+    ),
+    ...canCreate() ? [{ kind: "create", path: queryNormalized() }] : []
+  ];
+  const updateError = () => {
+    state.error = hasParentTraversal2(opts.value()) ? "Path cannot contain '..'" : "";
+  };
+  const isMissing = () => {
+    const current = queryNormalized();
+    return current.length > 0 && !hasParentTraversal2(opts.value()) && !allFolders().some((folder) => folder.normalized === current);
+  };
+  const applyPath = (path8) => {
+    anchor?.focus();
+    state.open = false;
+    state.typed = false;
+    state.error = "";
+    opts.onChange(path8);
+  };
+  const createPath = async (path8) => {
+    if (!opts.onCreateFolder) return;
+    const created = await opts.onCreateFolder(path8);
+    applyPath(created.path);
+  };
+  const openChooser = (event) => {
+    anchor = event.currentTarget;
+    state.open = true;
+    state.typed = false;
+    updateError();
+  };
+  return html`<div class="oas-folder-field">
+		<label class="oas-folder-label" for="${id}">${opts.label}</label>
+		${() => opts.description ? html`<div class="setting-item-description">${opts.description}</div>` : ""}
+		<input
+			id="${id}"
+			type="text"
+			class="oas-folder-input"
+			autocomplete="off"
+			.value="${opts.value}"
+			aria-invalid="${() => state.error ? "true" : false}"
+			aria-describedby="${() => state.error ? `${id}-error` : false}"
+			@input="${(event) => {
+    const input = event.target;
+    anchor = input;
+    state.typed = true;
+    state.open = true;
+    opts.onChange(input.value);
+    updateError();
+  }}"
+			@focus="${openChooser}"
+			@click="${openChooser}"
+			@keydown="${(event) => {
+    const keyboardEvent = event;
+    if (keyboardEvent.key !== "Enter" || !canCreate()) return;
+    keyboardEvent.preventDefault();
+    void createPath(queryNormalized());
+  }}"
+		/>
+		${() => state.error ? html`<div id="${`${id}-error`}" class="setting-item-description" role="alert">${state.error}</div>` : ""}
+		${() => isMissing() ? html`<div class="setting-item-description">${"This folder will be created during setup save."}</div>` : ""}
+		${Popover({
+    isOpen: () => state.open,
+    onDismiss: () => {
+      state.open = false;
+    },
+    position: {
+      mode: "anchor",
+      anchor: () => anchor,
+      placement: "bottom",
+      align: "start"
+    },
+    width: "min(24rem, calc(100vw - 2rem))",
+    variant: {
+      kind: "list",
+      items: choices,
+      key: (choice) => `${choice.kind}:${choice.path}`,
+      label: (choice) => choice.kind === "create" ? `Create folder "${choice.path}"` : choice.path,
+      description: (choice) => choice.kind === "create" ? "Creates missing parent folders too" : "Vault folder",
+      selected: (choice) => choice.kind === "folder" && normalizePath2(opts.value()) === choice.path,
+      onSelect: (choice) => {
+        if (choice.kind === "create") void createPath(choice.path);
+        else applyPath(choice.path);
+      },
+      emptyText: "No vault folders. Type a folder path to create one."
+    }
+  })}
+	</div>`;
+}
+
 // src/ui/components/Toggle.ts
 var Toggle = (enabled, onToggle) => html`<div
     class="${() => `checkbox-container${enabled() ? " is-enabled" : ""}`}"
@@ -31046,13 +31173,19 @@ function ConfigurationStep({ state, adapter }) {
 				<div class="setting-item-description">How Vault Mind builds and maintains the search index.</div>
 			</div>
 		</div>
-		${TextField({
+		${FolderPicker({
     id: "oas-setup-indexing-data-dir",
     label: "Data directory",
-    description: "Directory used to store the local index data.",
+    description: "Directory used to store the local index data. Default: .vault-mind/.lancedb",
     value: () => state.indexing.dataDir,
-    onInput: (value) => {
+    folders: () => [...state.folderOptions ?? []],
+    onChange: (value) => {
       state.indexing.dataDir = value;
+    },
+    onCreateFolder: async (path8) => {
+      const created = await adapter.createFolder(path8);
+      state.folderOptions = [...state.folderOptions ?? [], created];
+      return created;
     }
   })}
 		${ItemRow({
@@ -31250,6 +31383,9 @@ function FoldersStep({ state, adapter }) {
 	</div>`;
 }
 
+// src/ui/views/SetupWizard/steps/InstallStep.ts
+init_extension_packages();
+
 // src/ui/components/Chip/Chip.ts
 function Chip({ label, icon: iconName, title, onRemove }) {
   return html`<span class="oas-chip" title="${title ?? label}">
@@ -31269,7 +31405,6 @@ function ProgressBar({ value }) {
 }
 
 // src/ui/views/SetupWizard/steps/InstallStep.ts
-init_extension_packages();
 var PACKAGE_DETAILS = {
   "npm:pi-vault-mind": {
     label: "Vault Mind agent extension",
@@ -31315,10 +31450,7 @@ function resolveInstallDisplayStatus(item, phase) {
   if (phase === "ready") return resolveInstallStatus(item);
   return item.optional ? "selectable" : "pending";
 }
-function InstallStep({
-  state,
-  local
-}) {
+function InstallStep({ state, local }) {
   const installPhase = () => {
     void local.installing;
     return state.install;
@@ -31652,7 +31784,9 @@ function willInstall2(item) {
   return !item.optional || !!item.confirmed;
 }
 function countQueuedInstallItems(items) {
-  return items.filter((item) => item.kind === "pi" && item.id !== "npm:pi-vault-mind" && willInstall2(item)).length;
+  return items.filter(
+    (item) => item.kind === "pi" && item.id !== "npm:pi-vault-mind" && willInstall2(item)
+  ).length;
 }
 function buildInstallRequest(items) {
   return {
@@ -31724,7 +31858,7 @@ function applyLoadedState(state, loadRes) {
   }
   const vmIndexing = vaultMind && isRecord6(vaultMind.indexing) ? vaultMind.indexing : null;
   if (vmIndexing) {
-    state.indexing.dataDir = typeof vmIndexing.dataDir === "string" ? vmIndexing.dataDir : state.indexing.dataDir;
+    state.indexing.dataDir = typeof vmIndexing.dataDir === "string" && vmIndexing.dataDir ? vmIndexing.dataDir : state.indexing.dataDir;
     state.indexing.ftsEnabled = typeof vmIndexing.ftsEnabled === "boolean" ? vmIndexing.ftsEnabled : state.indexing.ftsEnabled;
     state.indexing.autoIndex = typeof vmIndexing.autoIndex === "boolean" ? vmIndexing.autoIndex : state.indexing.autoIndex;
   }
@@ -32421,12 +32555,38 @@ function ThinkingPicker({
 }
 
 // src/ui/components/ToolsPicker.ts
-function ToolsPicker({ tools, selected, onToggle }) {
+function ToolsPicker({
+  tools,
+  selected,
+  onToggle,
+  onSelectAll,
+  onClearAll
+}) {
   const items = () => typeof tools === "function" ? tools() : tools;
+  const allSelected = () => selected().length === items().length && items().length > 0;
+  const noneSelected = () => selected().length === 0;
   return Picker({
     label: () => `Tools (${selected().length})`,
-    header: "Tools",
-    width: "240px",
+    header: html`
+			<div class="oas-picker-header-row">
+				<span>Tools</span>
+				<div class="oas-picker-header-actions">
+					${Button({
+      label: "All",
+      variant: "ghost",
+      disabled: allSelected,
+      onClick: () => onSelectAll?.()
+    })}
+					${Button({
+      label: "Clear",
+      variant: "ghost",
+      disabled: noneSelected,
+      onClick: () => onClearAll?.()
+    })}
+				</div>
+			</div>
+		`,
+    width: "280px",
     variant: {
       kind: "filterable",
       items,
@@ -32625,7 +32785,13 @@ function Composer(opts = {}, data = DEFAULT_DATA) {
   })}${ToolsPicker({
     tools: currentToolItems,
     selected: selectedTools,
-    onToggle: toggleTool
+    onToggle: toggleTool,
+    onSelectAll: () => {
+      s.tools = [...currentToolItems()];
+    },
+    onClearAll: () => {
+      s.tools = [];
+    }
   })}
 		</div>
 		<div class="oas-composer-options oas-collapse-narrow">
@@ -32947,7 +33113,12 @@ function PermissionCard({
     resolve2({ cancelled: true }, "denied");
   };
   const actions = () => {
-    if (s.decision !== "") return "";
+    if (s.decision === "denied") return "";
+    if (s.decision === "approved") {
+      return filePath && onOpenFile ? html`<div class="oas-permission-actions">
+					${Button({ label: "Open in editor", icon: "external-link", variant: "ghost", onClick: () => onOpenFile(filePath) })}
+				</div>` : "";
+    }
     if (permissionType === "select") {
       const cancelFocusId = options.length === 0 ? focusId : void 0;
       return html`<div class="oas-permission-select">
@@ -36512,11 +36683,22 @@ var VaultMindPlugin = class extends import_obsidian7.Plugin {
       onStartSetup: () => {
         void openOrRevealSetupWizardLeaf(this.app.workspace);
       },
-      onOpenFile: (filePath) => {
-        const file = this.app.vault.getAbstractFileByPath(filePath);
-        if (file) {
-          void this.app.workspace.openLinkText(filePath, "", false);
+      onOpenFile: async (filePath) => {
+        const paths = [filePath];
+        if (filePath === ".pi/agent/system.md") {
+          paths.push(".vault-mind/.pi/agent/system.md");
         }
+        for (let i = 0; i < 10; i++) {
+          for (const p of paths) {
+            const file = this.app.vault.getAbstractFileByPath(p);
+            if (file) {
+              await this.app.workspace.openLinkText(p, "", false);
+              return;
+            }
+          }
+          await new Promise((r) => setTimeout(r, 200));
+        }
+        new import_obsidian7.Notice(`File not found: ${filePath}`);
       }
     };
     this.registerView(VIEW_TYPE_VAULT_MIND, (leaf) => new VaultMindPanel(leaf, panelContext));
