@@ -24289,8 +24289,16 @@ async function resolveToken(app) {
 }
 async function bootstrapToken(app, vaultPath) {
   const storedToken = await app.secretStorage.getSecret(PVM_TOKEN_SECRET_ID);
-  if (storedToken) return;
   const envPath = import_node_path2.default.join(vaultPath, ".vault-mind", "vault-mind.env");
+  try {
+    await import_promises.default.access(envPath);
+  } catch {
+    if (storedToken) {
+      await app.secretStorage.removeSecret(PVM_TOKEN_SECRET_ID);
+    }
+    return;
+  }
+  if (storedToken) return;
   const TOKEN_REGEX = /^\s*PVM_API_TOKEN\s*=\s*("([^"]*)"|'([^']*)'|([^\s#]+))/;
   try {
     const content = await import_promises.default.readFile(envPath, "utf-8");
