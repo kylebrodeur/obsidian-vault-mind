@@ -22412,7 +22412,7 @@ var init_bootstrap = __esm({
     init_config();
     init_extension_packages();
     init_pi_detect();
-    BUNDLED_PROJECT_VERSION = true ? "0.16.23" : projectPackage.version;
+    BUNDLED_PROJECT_VERSION = true ? "0.16.24" : projectPackage.version;
     VaultBootstrap = class {
       vaultPath;
       piBinaryPath;
@@ -31457,13 +31457,15 @@ function InstallStep({ state, local }) {
     void local.installing;
     return state.install;
   };
+  const itemById = (id) => local.installItems.find((item) => item.id === id);
   const itemControl = (item) => () => {
-    const status = resolveInstallDisplayStatus(item, installPhase());
+    const current = itemById(item.id) ?? item;
+    const status = resolveInstallDisplayStatus(current, installPhase());
     if (status === "selectable") {
       return Toggle(
-        () => !!item.confirmed,
+        () => !!current.confirmed,
         () => {
-          item.confirmed = !item.confirmed;
+          current.confirmed = !current.confirmed;
         }
       );
     }
@@ -31798,10 +31800,10 @@ function buildInstallRequest(items) {
 }
 function reconcileInstallItems(items, installedPackageIds) {
   const installed = new Set(installedPackageIds);
-  return items.map((item) => {
-    if (item.kind !== "pi") return { ...item };
-    return { ...item, outcome: installed.has(item.id) ? "installed" : "skipped" };
-  });
+  for (const item of items) {
+    if (item.kind !== "pi") continue;
+    item.outcome = installed.has(item.id) ? "installed" : "skipped";
+  }
 }
 async function installThenStartRuntime(adapter, request) {
   const install = await adapter.installRuntime(request);
@@ -31945,11 +31947,8 @@ function Wizard({
       );
       state.runtime = result.runtime;
       if (result.install.ok) {
+        reconcileInstallItems(local.installItems, result.install.installedPackageIds);
         state.install = "ready";
-        local.installItems = reconcileInstallItems(
-          local.installItems,
-          result.install.installedPackageIds
-        );
         local.installProgress = 1;
         if (isRuntimeReady(state)) await refreshLoadedState();
       } else {
