@@ -22412,7 +22412,7 @@ var init_bootstrap = __esm({
     init_config();
     init_extension_packages();
     init_pi_detect();
-    BUNDLED_PROJECT_VERSION = true ? "0.16.24" : projectPackage.version;
+    BUNDLED_PROJECT_VERSION = true ? "0.16.25" : projectPackage.version;
     VaultBootstrap = class {
       vaultPath;
       piBinaryPath;
@@ -31385,9 +31385,6 @@ function FoldersStep({ state, adapter }) {
 	</div>`;
 }
 
-// src/ui/views/SetupWizard/steps/InstallStep.ts
-init_extension_packages();
-
 // src/ui/components/Chip/Chip.ts
 function Chip({ label, icon: iconName, title, onRemove }) {
   return html`<span class="oas-chip" title="${title ?? label}">
@@ -31407,6 +31404,7 @@ function ProgressBar({ value }) {
 }
 
 // src/ui/views/SetupWizard/steps/InstallStep.ts
+init_extension_packages();
 var PACKAGE_DETAILS = {
   "npm:pi-vault-mind": {
     label: "Vault Mind agent extension",
