@@ -22412,7 +22412,7 @@ var init_bootstrap = __esm({
     init_config();
     init_extension_packages();
     init_pi_detect();
-    BUNDLED_PROJECT_VERSION = true ? "0.16.13" : projectPackage.version;
+    BUNDLED_PROJECT_VERSION = true ? "0.16.14" : projectPackage.version;
     VaultBootstrap = class {
       vaultPath;
       piBinaryPath;
@@ -22587,7 +22587,7 @@ __export(main_exports, {
   default: () => VaultMindPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_node_path6 = __toESM(require("node:path"), 1);
+var import_node_path5 = __toESM(require("node:path"), 1);
 var import_view = require("@codemirror/view");
 var import_obsidian7 = require("obsidian");
 
@@ -23205,8 +23205,8 @@ var VaultMindClient = class {
     }, this.reconnectDelay);
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, 3e4);
   }
-  async httpJson(method, path9, body) {
-    const res = await fetch(`${this.baseUrl}${path9}`, {
+  async httpJson(method, path8, body) {
+    const res = await fetch(`${this.baseUrl}${path8}`, {
       method,
       headers: this.authHeaders,
       body: body ? JSON.stringify(body) : void 0
@@ -23871,9 +23871,9 @@ var DiffModal = class extends import_obsidian3.Modal {
   oldContent;
   newContent;
   onAccept;
-  constructor(app, { path: path9, old, new: newContent }, onAccept) {
+  constructor(app, { path: path8, old, new: newContent }, onAccept) {
     super(app);
-    this.path = path9;
+    this.path = path8;
     this.oldContent = old;
     this.newContent = newContent;
     this.onAccept = onAccept;
@@ -23902,32 +23902,32 @@ var DiffModal = class extends import_obsidian3.Modal {
 };
 function registerVaultMindProtocolHandlers(plugin) {
   plugin.registerObsidianProtocolHandler("vault-mind/open-file", (params) => {
-    const path9 = params?.path;
-    if (!isString(path9)) {
+    const path8 = params?.path;
+    if (!isString(path8)) {
       new import_obsidian3.Notice("Vault Mind: missing path parameter");
       return;
     }
-    plugin.app.workspace.openLinkText(path9, "", true);
+    plugin.app.workspace.openLinkText(path8, "", true);
   });
   plugin.registerObsidianProtocolHandler("vault-mind/show-diff", (params) => {
-    const path9 = params?.path;
+    const path8 = params?.path;
     const oldContent = params?.old;
     const newContent = params?.new;
-    if (!isString(path9) || !isString(oldContent) || !isString(newContent)) {
+    if (!isString(path8) || !isString(oldContent) || !isString(newContent)) {
       new import_obsidian3.Notice("Vault Mind: missing path, old, or new parameter");
       return;
     }
-    new DiffModal(plugin.app, { path: path9, old: oldContent, new: newContent }, async () => {
-      const file = plugin.app.vault.getAbstractFileByPath(path9);
+    new DiffModal(plugin.app, { path: path8, old: oldContent, new: newContent }, async () => {
+      const file = plugin.app.vault.getAbstractFileByPath(path8);
       if (!(file instanceof import_obsidian3.TFile)) {
-        new import_obsidian3.Notice(`Vault Mind: file not found: ${path9}`);
+        new import_obsidian3.Notice(`Vault Mind: file not found: ${path8}`);
         return;
       }
       try {
         await plugin.app.vault.modify(file, newContent);
-        new import_obsidian3.Notice(`Vault Mind: accepted changes to ${path9}`);
+        new import_obsidian3.Notice(`Vault Mind: accepted changes to ${path8}`);
       } catch (err) {
-        new import_obsidian3.Notice(`Vault Mind: failed to write ${path9}: ${err.message}`);
+        new import_obsidian3.Notice(`Vault Mind: failed to write ${path8}: ${err.message}`);
       }
     }).open();
   });
@@ -25996,23 +25996,23 @@ function adoptRenderedValue(value, capture, map, visited) {
 function createPaths(dom) {
   const pathTape = [];
   const attrNames = [];
-  const path9 = [];
+  const path8 = [];
   const previous = [];
   const pushPath = (attrName) => {
-    const pathLen = path9.length;
+    const pathLen = path8.length;
     const previousLen = previous.length;
     const limit = pathLen < previousLen ? pathLen : previousLen;
     let sharedDepth = 0;
-    while (sharedDepth < limit && previous[sharedDepth] === path9[sharedDepth]) {
+    while (sharedDepth < limit && previous[sharedDepth] === path8[sharedDepth]) {
       sharedDepth++;
     }
     pathTape.push(sharedDepth, pathLen - sharedDepth);
     for (let i = sharedDepth; i < pathLen; i++)
-      pathTape.push(path9[i]);
+      pathTape.push(path8[i]);
     pathTape.push(attrName ? attrNames.push(attrName) : 0);
     previous.length = pathLen;
     for (let i = 0; i < pathLen; i++)
-      previous[i] = path9[i];
+      previous[i] = path8[i];
   };
   const walk = (node) => {
     if (node.nodeType === 1) {
@@ -26029,16 +26029,16 @@ function createPaths(dom) {
     }
     const children2 = node.childNodes;
     for (let i = 0; i < children2.length; i++) {
-      path9.push(i);
+      path8.push(i);
       walk(children2[i]);
-      path9.pop();
+      path8.pop();
     }
   };
   const children = dom.childNodes;
   for (let i = 0; i < children.length; i++) {
-    path9.push(i);
+    path8.push(i);
     walk(children[i]);
-    path9.pop();
+    path8.pop();
   }
   return [pathTape, attrNames];
 }
@@ -27950,21 +27950,6 @@ function sharedModelFields(opts) {
 function groupHeading(label, description) {
   return html`<div class="setting-item setting-item-heading"><div class="setting-item-info"><div class="setting-item-name">${label}</div><div class="setting-item-description">${description}</div></div></div>`;
 }
-function remoteModalGuidance() {
-  return html`<div class="setting-item setting-item-heading">
-		<div class="setting-item-info">
-			<div class="setting-item-name">Remote Modal setup</div>
-			<div class="setting-item-description">Local mode remains usable without Remote.</div>
-		</div>
-	</div>
-	<div class="setting-item">
-		<div class="setting-item-info">
-			<div class="setting-item-description">Paste the Modal token into the Remote API key field. The value is saved only when you press Save.</div>
-			<div class="setting-item-description">Enter service authentication in the Remote API key field, never bridge authentication.</div>
-			<div class="setting-item-description">If Test &amp; Fetch Models fails, check the Modal deploy, the token, and that the HuggingFace Gemma license/secret is configured.</div>
-		</div>
-	</div>`;
-}
 function EmbeddingProviderSection(opts) {
   const draft = opts.draft;
   return html`<div class="oas-embedding-provider-section oas-flex oas-flex-col oas-gap-2">
@@ -27978,10 +27963,7 @@ function EmbeddingProviderSection(opts) {
       return html`<div class="oas-embedding-provider-group">${providerGroup(opts, "local")}${sharedModelFields(opts)}</div>`;
     }
     if (mode === "remote") {
-      return html`<div class="oas-embedding-provider-group">
-					${remoteModalGuidance()}
-					${providerGroup(opts, "remote")}${sharedModelFields(opts)}
-				</div>`;
+      return html`<div class="oas-embedding-provider-group">${providerGroup(opts, "remote")}${sharedModelFields(opts)}</div>`;
     }
     return html`<div class="oas-embedding-provider-group">
 				${groupHeading("Local", "Local embedding endpoint and credentials.")}
@@ -27989,7 +27971,6 @@ function EmbeddingProviderSection(opts) {
 			</div>
 			<div class="oas-embedding-provider-group">
 				${groupHeading("Remote", "Remote embedding endpoint and credentials.")}
-				${remoteModalGuidance()}
 				${providerGroup(opts, "remote")}
 			</div>
 			<div class="oas-embedding-shared-fields">
@@ -28532,15 +28513,15 @@ function folderField(opts, key) {
     const current = queryNormalized();
     return current.length > 0 && !hasParentTraversal(value()) && !allFolders().some((folder) => folder.normalized === current);
   };
-  const applyPath = (path9) => {
+  const applyPath = (path8) => {
     anchor?.focus();
     state.open = false;
     state.typed = false;
     state.error = "";
-    opts.onChange({ [key]: path9 });
+    opts.onChange({ [key]: path8 });
   };
-  const createPath = async (path9) => {
-    const created = await opts.onCreateFolder(path9);
+  const createPath = async (path8) => {
+    const created = await opts.onCreateFolder(path8);
     applyPath(created.path);
   };
   const openChooser = (event) => {
@@ -28636,8 +28617,8 @@ function VaultLayoutCategory(options) {
     presentations: String(draft().presentations ?? ""),
     journal: String(draft().journal ?? "")
   });
-  const createFolder = async (path9) => {
-    const created = await adapter.createFolder(path9);
+  const createFolder = async (path8) => {
+    const created = await adapter.createFolder(path8);
     if (!folderOptions.items.some((folder) => folder.path === created.path)) {
       folderOptions.items = [...folderOptions.items, created];
     }
@@ -29635,7 +29616,7 @@ var RestConfigurationAdapter = class {
         phase: status.ok ? "ready" : "error",
         piVersion: status.version,
         extensionVersion: status.version,
-        piBinaryPath: null,
+        piBinaryPath: piBinary,
         serverReachable: status.ok,
         message: status.ok ? null : "Agent runtime found but bridge server is not running. Click Start to launch it."
       };
@@ -29662,6 +29643,8 @@ var RestConfigurationAdapter = class {
     }
   }
   async startRuntime() {
+    const settings = this.options.getPluginSettings();
+    const piBinary = detectPiBinary(settings.piBinaryPath, this.options.vaultPath);
     let verify;
     try {
       const bootstrap = await this.createBootstrap();
@@ -29723,7 +29706,7 @@ var RestConfigurationAdapter = class {
             phase: "ready",
             piVersion: status.version,
             extensionVersion: status.version,
-            piBinaryPath: null,
+            piBinaryPath: piBinary ?? null,
             serverReachable: true,
             message: null
           };
@@ -30261,8 +30244,8 @@ var RestConfigurationAdapter = class {
     });
     return unique.map((item) => ({ path: item.normalized }));
   }
-  async createFolder(path9) {
-    const normalized = normalizeVaultFolderPath(path9);
+  async createFolder(path8) {
+    const normalized = normalizeVaultFolderPath(path8);
     const existing = this.options.app.vault.getAbstractFileByPath(normalized);
     if (existing) {
       if (this.isVaultFolder(existing)) return { path: normalized };
@@ -30417,8 +30400,6 @@ var ConfigurationSettingsTab = class extends import_obsidian4.PluginSettingTab {
 var import_obsidian6 = require("obsidian");
 
 // src/ui/views/SetupWizard/state.ts
-var import_node_fs3 = require("node:fs");
-var import_node_path4 = __toESM(require("node:path"), 1);
 var WIZARD_STEPS = [
   "runtime",
   "install",
@@ -30472,6 +30453,19 @@ function defaultFolderOptions() {
     { path: "Agent/Journal" }
   ];
 }
+function defaultModelRouter() {
+  return reactive({ sequence: [] });
+}
+function defaultIndexing() {
+  return reactive({
+    dataDir: "",
+    ftsEnabled: false,
+    autoIndex: false
+  });
+}
+function defaultKnowledgeGraph() {
+  return reactive({ enabled: false, canvasSync: false });
+}
 function defaultSecretStatus() {
   return {
     secrets: SECRET_KEYS2.map((kind) => ({
@@ -30513,9 +30507,9 @@ function createSetupWizardState(vault) {
       autoSync: false,
       autoSyncMinLength: 100
     }),
-    modelRouter: { sequence: [] },
-    indexing: { dataDir: ".lancedb", ftsEnabled: true, autoIndex: false },
-    knowledgeGraph: { enabled: true, canvasSync: false }
+    modelRouter: defaultModelRouter(),
+    indexing: reactive(defaultIndexing()),
+    knowledgeGraph: reactive(defaultKnowledgeGraph())
   };
   Object.defineProperty(state, "step", {
     enumerable: true,
@@ -30660,6 +30654,11 @@ function nextSetupWizard(state, options = {}) {
     return;
   }
   if (state.step === "preferences") {
+    state.step = "configuration";
+    recordVisit(state, "configuration");
+    return;
+  }
+  if (state.step === "configuration") {
     state.step = "review";
     recordVisit(state, "review");
     return;
@@ -30801,6 +30800,14 @@ async function probeSetupEmbedding(state, target, adapter) {
       latencyMs: response.latencyMs,
       error: null
     });
+    if (response.models.length > 0 && !state.embedding.model) {
+      const first = response.models[0];
+      state.embedding.model = first.id;
+      if (first.dim != null) state.embedding.dim = first.dim;
+    } else if (response.models.length > 0 && state.embedding.model) {
+      const matched = response.models.find((m) => m.id === state.embedding.model);
+      if (matched?.dim != null) state.embedding.dim = matched.dim;
+    }
   } else {
     replaceProbeTarget(state, target, {
       phase: "error",
@@ -30815,47 +30822,6 @@ function clearTransientSecrets(draft) {
   for (const key of SECRET_KEYS2) {
     draft[key] = "";
   }
-}
-function scaffoldModelRouterOffline(vaultPath) {
-  const routerPath = import_node_path4.default.join(vaultPath, ".vault-mind", ".pi", "model-router.json");
-  if ((0, import_node_fs3.existsSync)(routerPath)) return;
-  (0, import_node_fs3.mkdirSync)(import_node_path4.default.dirname(routerPath), { recursive: true });
-  const primary = "ollama/gemma4:31b-cloud";
-  const fallbackSequence = [
-    "ollama/gemma4:31b-cloud",
-    "ollama/deepseek-v4-flash:cloud",
-    "ollama/minimax-m3:cloud",
-    "ollama/kimi-k2.7-code:cloud"
-  ];
-  const config = {
-    defaultProfile: "auto",
-    features: {
-      rateLimitFallback: true,
-      ollamaSync: false,
-      scopeShim: true,
-      perTurnRouting: false,
-      intentClassifier: false,
-      costBudgeting: false,
-      phaseMemory: false,
-      contextCompression: false
-    },
-    rateLimitFallback: {
-      enabled: true,
-      shortDelayThreshold: 30,
-      autoFallback: true,
-      autoRestore: true,
-      restoreCheckInterval: 300,
-      fallbackSequence
-    },
-    profiles: {
-      auto: {
-        high: { model: primary, thinking: "medium" },
-        medium: { model: primary, thinking: "low" },
-        low: { model: primary, thinking: "off" }
-      }
-    }
-  };
-  (0, import_node_fs3.writeFileSync)(routerPath, JSON.stringify(config, null, "	") + "\n", "utf-8");
 }
 async function saveSetupWizard(state, adapter) {
   if (state.savePhase === "saving" || state.savePhase === "verifying") return;
@@ -30889,7 +30855,6 @@ async function saveSetupWizard(state, adapter) {
     state.error = response.error;
     return;
   }
-  if (vault) scaffoldModelRouterOffline(vault);
   clearTransientSecrets(state.embedding);
   state.savePhase = "verifying";
   state.step = "review";
@@ -31168,12 +31133,12 @@ function FoldersStep({ state, adapter }) {
   const closeChooser = () => {
     local.openKey = null;
   };
-  const selectFolder = (key, path9) => {
-    updateField(key, path9);
+  const selectFolder = (key, path8) => {
+    updateField(key, path8);
     closeChooser();
   };
-  const createFolder = async (key, path9) => {
-    const created = await adapter.createFolder(path9);
+  const createFolder = async (key, path8) => {
+    const created = await adapter.createFolder(path8);
     state.folderOptions = [...state.folderOptions, created];
     updateField(key, created.path);
     closeChooser();
@@ -31326,6 +31291,7 @@ function resolveInstallStatus(item) {
 }
 function resolveInstallDisplayStatus(item, phase, requiredExtensionsDetected) {
   if (item.kind === "obsidian") return "installed";
+  if (item.id === "npm:pi-vault-mind") return "installed";
   if (phase === "loading") return willInstall(item) ? "installing" : "skipped";
   if (phase === "ready" || !item.optional && requiredExtensionsDetected) {
     return resolveInstallStatus(item);
@@ -31362,6 +31328,14 @@ function InstallStep({
     return status === "installed" ? Chip({ label: "Installed", icon: "check" }) : Chip({ label: "Skipped", icon: "x" });
   };
   const showRuntimeActions = () => state.runtime.phase !== "ready" || !state.runtime.serverReachable;
+  const toInstallCount = () => local.installItems.filter((item) => {
+    const status = resolveInstallDisplayStatus(
+      item,
+      installPhase(),
+      requiredExtensionsDetected()
+    );
+    return status === "pending" || status === "selectable" && item.confirmed;
+  }).length;
   return html`<div class="oas-setup-step oas-setup-install">
 		<div class="setting-item setting-item-heading"><div class="setting-item-info"><div class="setting-item-name">Install Bridge & Extensions</div><div class="setting-item-description">Installing the agent extensions that power Vault Mind. Once complete, the bridge will start automatically.</div></div></div>
 		${() => state.runtime.message ? html`<div class="setting-item" role="alert"><div class="setting-item-info"><div class="setting-item-description">${state.runtime.message.replace(/\bpi\b/gi, "agent runtime")}</div>${() => showRuntimeActions() ? html`<div class="oas-flex oas-flex-row oas-gap-2" style="margin-top: 0.75rem;">${Button({ label: "Start", icon: "play", variant: "cta", disabled: () => local.installing || local.rechecking, onClick: () => void onStart?.() })}${Button({ label: "Recheck", icon: "refresh-cw", variant: "ghost", disabled: () => local.installing || local.rechecking, onClick: () => void onRecheck?.() })}</div>` : ""}</div></div>` : ""}
@@ -31371,6 +31345,10 @@ function InstallStep({
     if (state.install === "loading") return ProgressBar({ value: () => local.installProgress });
     if (state.install === "error")
       return html`<div class="setting-item" role="alert"><div class="setting-item-info"><div class="setting-item-description">Install failed. Check that the agent runtime and Obsidian are reachable and try again.</div></div></div>`;
+    const count = toInstallCount();
+    if (count > 0 && state.install !== "ready") {
+      return html`<div style="margin-top: 0.5rem;">${Button({ label: () => "Install " + toInstallCount(), icon: "download", variant: "cta", disabled: () => local.installing, onClick: () => void onStart?.() })}</div>`;
+    }
     return "";
   }}
 	</div>`;
@@ -31588,12 +31566,12 @@ function ReviewSaveStep({ state }) {
 			${() => {
     const options = state.folderOptions;
     const rows = (key, label) => {
-      const path9 = state.folders[key];
-      const normalized = normalizeVaultFolderPath(path9);
+      const path8 = state.folders[key];
+      const normalized = normalizeVaultFolderPath(path8);
       const exists = options.some((opt) => opt.path === normalized);
       return ItemRow({
         name: label,
-        description: () => exists ? path9 : `${path9} (will be created during setup save)`
+        description: () => exists ? path8 : `${path8} (will be created during setup save)`
       });
     };
     return html`
@@ -32842,7 +32820,7 @@ function exceedsCollapsedDiffThreshold(content) {
   return false;
 }
 function DiffCard({
-  path: path9,
+  path: path8,
   oldContent,
   newContent,
   status,
@@ -32855,7 +32833,7 @@ function DiffCard({
   return Card({
     tone: () => TONE[status()],
     icon: () => ICON[status()],
-    title: path9,
+    title: path8,
     meta: () => {
       const s = status();
       return s === "error" ? error() ?? META.error : META[s];
@@ -33454,11 +33432,11 @@ function renderMessage(m, showRole, feedId, getDiffMessage, renderMarkdown) {
         renderMarkdown
       });
     case "diff": {
-      const { id, path: path9, oldContent, newContent, onAccept, onReject, onRetry } = m;
+      const { id, path: path8, oldContent, newContent, onAccept, onReject, onRetry } = m;
       let lastStatus = m.status;
       let lastError = m.error;
       return DiffCard({
-        path: path9,
+        path: path8,
         oldContent,
         newContent,
         status: () => {
@@ -35005,7 +34983,7 @@ var SetupWizardPanel = class extends import_obsidian6.ItemView {
 };
 
 // src/ui/integrations/VaultMindView/createVaultMindController.ts
-var import_node_path5 = __toESM(require("node:path"), 1);
+var import_node_path4 = __toESM(require("node:path"), 1);
 
 // src/chat/message-types.ts
 function generateMessageId() {
@@ -35513,8 +35491,8 @@ function mapSession(s) {
 }
 function createVaultMindController(opts) {
   const { client, vaultPath, messageStore, connection, revealPanel, openSearchHit } = opts;
-  const piConfigDir = import_node_path5.default.join(vaultPath, ".vault-mind", ".pi", "agent");
-  const defaultSessionPath = import_node_path5.default.join(piConfigDir, "sessions", "default.jsonl");
+  const piConfigDir = import_node_path4.default.join(vaultPath, ".vault-mind", ".pi", "agent");
+  const defaultSessionPath = import_node_path4.default.join(piConfigDir, "sessions", "default.jsonl");
   let currentSessionPath = messageStore.getLastSession() ?? defaultSessionPath;
   const sessionPaths = /* @__PURE__ */ new Map();
   const state = reactive({
@@ -36408,7 +36386,7 @@ var VaultMindPlugin = class extends import_obsidian7.Plugin {
     await bootstrapToken(this.app, this.vaultPath);
     const piConfigDir = resolvePluginAgentDir(vaultPath);
     const piBinary = detectPiBinary(this.settings.piBinaryPath, vaultPath) ?? this.settings.piBinaryPath;
-    const sessionsDir = import_node_path6.default.join(piConfigDir, "sessions");
+    const sessionsDir = import_node_path5.default.join(piConfigDir, "sessions");
     const token = await resolveToken(this.app) ?? "";
     const connection = new PiConnection({
       piBinaryPath: piBinary,
