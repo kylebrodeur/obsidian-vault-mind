@@ -22412,7 +22412,7 @@ var init_bootstrap = __esm({
     init_config();
     init_extension_packages();
     init_pi_detect();
-    BUNDLED_PROJECT_VERSION = true ? "0.16.15" : projectPackage.version;
+    BUNDLED_PROJECT_VERSION = true ? "0.16.16" : projectPackage.version;
     VaultBootstrap = class {
       vaultPath;
       piBinaryPath;
@@ -27725,6 +27725,73 @@ function ConnectionCategory(options) {
 	</div>`;
 }
 
+// src/ui/components/Card/Card.ts
+var TONE_COLOR = {
+  default: "var(--background-modifier-border-hover)",
+  running: "var(--text-accent)",
+  done: "var(--text-success)",
+  error: "var(--text-error)",
+  pending: "var(--text-muted)"
+};
+function Card(options) {
+  const {
+    tone = "default",
+    icon: iconName,
+    title,
+    meta,
+    body,
+    footer,
+    collapsible = false,
+    defaultExpanded = true,
+    isExpanded,
+    forceCollapsed,
+    spinIcon = true
+  } = options;
+  const state = reactive({ expanded: collapsible ? defaultExpanded : true });
+  const resolveTone = () => typeof tone === "function" ? tone() : tone;
+  const resolveIcon = () => typeof iconName === "function" ? iconName() : iconName;
+  const resolveSlot = (slot) => {
+    if (typeof slot !== "function" || "isT" in slot) return slot ?? "";
+    return slot();
+  };
+  const resolveExpanded = () => forceCollapsed?.() ? false : isExpanded !== void 0 ? isExpanded() : state.expanded;
+  const rootClass = () => {
+    const t = resolveTone();
+    let c = "oas-card";
+    if (t !== "default") c += ` oas-card--${t}`;
+    if (spinIcon) c += " oas-card-spin-icon";
+    if (!collapsible) c += " oas-card-static";
+    if (resolveExpanded()) c += " is-expanded";
+    return c;
+  };
+  const accent = () => {
+    const t = resolveTone();
+    return t === "default" ? false : `border-left-color: ${TONE_COLOR[t]};`;
+  };
+  const toggle = () => {
+    if (collapsible && isExpanded === void 0 && !forceCollapsed?.())
+      state.expanded = !state.expanded;
+  };
+  return html`<div class="${rootClass}" style="${accent}">
+		<div class="oas-card-header" @click="${toggle}">
+			${() => {
+    const ic = resolveIcon();
+    const t = resolveTone();
+    return ic ? html`<span class="oas-card-lead" style="${`color: ${TONE_COLOR[t]};`}"
+							>${() => icon(ic)}</span
+						>` : "";
+  }}
+			<span class="oas-card-title">${() => resolveSlot(title)}</span>
+			${() => meta ? html`<span class="oas-card-meta">${() => resolveSlot(meta)}</span>` : ""}
+			${() => collapsible && isExpanded === void 0 ? html`<span class="oas-card-chevron">${() => icon("chevron-right")}</span>` : ""}
+		</div>
+		<div class="oas-card-body">
+			${() => body ? html`<div class="oas-card-content">${() => resolveSlot(body)}</div>` : ""}
+			${() => footer ? html`<div class="oas-card-actions">${() => resolveSlot(footer)}</div>` : ""}
+		</div>
+	</div>`;
+}
+
 // src/ui/components/EmbeddingProviderSection/EmbeddingProviderSection.ts
 var MODE_ORDER = ["local", "remote", "both", "skip"];
 var MODE_LABELS = {
@@ -27805,19 +27872,65 @@ function capabilityNote(capabilities) {
     return "";
   };
 }
+function probeCard(opts, target) {
+  const probeState = opts.probeState;
+  const canProbe = () => opts.capabilities().embedding.canProbe;
+  const probeLabel = "Test & Fetch Models";
+  const probeTone = (phase) => {
+    switch (phase) {
+      case "loading":
+        return "running";
+      case "ready":
+        return "done";
+      case "error":
+        return "error";
+      case "unavailable":
+        return "pending";
+      default:
+        return "default";
+    }
+  };
+  const probeIcon = (phase) => {
+    switch (phase) {
+      case "loading":
+        return "loader";
+      case "ready":
+        return "check-circle";
+      case "error":
+        return "x-circle";
+      case "unavailable":
+        return "alert-circle";
+      default:
+        return "search";
+    }
+  };
+  return () => {
+    const ps = probeState()[target];
+    const probeDisabled = !canProbe() || ps.phase === "loading" || ps.phase === "unavailable";
+    const probeDescText = !canProbe() ? "" : ps.phase === "loading" ? "Testing connection and getting models\u2026" : ps.phase === "error" ? ps.error ?? "Connection test failed" : ps.phase === "unavailable" ? "Connection testing and model discovery unavailable" : ps.phase === "ready" ? `${ps.models.length} model${ps.models.length === 1 ? "" : "s"} discovered` : "Click to test the connection and discover available models.";
+    return Card({
+      tone: () => probeTone(ps.phase),
+      icon: () => probeIcon(ps.phase),
+      spinIcon: ps.phase === "loading",
+      title: probeLabel,
+      body: () => html`<p style="color: var(--text-muted);">${probeDescText}</p>`,
+      footer: () => Button({
+        label: probeLabel,
+        icon: "refresh-cw",
+        variant: "cta",
+        disabled: () => probeDisabled,
+        onClick: () => void opts.onProbe(target)
+      })
+    });
+  };
+}
 function providerGroup(opts, target) {
   const draft = opts.draft;
   const canWrite = () => opts.capabilities().embedding.canWriteSecrets;
-  const canProbe = () => opts.capabilities().embedding.canProbe;
-  const probeState = opts.probeState;
-  const probeLabel = "Test & Fetch Models";
   return () => {
     const mode = draft().mode;
     if (mode === "skip") return "";
     if (mode !== target && mode !== "both") return "";
-    const ps = probeState()[target];
-    const probeDisabled = !canProbe() || ps.phase === "loading" || ps.phase === "unavailable";
-    const probeDescText = !canProbe() ? "" : ps.phase === "loading" ? "Testing connection and getting models\u2026" : ps.phase === "error" ? ps.error ?? "Connection test failed" : ps.phase === "unavailable" ? "Connection testing and model discovery unavailable" : ps.phase === "ready" ? `${ps.models.length} model${ps.models.length === 1 ? "" : "s"} discovered` : "";
     if (target === "local") {
       return html`<div class="oas-embedding-target-fields">
 				${TextField({
@@ -27828,7 +27941,7 @@ function providerGroup(opts, target) {
         onInput: (value) => opts.onChange({ localUrl: value }),
         autocomplete: "url"
       })}
-			${SecretField({
+				${SecretField({
         id: "oas-secret-local-api-key",
         label: "Local API key",
         description: "API key for the local endpoint, if required. Saved only when you press Save.",
@@ -27837,19 +27950,11 @@ function providerGroup(opts, target) {
         status: secretStatusFor(opts.secretStatus, "localApiKey"),
         disabled: () => !canWrite()
       })}
-			<div class="setting-item">
-				<div class="setting-item-info">
-					<div class="setting-item-name">${probeLabel}</div>
-					<div class="setting-item-description">${probeDescText}</div>
-				</div>
-				<div class="setting-item-control">
-					<button class="oas-btn" disabled="${() => probeDisabled}" @click="${() => opts.onProbe(target)}">${probeLabel}</button>
-				</div>
-			</div>
-		</div>`;
+				${probeCard(opts, target)}
+			</div>`;
     }
     return html`<div class="oas-embedding-target-fields">
-		${TextField({
+			${TextField({
       id: "oas-embedding-remote-url",
       label: "Remote URL",
       description: "URL of the remote embedding provider.",
@@ -27857,7 +27962,7 @@ function providerGroup(opts, target) {
       onInput: (value) => opts.onChange({ remoteUrl: value }),
       autocomplete: "url"
     })}
-		${SecretField({
+			${SecretField({
       id: "oas-secret-remote-key",
       label: "Remote API key",
       description: "Provider credential. Saved only when you press Save; the value is never displayed after save.",
@@ -27866,16 +27971,8 @@ function providerGroup(opts, target) {
       status: secretStatusFor(opts.secretStatus, "remoteApiKey"),
       disabled: () => !canWrite()
     })}
-		<div class="setting-item">
-			<div class="setting-item-info">
-				<div class="setting-item-name">${probeLabel}</div>
-				<div class="setting-item-description">${probeDescText}</div>
-			</div>
-			<div class="setting-item-control">
-				<button class="oas-btn" disabled="${() => probeDisabled}" @click="${() => opts.onProbe(target)}">${probeLabel}</button>
-			</div>
-		</div>
-	</div>`;
+			${probeCard(opts, target)}
+		</div>`;
   };
 }
 function sharedModelFields(opts) {
@@ -31012,73 +31109,6 @@ function ConfigurationStep({ state, adapter }) {
 	</div>`;
 }
 
-// src/ui/components/Card/Card.ts
-var TONE_COLOR = {
-  default: "var(--background-modifier-border-hover)",
-  running: "var(--text-accent)",
-  done: "var(--text-success)",
-  error: "var(--text-error)",
-  pending: "var(--text-muted)"
-};
-function Card(options) {
-  const {
-    tone = "default",
-    icon: iconName,
-    title,
-    meta,
-    body,
-    footer,
-    collapsible = false,
-    defaultExpanded = true,
-    isExpanded,
-    forceCollapsed,
-    spinIcon = true
-  } = options;
-  const state = reactive({ expanded: collapsible ? defaultExpanded : true });
-  const resolveTone = () => typeof tone === "function" ? tone() : tone;
-  const resolveIcon = () => typeof iconName === "function" ? iconName() : iconName;
-  const resolveSlot = (slot) => {
-    if (typeof slot !== "function" || "isT" in slot) return slot ?? "";
-    return slot();
-  };
-  const resolveExpanded = () => forceCollapsed?.() ? false : isExpanded !== void 0 ? isExpanded() : state.expanded;
-  const rootClass = () => {
-    const t = resolveTone();
-    let c = "oas-card";
-    if (t !== "default") c += ` oas-card--${t}`;
-    if (spinIcon) c += " oas-card-spin-icon";
-    if (!collapsible) c += " oas-card-static";
-    if (resolveExpanded()) c += " is-expanded";
-    return c;
-  };
-  const accent = () => {
-    const t = resolveTone();
-    return t === "default" ? false : `border-left-color: ${TONE_COLOR[t]};`;
-  };
-  const toggle = () => {
-    if (collapsible && isExpanded === void 0 && !forceCollapsed?.())
-      state.expanded = !state.expanded;
-  };
-  return html`<div class="${rootClass}" style="${accent}">
-		<div class="oas-card-header" @click="${toggle}">
-			${() => {
-    const ic = resolveIcon();
-    const t = resolveTone();
-    return ic ? html`<span class="oas-card-lead" style="${`color: ${TONE_COLOR[t]};`}"
-							>${() => icon(ic)}</span
-						>` : "";
-  }}
-			<span class="oas-card-title">${() => resolveSlot(title)}</span>
-			${() => meta ? html`<span class="oas-card-meta">${() => resolveSlot(meta)}</span>` : ""}
-			${() => collapsible && isExpanded === void 0 ? html`<span class="oas-card-chevron">${() => icon("chevron-right")}</span>` : ""}
-		</div>
-		<div class="oas-card-body">
-			${() => body ? html`<div class="oas-card-content">${() => resolveSlot(body)}</div>` : ""}
-			${() => footer ? html`<div class="oas-card-actions">${() => resolveSlot(footer)}</div>` : ""}
-		</div>
-	</div>`;
-}
-
 // src/ui/views/SetupWizard/steps/DoneStep.ts
 function DoneStep({ state }) {
   const isSkip = () => state.embedding.mode === "skip";
@@ -31222,9 +31252,6 @@ function FoldersStep({ state, adapter }) {
 	</div>`;
 }
 
-// src/ui/views/SetupWizard/steps/InstallStep.ts
-init_extension_packages();
-
 // src/ui/components/Chip/Chip.ts
 function Chip({ label, icon: iconName, title, onRemove }) {
   return html`<span class="oas-chip" title="${title ?? label}">
@@ -31244,6 +31271,7 @@ function ProgressBar({ value }) {
 }
 
 // src/ui/views/SetupWizard/steps/InstallStep.ts
+init_extension_packages();
 var PACKAGE_DETAILS = {
   "npm:pi-vault-mind": {
     label: "Vault Mind agent extension",
@@ -31274,12 +31302,6 @@ var packageItem = (id, optional = false) => ({
   confirmed: false
 });
 var DEFAULT_ITEMS = [
-  {
-    id: "obsidian-vault-mind",
-    label: "Vault Mind Obsidian plugin",
-    desc: "Companion plugin that connects Obsidian to the agent runtime.",
-    kind: "obsidian"
-  },
   ...extension_packages_default.required.map((id) => packageItem(id)),
   ...extension_packages_default.optional.map((id) => packageItem(id, true))
 ];
@@ -31290,7 +31312,6 @@ function resolveInstallStatus(item) {
   return item.outcome ?? (willInstall(item) ? "installed" : "skipped");
 }
 function resolveInstallDisplayStatus(item, phase, requiredExtensionsDetected) {
-  if (item.kind === "obsidian") return "installed";
   if (item.id === "npm:pi-vault-mind") return "installed";
   if (phase === "loading") return willInstall(item) ? "installing" : "skipped";
   if (phase === "ready" || !item.optional && requiredExtensionsDetected) {
@@ -32059,6 +32080,31 @@ function SetupWizard(options) {
 
 // src/ui/integrations/VaultMindView/VaultMindPanel.ts
 var import_obsidian5 = require("obsidian");
+
+// src/model-utils.ts
+var KNOWN_EMBEDDING_MODELS = [
+  "embeddinggemma",
+  "nomic-embed-text",
+  "mxbai-embed-large",
+  "all-minilm",
+  "paraphrase-multilingual"
+];
+function getModelCapabilities(model) {
+  const explicitChat = model.capabilities?.chat;
+  const explicitEmbedding = model.capabilities?.embedding;
+  if (typeof explicitChat === "boolean" || typeof explicitEmbedding === "boolean") {
+    const embedding2 = typeof explicitEmbedding === "boolean" ? explicitEmbedding : false;
+    return {
+      chat: typeof explicitChat === "boolean" ? explicitChat : !embedding2,
+      embedding: embedding2
+    };
+  }
+  const id = model.id.toLowerCase();
+  const knownModel = KNOWN_EMBEDDING_MODELS.some((name) => id.includes(name));
+  const embeddingFamily = /(^|[/_:.-])(?:bge-|embed(?:ding)?(?:$|[/_:.-]))/.test(id);
+  const embedding = knownModel || embeddingFamily;
+  return { chat: !embedding, embedding };
+}
 
 // src/ui/components/Suggest/Suggest.ts
 function Suggest(o) {
@@ -32909,7 +32955,7 @@ function MessageBubble(o) {
   return html`<div class="${rootClass}">
 		${showRole ? html`<div class="oas-msg-role">${roleLabel}</div>` : ""}
 		<div class="oas-msg-body">
-			<div class="oas-msg-md">${content}</div>${streaming ? html`<span class="oas-msg-caret" aria-hidden="true"></span>` : ""}
+			<div class="oas-msg-md"><span class="oas-msg-text">${content}</span></div>${streaming ? html`<span class="oas-msg-caret" aria-hidden="true"></span>` : ""}
 		</div>
 	</div>`;
 }
@@ -33122,7 +33168,7 @@ function ThinkingBlock({ content, isStreaming }) {
     tone: "default",
     icon: "cpu",
     title,
-    body: html`<p class="oas-thinking-body">${content}${isStreaming ? html`<span class="oas-msg-caret" aria-hidden="true"></span>` : ""}</p>`,
+    body: html`<p class="oas-thinking-body"><span class="oas-thinking-text">${content}</span>${isStreaming ? html`<span class="oas-msg-caret" aria-hidden="true"></span>` : ""}</p>`,
     collapsible: true,
     defaultExpanded: !!isStreaming
   });
@@ -33820,31 +33866,6 @@ function TabBar({
     }).key(key(tab))
   )}
 	</div>`;
-}
-
-// src/model-utils.ts
-var KNOWN_EMBEDDING_MODELS = [
-  "embeddinggemma",
-  "nomic-embed-text",
-  "mxbai-embed-large",
-  "all-minilm",
-  "paraphrase-multilingual"
-];
-function getModelCapabilities(model) {
-  const explicitChat = model.capabilities?.chat;
-  const explicitEmbedding = model.capabilities?.embedding;
-  if (typeof explicitChat === "boolean" || typeof explicitEmbedding === "boolean") {
-    const embedding2 = typeof explicitEmbedding === "boolean" ? explicitEmbedding : false;
-    return {
-      chat: typeof explicitChat === "boolean" ? explicitChat : !embedding2,
-      embedding: embedding2
-    };
-  }
-  const id = model.id.toLowerCase();
-  const knownModel = KNOWN_EMBEDDING_MODELS.some((name) => id.includes(name));
-  const embeddingFamily = /(^|[/_:.-])(?:bge-|embed(?:ding)?(?:$|[/_:.-]))/.test(id);
-  const embedding = knownModel || embeddingFamily;
-  return { chat: !embedding, embedding };
 }
 
 // src/ui/views/VaultMindView/records.ts
