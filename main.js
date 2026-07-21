@@ -22412,7 +22412,7 @@ var init_bootstrap = __esm({
     init_config();
     init_extension_packages();
     init_pi_detect();
-    BUNDLED_PROJECT_VERSION = true ? "0.16.17" : projectPackage.version;
+    BUNDLED_PROJECT_VERSION = true ? "0.16.18" : projectPackage.version;
     VaultBootstrap = class {
       vaultPath;
       piBinaryPath;
@@ -32083,6 +32083,31 @@ function SetupWizard(options) {
 // src/ui/integrations/VaultMindView/VaultMindPanel.ts
 var import_obsidian5 = require("obsidian");
 
+// src/model-utils.ts
+var KNOWN_EMBEDDING_MODELS = [
+  "embeddinggemma",
+  "nomic-embed-text",
+  "mxbai-embed-large",
+  "all-minilm",
+  "paraphrase-multilingual"
+];
+function getModelCapabilities(model) {
+  const explicitChat = model.capabilities?.chat;
+  const explicitEmbedding = model.capabilities?.embedding;
+  if (typeof explicitChat === "boolean" || typeof explicitEmbedding === "boolean") {
+    const embedding2 = typeof explicitEmbedding === "boolean" ? explicitEmbedding : false;
+    return {
+      chat: typeof explicitChat === "boolean" ? explicitChat : !embedding2,
+      embedding: embedding2
+    };
+  }
+  const id = model.id.toLowerCase();
+  const knownModel = KNOWN_EMBEDDING_MODELS.some((name) => id.includes(name));
+  const embeddingFamily = /(^|[/_:.-])(?:bge-|embed(?:ding)?(?:$|[/_:.-]))/.test(id);
+  const embedding = knownModel || embeddingFamily;
+  return { chat: !embedding, embedding };
+}
+
 // src/ui/components/Suggest/Suggest.ts
 function Suggest(o) {
   return Popover({
@@ -33849,31 +33874,6 @@ function TabBar({
     }).key(key(tab))
   )}
 	</div>`;
-}
-
-// src/model-utils.ts
-var KNOWN_EMBEDDING_MODELS = [
-  "embeddinggemma",
-  "nomic-embed-text",
-  "mxbai-embed-large",
-  "all-minilm",
-  "paraphrase-multilingual"
-];
-function getModelCapabilities(model) {
-  const explicitChat = model.capabilities?.chat;
-  const explicitEmbedding = model.capabilities?.embedding;
-  if (typeof explicitChat === "boolean" || typeof explicitEmbedding === "boolean") {
-    const embedding2 = typeof explicitEmbedding === "boolean" ? explicitEmbedding : false;
-    return {
-      chat: typeof explicitChat === "boolean" ? explicitChat : !embedding2,
-      embedding: embedding2
-    };
-  }
-  const id = model.id.toLowerCase();
-  const knownModel = KNOWN_EMBEDDING_MODELS.some((name) => id.includes(name));
-  const embeddingFamily = /(^|[/_:.-])(?:bge-|embed(?:ding)?(?:$|[/_:.-]))/.test(id);
-  const embedding = knownModel || embeddingFamily;
-  return { chat: !embedding, embedding };
 }
 
 // src/ui/views/VaultMindView/records.ts
@@ -35698,7 +35698,18 @@ function createVaultMindController(opts) {
   let searchRequestToken = 0;
   function appendFeedMessages(next) {
     if (next.length === 0) return;
-    chat.messages = [...chat.messages, ...next];
+    const existingIds = new Set(chat.messages.map((m) => m.id));
+    const deduped = [];
+    for (const m of next) {
+      if (existingIds.has(m.id)) {
+        console.warn("[VaultMindController] Dropping duplicate feed message:", m.id, m.kind);
+        continue;
+      }
+      existingIds.add(m.id);
+      deduped.push(m);
+    }
+    if (deduped.length === 0) return;
+    chat.messages = [...chat.messages, ...deduped];
     refreshCurrentSessionSearchResults();
   }
   function persist(msg) {
