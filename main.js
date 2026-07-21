@@ -24294,7 +24294,7 @@ async function bootstrapToken(app, vaultPath) {
     await import_promises.default.access(envPath);
   } catch {
     if (storedToken) {
-      await app.secretStorage.removeSecret(PVM_TOKEN_SECRET_ID);
+      await app.secretStorage.setSecret(PVM_TOKEN_SECRET_ID, "");
     }
     return;
   }
