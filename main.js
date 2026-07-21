@@ -82,6 +82,21 @@ function readServerPort(vaultPath) {
     return void 0;
   }
 }
+function ensureMinimalVaultConfig(vaultPath) {
+  const configPath = getVaultMindConfigPath(vaultPath);
+  if ((0, import_node_fs.existsSync)(configPath)) return;
+  const vaultMindDir = import_node_path.default.join(vaultPath, ".vault-mind");
+  (0, import_node_fs.mkdirSync)(vaultMindDir, { recursive: true });
+  const minimal = {
+    version: 2,
+    vaultMind: {
+      vaults: {
+        default: { path: vaultPath }
+      }
+    }
+  };
+  (0, import_node_fs.writeFileSync)(configPath, JSON.stringify(minimal, null, "	") + "\n", "utf-8");
+}
 var import_node_fs, import_node_path, ENV_1PASS_REL, resolvePluginAgentDir, DEFAULT_SERVER_STATE_REL;
 var init_config = __esm({
   "src/config.ts"() {
@@ -96,18 +111,18 @@ var init_config = __esm({
 // src/pi-detect.ts
 function resolvePnpmHome() {
   if (process.env.PNPM_HOME) return process.env.PNPM_HOME;
-  if (process.platform === "darwin") return path3.join(os.homedir(), "Library", "pnpm");
-  return path3.join(os.homedir(), ".local", "share", "pnpm");
+  if (process.platform === "darwin") return path2.join(os.homedir(), "Library", "pnpm");
+  return path2.join(os.homedir(), ".local", "share", "pnpm");
 }
 function detectFnm() {
-  const fnmRoot = path3.join(os.homedir(), ".local", "share", "fnm");
-  if (!fs2.existsSync(fnmRoot)) return null;
-  const binDir = path3.join(fnmRoot, "aliases", "default", "bin");
-  const node = path3.join(binDir, "node");
-  if (!fs2.existsSync(node)) return null;
+  const fnmRoot = path2.join(os.homedir(), ".local", "share", "fnm");
+  if (!fs.existsSync(fnmRoot)) return null;
+  const binDir = path2.join(fnmRoot, "aliases", "default", "bin");
+  const node = path2.join(binDir, "node");
+  if (!fs.existsSync(node)) return null;
   return {
     node,
-    pnpm: fs2.existsSync(path3.join(binDir, "pnpm")) ? path3.join(binDir, "pnpm") : null,
+    pnpm: fs.existsSync(path2.join(binDir, "pnpm")) ? path2.join(binDir, "pnpm") : null,
     binDir,
     source: "fnm",
     pnpmHome: resolvePnpmHome()
@@ -115,13 +130,13 @@ function detectFnm() {
 }
 function resolveNvmDir() {
   if (process.env.NVM_DIR) return process.env.NVM_DIR;
-  if (process.env.XDG_CONFIG_HOME) return path3.join(process.env.XDG_CONFIG_HOME, "nvm");
-  return path3.join(os.homedir(), ".nvm");
+  if (process.env.XDG_CONFIG_HOME) return path2.join(process.env.XDG_CONFIG_HOME, "nvm");
+  return path2.join(os.homedir(), ".nvm");
 }
 function detectNvm() {
   const nvmDir = resolveNvmDir();
-  const nvmScript = path3.join(nvmDir, "nvm.sh");
-  if (!fs2.existsSync(nvmScript)) return null;
+  const nvmScript = path2.join(nvmDir, "nvm.sh");
+  if (!fs.existsSync(nvmScript)) return null;
   try {
     const node = (0, import_node_child_process.execFileSync)(
       "/bin/bash",
@@ -138,11 +153,11 @@ function detectNvm() {
         timeout: 5e3
       }
     ).trim();
-    if (!node || !path3.isAbsolute(node) || !fs2.existsSync(node)) return null;
-    const binDir = path3.dirname(node);
+    if (!node || !path2.isAbsolute(node) || !fs.existsSync(node)) return null;
+    const binDir = path2.dirname(node);
     return {
       node,
-      pnpm: fs2.existsSync(path3.join(binDir, "pnpm")) ? path3.join(binDir, "pnpm") : null,
+      pnpm: fs.existsSync(path2.join(binDir, "pnpm")) ? path2.join(binDir, "pnpm") : null,
       binDir,
       source: "nvm",
       pnpmHome: resolvePnpmHome(),
@@ -155,9 +170,9 @@ function detectNvm() {
 }
 function detectFallback() {
   const pnpmHome = resolvePnpmHome();
-  if (fs2.existsSync(path3.join(pnpmHome, "pnpm")) || fs2.existsSync(path3.join(pnpmHome, "pi"))) {
+  if (fs.existsSync(path2.join(pnpmHome, "pnpm")) || fs.existsSync(path2.join(pnpmHome, "pi"))) {
     return {
-      pnpm: path3.join(pnpmHome, "pnpm"),
+      pnpm: path2.join(pnpmHome, "pnpm"),
       node: null,
       binDir: pnpmHome,
       source: "PNPM_HOME",
@@ -180,7 +195,7 @@ function buildExecPath() {
   }
   const pnpmHome = resolvePnpmHome();
   if (!dirs.includes(pnpmHome)) dirs.push(pnpmHome);
-  const homeLocalBin = path3.join(os.homedir(), ".local", "bin");
+  const homeLocalBin = path2.join(os.homedir(), ".local", "bin");
   dirs.push(
     homeLocalBin,
     "/opt/homebrew/bin",
@@ -208,47 +223,47 @@ function buildExecEnv() {
 }
 function detectOpBinary() {
   const candidates = [
-    path3.join(os.homedir(), ".local", "bin", "op"),
+    path2.join(os.homedir(), ".local", "bin", "op"),
     "/opt/homebrew/bin/op",
     "/usr/local/bin/op",
     "/usr/bin/op"
   ];
   for (const c of candidates) {
-    if (fs2.existsSync(c)) return c;
+    if (fs.existsSync(c)) return c;
   }
   return findInPath("op");
 }
 function detectPiBinary(configured, vaultPath) {
-  if (path3.isAbsolute(configured) && fs2.existsSync(configured)) {
+  if (path2.isAbsolute(configured) && fs.existsSync(configured)) {
     return configured;
   }
   const pathHit = findInPath("pi");
   if (pathHit) return pathHit;
   const home = os.homedir();
-  const pnpmHome = process.env.PNPM_HOME || (process.platform === "darwin" ? path3.join(home, "Library", "pnpm") : path3.join(home, ".local", "share", "pnpm"));
+  const pnpmHome = process.env.PNPM_HOME || (process.platform === "darwin" ? path2.join(home, "Library", "pnpm") : path2.join(home, ".local", "share", "pnpm"));
   const candidates = [
     // System npm global installs (base case — no version manager)
     "/usr/local/bin/pi",
     "/opt/homebrew/bin/pi",
-    path3.join(home, ".npm-global", "bin", "pi"),
-    path3.join(home, ".local", "bin", "pi"),
+    path2.join(home, ".npm-global", "bin", "pi"),
+    path2.join(home, ".local", "bin", "pi"),
     // pnpm global (PNPM_HOME)
-    path3.join(pnpmHome, "pi")
+    path2.join(pnpmHome, "pi")
   ];
   const runtimeBin = detectRuntime()?.binDir ?? null;
   const nodeBin = runtimeBin;
   if (nodeBin && nodeBin !== "/usr/local/bin" && nodeBin !== "/opt/homebrew/bin") {
-    candidates.push(path3.join(nodeBin, "pi"));
+    candidates.push(path2.join(nodeBin, "pi"));
   }
   candidates.push(
     // Less common locations
-    path3.join(home, ".pi", "bin", "pi")
+    path2.join(home, ".pi", "bin", "pi")
   );
   if (vaultPath) {
-    candidates.unshift(path3.join(vaultPath, "node_modules", ".bin", "pi"));
+    candidates.unshift(path2.join(vaultPath, "node_modules", ".bin", "pi"));
   }
   for (const candidate of candidates) {
-    if (fs2.existsSync(candidate)) {
+    if (fs.existsSync(candidate)) {
       return candidate;
     }
   }
@@ -257,22 +272,22 @@ function detectPiBinary(configured, vaultPath) {
 function findInPath(name) {
   const suffix = process.platform === "win32" ? ".exe" : "";
   const fullName = `${name}${suffix}`;
-  for (const dir of buildExecPath().split(path3.delimiter)) {
+  for (const dir of buildExecPath().split(path2.delimiter)) {
     if (!dir) continue;
-    const candidate = path3.join(dir, fullName);
-    if (fs2.existsSync(candidate)) {
+    const candidate = path2.join(dir, fullName);
+    if (fs.existsSync(candidate)) {
       return candidate;
     }
   }
   return null;
 }
-var import_node_child_process, fs2, os, path3;
+var import_node_child_process, fs, os, path2;
 var init_pi_detect = __esm({
   "src/pi-detect.ts"() {
     import_node_child_process = require("node:child_process");
-    fs2 = __toESM(require("node:fs"), 1);
+    fs = __toESM(require("node:fs"), 1);
     os = __toESM(require("node:os"), 1);
-    path3 = __toESM(require("node:path"), 1);
+    path2 = __toESM(require("node:path"), 1);
   }
 });
 
@@ -22397,7 +22412,7 @@ var init_bootstrap = __esm({
     init_config();
     init_extension_packages();
     init_pi_detect();
-    BUNDLED_PROJECT_VERSION = true ? "0.16.11" : projectPackage.version;
+    BUNDLED_PROJECT_VERSION = true ? "0.16.12" : projectPackage.version;
     VaultBootstrap = class {
       vaultPath;
       piBinaryPath;
@@ -22570,293 +22585,9 @@ __export(main_exports, {
   default: () => VaultMindPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_node_path5 = __toESM(require("node:path"), 1);
+var import_node_path6 = __toESM(require("node:path"), 1);
 var import_view = require("@codemirror/view");
 var import_obsidian7 = require("obsidian");
-
-// src/chat/ensureVaultRuntime.ts
-var fs = __toESM(require("node:fs"), 1);
-var path2 = __toESM(require("node:path"), 1);
-init_config();
-async function canonicalizeVaultPath(p) {
-  try {
-    return await fs.promises.realpath(p);
-  } catch {
-    return path2.resolve(p);
-  }
-}
-async function ensureVaultRuntime(deps) {
-  const promise = (async () => {
-    await deps.acquireLock();
-    const canonicalVaultPath = await canonicalizeVaultPath(deps.vaultPath);
-    try {
-      const discovery = await deps.readDiscovery();
-      if (discovery) {
-        const alive = await deps.isProcessAlive();
-        if (alive) {
-          const health = await deps.probe({
-            port: discovery.port,
-            token: discovery.token
-          });
-          if (health.ok && health.vaultPath) {
-            const healthVaultPath = await canonicalizeVaultPath(health.vaultPath);
-            if (healthVaultPath === canonicalVaultPath) {
-              const pid = health.pid ?? discovery.pid;
-              const port = health.port ?? discovery.port;
-              return { adopted: true, port, pid };
-            }
-            throw new Error(
-              `Discovery conflict: existing runtime serves ${health.vaultPath} but this vault is ${deps.vaultPath}`
-            );
-          }
-        }
-      }
-      await deps.spawnAndStart();
-      const deadline = Date.now() + 5e3;
-      while (Date.now() < deadline) {
-        const latest = await deps.readDiscovery();
-        if (latest && latest.port && latest.pid) {
-          const health = await deps.probe({
-            port: latest.port,
-            token: latest.token
-          });
-          if (health.ok && health.vaultPath) {
-            const healthVaultPath = await canonicalizeVaultPath(health.vaultPath);
-            if (healthVaultPath === canonicalVaultPath) {
-              return {
-                adopted: false,
-                port: latest.port,
-                pid: latest.pid
-              };
-            }
-            throw new Error(
-              `Discovery conflict: runtime at ${latest.port} serves ${health.vaultPath} but this vault is ${deps.vaultPath}`
-            );
-          }
-        }
-        const { promise: promise2, resolve: resolve2 } = Promise.withResolvers();
-        setTimeout(resolve2, 100);
-        await promise2;
-      }
-      throw new Error(`Spawned runtime for ${deps.vaultPath} did not become healthy within 5s`);
-    } finally {
-      await deps.releaseLock();
-    }
-  })();
-  return promise;
-}
-function createVaultRuntimeLock(vaultPath, options = {}) {
-  const retryDelayMs = options.retryDelayMs ?? 100;
-  const timeoutMs = options.timeoutMs ?? 3e4;
-  const staleThresholdMs = options.staleThresholdMs ?? 5e3;
-  const lockDir = path2.join(vaultPath, ".vault-mind", "runtime-lock");
-  const ownerPath = path2.join(lockDir, "owner.json");
-  const recoveryDir = path2.join(vaultPath, ".vault-mind", "runtime-lock-recovery");
-  const recoveryOwnerPath = path2.join(recoveryDir, "owner.json");
-  let heldToken;
-  const ownerState = async () => {
-    try {
-      const raw = await fs.promises.readFile(ownerPath, "utf-8");
-      const data = JSON.parse(raw);
-      if (!data.pid) return "malformed-metadata";
-      if (data.pid === process.pid) return "live-same-process";
-      try {
-        process.kill(data.pid, 0);
-        return "live-other-process";
-      } catch {
-        return "dead";
-      }
-    } catch {
-      return "missing-metadata";
-    }
-  };
-  const directoryIsStale = async () => {
-    try {
-      const stat = await fs.promises.stat(lockDir);
-      return Date.now() - stat.mtimeMs > staleThresholdMs;
-    } catch {
-      return true;
-    }
-  };
-  const withRecoveryLock = async (operation) => {
-    await fs.promises.mkdir(path2.dirname(recoveryDir), { recursive: true });
-    let acquired = false;
-    const recoveryDeadline = Date.now() + timeoutMs;
-    while (Date.now() < recoveryDeadline) {
-      try {
-        await fs.promises.mkdir(recoveryDir);
-        const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        await fs.promises.writeFile(
-          recoveryOwnerPath,
-          JSON.stringify({ pid: process.pid, token, acquiredAt: Date.now() }),
-          { encoding: "utf-8", mode: 384 }
-        );
-        acquired = true;
-        break;
-      } catch (err) {
-        const code = err.code;
-        if (code !== "EEXIST") throw err;
-        let recoveryStale = false;
-        try {
-          const raw = await fs.promises.readFile(recoveryOwnerPath, "utf-8");
-          const data = JSON.parse(raw);
-          if (!data.pid) {
-            recoveryStale = true;
-          } else if (data.pid === process.pid) {
-            recoveryStale = false;
-          } else {
-            try {
-              process.kill(data.pid, 0);
-              recoveryStale = false;
-            } catch {
-              recoveryStale = true;
-            }
-          }
-        } catch {
-          recoveryStale = true;
-        }
-        if (recoveryStale) {
-          try {
-            await fs.promises.rm(recoveryDir, { recursive: true, force: true });
-          } catch {
-          }
-          continue;
-        }
-        const { promise, resolve: resolve2 } = Promise.withResolvers();
-        setTimeout(resolve2, retryDelayMs);
-        await promise;
-      }
-    }
-    if (!acquired) {
-      throw new Error(`Timed out acquiring recovery lock at ${recoveryDir}`);
-    }
-    try {
-      await operation();
-    } finally {
-      try {
-        await fs.promises.rm(recoveryDir, { recursive: true, force: true });
-      } catch {
-      }
-    }
-  };
-  const breakStaleLock = async () => {
-    await withRecoveryLock(async () => {
-      const currentState = await ownerState();
-      if (currentState === "live-same-process" || currentState === "live-other-process") {
-        return;
-      }
-      if (currentState === "missing-metadata" || currentState === "malformed-metadata") {
-        if (!await directoryIsStale()) {
-          return;
-        }
-      }
-      const tombstone = `${lockDir}.stale.${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      try {
-        await fs.promises.rename(lockDir, tombstone);
-        await fs.promises.rm(tombstone, { recursive: true, force: true });
-      } catch (err) {
-        const code = err.code;
-        if (code === "ENOENT") {
-          return;
-        }
-      }
-    });
-  };
-  const acquire = async () => {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      try {
-        await fs.promises.mkdir(path2.dirname(lockDir), { recursive: true });
-        await fs.promises.mkdir(lockDir);
-        const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        heldToken = token;
-        await fs.promises.writeFile(
-          ownerPath,
-          JSON.stringify({ pid: process.pid, token, acquiredAt: Date.now() }),
-          { encoding: "utf-8", mode: 384 }
-        );
-        return;
-      } catch (err) {
-        const code = err.code;
-        if (code === "EEXIST") {
-          const state = await ownerState();
-          if (state === "dead") {
-            await breakStaleLock();
-            continue;
-          }
-          if (state === "live-same-process" || state === "live-other-process") {
-            const { promise: promise2, resolve: resolve3 } = Promise.withResolvers();
-            setTimeout(resolve3, retryDelayMs);
-            await promise2;
-            continue;
-          }
-          if (await directoryIsStale()) {
-            await breakStaleLock();
-            continue;
-          }
-          const { promise, resolve: resolve2 } = Promise.withResolvers();
-          setTimeout(resolve2, retryDelayMs);
-          await promise;
-          continue;
-        }
-        throw err;
-      }
-    }
-    throw new Error(`Timed out acquiring vault runtime lock at ${lockDir}`);
-  };
-  const release = async () => {
-    const token = heldToken;
-    heldToken = void 0;
-    if (!token) return;
-    try {
-      const raw = await fs.promises.readFile(ownerPath, "utf-8");
-      const data = JSON.parse(raw);
-      if (data.token === token) {
-        await fs.promises.unlink(ownerPath);
-        await fs.promises.rmdir(lockDir).catch(() => {
-        });
-      }
-    } catch {
-    }
-  };
-  return { acquire, release };
-}
-async function readVaultDiscovery(vaultPath) {
-  const serverJsonPath = getServerStatePath(vaultPath);
-  try {
-    const raw = await fs.promises.readFile(serverJsonPath, "utf-8");
-    const data = JSON.parse(raw);
-    const port = typeof data.port === "number" && Number.isFinite(data.port) ? data.port : void 0;
-    const pid = typeof data.pid === "number" && Number.isFinite(data.pid) ? data.pid : void 0;
-    if (port === void 0 || pid === void 0) return void 0;
-    return {
-      port,
-      pid,
-      token: typeof data.token === "string" ? data.token : void 0
-    };
-  } catch {
-    return void 0;
-  }
-}
-async function probeVaultHealth(args) {
-  const url = new URL("/vm/status", `http://${args.host}:${args.port}`);
-  try {
-    const response = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${args.token}` }
-    });
-    if (!response.ok) {
-      return { ok: false };
-    }
-    const body = await response.json();
-    const vaultPath = typeof body.vaultPath === "string" ? body.vaultPath : void 0;
-    const pid = typeof body.pid === "number" ? body.pid : void 0;
-    const server = body.server;
-    const port = typeof server === "object" && server !== null && typeof server.port === "number" ? server.port : args.port;
-    return { ok: body.ok === true, vaultPath, pid, port };
-  } catch {
-    return { ok: false };
-  }
-}
 
 // src/chat/message-store.ts
 var MAX_MESSAGES_PER_SESSION = 500;
@@ -23352,41 +23083,6 @@ var PiConnection = class {
   }
 };
 
-// src/chat/startFreshRuntime.ts
-var defaultDelayer = {
-  wait(ms) {
-    const { promise, resolve: resolve2 } = Promise.withResolvers();
-    globalThis.setTimeout(resolve2, ms);
-    return promise;
-  }
-};
-async function startFreshRuntime(connection, delayer = defaultDelayer, options = {}) {
-  const maxStateRetries = options.maxStateRetries ?? 10;
-  const stateRetryDelayMs = options.stateRetryDelayMs ?? 250;
-  if (connection.isConnected()) {
-    if (typeof connection.restart === "function") {
-      await connection.restart();
-    } else {
-      connection.destroy();
-      connection.connect();
-    }
-  } else {
-    connection.connect();
-  }
-  for (let attempt = 0; attempt < maxStateRetries; attempt += 1) {
-    try {
-      await connection.send({ type: "get_state" });
-      break;
-    } catch (error) {
-      if (attempt === maxStateRetries - 1) {
-        throw error;
-      }
-      await delayer.wait(stateRetryDelayMs);
-    }
-  }
-  await connection.send({ type: "prompt", message: "/vm server start" });
-}
-
 // src/client.ts
 var encodeWebSocketAuthProtocol = (token) => {
   const bytes = new TextEncoder().encode(token);
@@ -23507,8 +23203,8 @@ var VaultMindClient = class {
     }, this.reconnectDelay);
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, 3e4);
   }
-  async httpJson(method, path8, body) {
-    const res = await fetch(`${this.baseUrl}${path8}`, {
+  async httpJson(method, path9, body) {
+    const res = await fetch(`${this.baseUrl}${path9}`, {
       method,
       headers: this.authHeaders,
       body: body ? JSON.stringify(body) : void 0
@@ -24173,9 +23869,9 @@ var DiffModal = class extends import_obsidian3.Modal {
   oldContent;
   newContent;
   onAccept;
-  constructor(app, { path: path8, old, new: newContent }, onAccept) {
+  constructor(app, { path: path9, old, new: newContent }, onAccept) {
     super(app);
-    this.path = path8;
+    this.path = path9;
     this.oldContent = old;
     this.newContent = newContent;
     this.onAccept = onAccept;
@@ -24204,32 +23900,32 @@ var DiffModal = class extends import_obsidian3.Modal {
 };
 function registerVaultMindProtocolHandlers(plugin) {
   plugin.registerObsidianProtocolHandler("vault-mind/open-file", (params) => {
-    const path8 = params?.path;
-    if (!isString(path8)) {
+    const path9 = params?.path;
+    if (!isString(path9)) {
       new import_obsidian3.Notice("Vault Mind: missing path parameter");
       return;
     }
-    plugin.app.workspace.openLinkText(path8, "", true);
+    plugin.app.workspace.openLinkText(path9, "", true);
   });
   plugin.registerObsidianProtocolHandler("vault-mind/show-diff", (params) => {
-    const path8 = params?.path;
+    const path9 = params?.path;
     const oldContent = params?.old;
     const newContent = params?.new;
-    if (!isString(path8) || !isString(oldContent) || !isString(newContent)) {
+    if (!isString(path9) || !isString(oldContent) || !isString(newContent)) {
       new import_obsidian3.Notice("Vault Mind: missing path, old, or new parameter");
       return;
     }
-    new DiffModal(plugin.app, { path: path8, old: oldContent, new: newContent }, async () => {
-      const file = plugin.app.vault.getAbstractFileByPath(path8);
+    new DiffModal(plugin.app, { path: path9, old: oldContent, new: newContent }, async () => {
+      const file = plugin.app.vault.getAbstractFileByPath(path9);
       if (!(file instanceof import_obsidian3.TFile)) {
-        new import_obsidian3.Notice(`Vault Mind: file not found: ${path8}`);
+        new import_obsidian3.Notice(`Vault Mind: file not found: ${path9}`);
         return;
       }
       try {
         await plugin.app.vault.modify(file, newContent);
-        new import_obsidian3.Notice(`Vault Mind: accepted changes to ${path8}`);
+        new import_obsidian3.Notice(`Vault Mind: accepted changes to ${path9}`);
       } catch (err) {
-        new import_obsidian3.Notice(`Vault Mind: failed to write ${path8}: ${err.message}`);
+        new import_obsidian3.Notice(`Vault Mind: failed to write ${path9}: ${err.message}`);
       }
     }).open();
   });
@@ -24252,6 +23948,334 @@ function registerVaultMindProtocolHandlers(plugin) {
       searchLeaf.view.setQuery(query);
     }
   });
+}
+
+// src/runtime/ensureVaultRuntime.ts
+var fs2 = __toESM(require("node:fs"), 1);
+var path3 = __toESM(require("node:path"), 1);
+init_config();
+async function canonicalizeVaultPath(p) {
+  try {
+    return await fs2.promises.realpath(p);
+  } catch {
+    return path3.resolve(p);
+  }
+}
+async function ensureVaultRuntime(deps) {
+  const promise = (async () => {
+    await deps.acquireLock();
+    const canonicalVaultPath = await canonicalizeVaultPath(deps.vaultPath);
+    const serverJsonPath = getServerStatePath(deps.vaultPath);
+    const unlinkServerJson = async () => {
+      try {
+        await fs2.promises.unlink(serverJsonPath);
+      } catch (err) {
+        if (err.code === "ENOENT") return;
+        throw err;
+      }
+    };
+    try {
+      const discovery = await deps.readDiscovery();
+      if (discovery) {
+        const alive = await deps.isProcessAlive();
+        if (alive) {
+          const health = await deps.probe({
+            port: discovery.port,
+            token: discovery.token
+          });
+          if (health.ok && health.vaultPath) {
+            const healthVaultPath = await canonicalizeVaultPath(health.vaultPath);
+            if (healthVaultPath === canonicalVaultPath) {
+              const pid = health.pid ?? discovery.pid;
+              const port = health.port ?? discovery.port;
+              return { adopted: true, port, pid };
+            }
+            await unlinkServerJson();
+          }
+        } else {
+          await unlinkServerJson();
+        }
+      }
+      await deps.spawnAndStart();
+      const deadline = Date.now() + 5e3;
+      while (Date.now() < deadline) {
+        const latest = await deps.readDiscovery();
+        if (latest && latest.port && latest.pid) {
+          const health = await deps.probe({
+            port: latest.port,
+            token: latest.token
+          });
+          if (health.ok && health.vaultPath) {
+            const healthVaultPath = await canonicalizeVaultPath(health.vaultPath);
+            if (healthVaultPath === canonicalVaultPath) {
+              return {
+                adopted: false,
+                port: latest.port,
+                pid: latest.pid
+              };
+            }
+            throw new Error(
+              `Discovery conflict: runtime at ${latest.port} serves ${health.vaultPath} but this vault is ${deps.vaultPath}`
+            );
+          }
+        }
+        const { promise: promise2, resolve: resolve2 } = Promise.withResolvers();
+        setTimeout(resolve2, 100);
+        await promise2;
+      }
+      throw new Error(`Spawned runtime for ${deps.vaultPath} did not become healthy within 5s`);
+    } finally {
+      await deps.releaseLock();
+    }
+  })();
+  return promise;
+}
+function createVaultRuntimeLock(vaultPath, options = {}) {
+  const retryDelayMs = options.retryDelayMs ?? 100;
+  const timeoutMs = options.timeoutMs ?? 3e4;
+  const staleThresholdMs = options.staleThresholdMs ?? 5e3;
+  const lockDir = path3.join(vaultPath, ".vault-mind", "runtime-lock");
+  const ownerPath = path3.join(lockDir, "owner.json");
+  const recoveryDir = path3.join(vaultPath, ".vault-mind", "runtime-lock-recovery");
+  const recoveryOwnerPath = path3.join(recoveryDir, "owner.json");
+  let heldToken;
+  const ownerState = async () => {
+    try {
+      const raw = await fs2.promises.readFile(ownerPath, "utf-8");
+      const data = JSON.parse(raw);
+      if (!data.pid) return "malformed-metadata";
+      if (data.pid === process.pid) return "live-same-process";
+      try {
+        process.kill(data.pid, 0);
+        return "live-other-process";
+      } catch {
+        return "dead";
+      }
+    } catch {
+      return "missing-metadata";
+    }
+  };
+  const directoryIsStale = async () => {
+    try {
+      const stat = await fs2.promises.stat(lockDir);
+      return Date.now() - stat.mtimeMs > staleThresholdMs;
+    } catch {
+      return true;
+    }
+  };
+  const withRecoveryLock = async (operation) => {
+    await fs2.promises.mkdir(path3.dirname(recoveryDir), { recursive: true });
+    let acquired = false;
+    const recoveryDeadline = Date.now() + timeoutMs;
+    while (Date.now() < recoveryDeadline) {
+      try {
+        await fs2.promises.mkdir(recoveryDir);
+        const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        await fs2.promises.writeFile(
+          recoveryOwnerPath,
+          JSON.stringify({ pid: process.pid, token, acquiredAt: Date.now() }),
+          { encoding: "utf-8", mode: 384 }
+        );
+        acquired = true;
+        break;
+      } catch (err) {
+        const code = err.code;
+        if (code !== "EEXIST") throw err;
+        let recoveryStale = false;
+        try {
+          const raw = await fs2.promises.readFile(recoveryOwnerPath, "utf-8");
+          const data = JSON.parse(raw);
+          if (!data.pid) {
+            recoveryStale = true;
+          } else if (data.pid === process.pid) {
+            recoveryStale = false;
+          } else {
+            try {
+              process.kill(data.pid, 0);
+              recoveryStale = false;
+            } catch {
+              recoveryStale = true;
+            }
+          }
+        } catch {
+          recoveryStale = true;
+        }
+        if (recoveryStale) {
+          try {
+            await fs2.promises.rm(recoveryDir, { recursive: true, force: true });
+          } catch {
+          }
+          continue;
+        }
+        const { promise, resolve: resolve2 } = Promise.withResolvers();
+        setTimeout(resolve2, retryDelayMs);
+        await promise;
+      }
+    }
+    if (!acquired) {
+      throw new Error(`Timed out acquiring recovery lock at ${recoveryDir}`);
+    }
+    try {
+      await operation();
+    } finally {
+      try {
+        await fs2.promises.rm(recoveryDir, { recursive: true, force: true });
+      } catch {
+      }
+    }
+  };
+  const breakStaleLock = async () => {
+    await withRecoveryLock(async () => {
+      const currentState = await ownerState();
+      if (currentState === "live-same-process" || currentState === "live-other-process") {
+        return;
+      }
+      if (currentState === "missing-metadata" || currentState === "malformed-metadata") {
+        if (!await directoryIsStale()) {
+          return;
+        }
+      }
+      const tombstone = `${lockDir}.stale.${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      try {
+        await fs2.promises.rename(lockDir, tombstone);
+        await fs2.promises.rm(tombstone, { recursive: true, force: true });
+      } catch (err) {
+        const code = err.code;
+        if (code === "ENOENT") {
+          return;
+        }
+      }
+    });
+  };
+  const acquire = async () => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      try {
+        await fs2.promises.mkdir(path3.dirname(lockDir), { recursive: true });
+        await fs2.promises.mkdir(lockDir);
+        const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        heldToken = token;
+        await fs2.promises.writeFile(
+          ownerPath,
+          JSON.stringify({ pid: process.pid, token, acquiredAt: Date.now() }),
+          { encoding: "utf-8", mode: 384 }
+        );
+        return;
+      } catch (err) {
+        const code = err.code;
+        if (code === "EEXIST") {
+          const state = await ownerState();
+          if (state === "dead") {
+            await breakStaleLock();
+            continue;
+          }
+          if (state === "live-same-process" || state === "live-other-process") {
+            const { promise: promise2, resolve: resolve3 } = Promise.withResolvers();
+            setTimeout(resolve3, retryDelayMs);
+            await promise2;
+            continue;
+          }
+          if (await directoryIsStale()) {
+            await breakStaleLock();
+            continue;
+          }
+          const { promise, resolve: resolve2 } = Promise.withResolvers();
+          setTimeout(resolve2, retryDelayMs);
+          await promise;
+          continue;
+        }
+        throw err;
+      }
+    }
+    throw new Error(`Timed out acquiring vault runtime lock at ${lockDir}`);
+  };
+  const release = async () => {
+    const token = heldToken;
+    heldToken = void 0;
+    if (!token) return;
+    try {
+      const raw = await fs2.promises.readFile(ownerPath, "utf-8");
+      const data = JSON.parse(raw);
+      if (data.token === token) {
+        await fs2.promises.unlink(ownerPath);
+        await fs2.promises.rmdir(lockDir).catch(() => {
+        });
+      }
+    } catch {
+    }
+  };
+  return { acquire, release };
+}
+async function readVaultDiscovery(vaultPath) {
+  const serverJsonPath = getServerStatePath(vaultPath);
+  try {
+    const raw = await fs2.promises.readFile(serverJsonPath, "utf-8");
+    const data = JSON.parse(raw);
+    const port = typeof data.port === "number" && Number.isFinite(data.port) ? data.port : void 0;
+    const pid = typeof data.pid === "number" && Number.isFinite(data.pid) ? data.pid : void 0;
+    if (port === void 0 || pid === void 0) return void 0;
+    return {
+      port,
+      pid,
+      token: typeof data.token === "string" ? data.token : void 0
+    };
+  } catch {
+    return void 0;
+  }
+}
+async function probeVaultHealth(args) {
+  const url = new URL("/vm/status", `http://${args.host}:${args.port}`);
+  try {
+    const response = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${args.token}` }
+    });
+    if (!response.ok) {
+      return { ok: false };
+    }
+    const body = await response.json();
+    const vaultPath = typeof body.vaultPath === "string" ? body.vaultPath : void 0;
+    const pid = typeof body.pid === "number" ? body.pid : void 0;
+    const server = body.server;
+    const port = typeof server === "object" && server !== null && typeof server.port === "number" ? server.port : args.port;
+    return { ok: body.ok === true, vaultPath, pid, port };
+  } catch {
+    return { ok: false };
+  }
+}
+
+// src/runtime/startFreshRuntime.ts
+var defaultDelayer = {
+  wait(ms) {
+    const { promise, resolve: resolve2 } = Promise.withResolvers();
+    globalThis.setTimeout(resolve2, ms);
+    return promise;
+  }
+};
+async function startFreshRuntime(connection, delayer = defaultDelayer, options = {}) {
+  const maxStateRetries = options.maxStateRetries ?? 10;
+  const stateRetryDelayMs = options.stateRetryDelayMs ?? 250;
+  if (connection.isConnected()) {
+    if (typeof connection.restart === "function") {
+      await connection.restart();
+    } else {
+      connection.destroy();
+      connection.connect();
+    }
+  } else {
+    connection.connect();
+  }
+  for (let attempt = 0; attempt < maxStateRetries; attempt += 1) {
+    try {
+      await connection.send({ type: "get_state" });
+      break;
+    } catch (error) {
+      if (attempt === maxStateRetries - 1) {
+        throw error;
+      }
+      await delayer.wait(stateRetryDelayMs);
+    }
+  }
+  await connection.send({ type: "prompt", message: "/vm server start" });
 }
 
 // src/token.ts
@@ -25962,23 +25986,23 @@ function adoptRenderedValue(value, capture, map, visited) {
 function createPaths(dom) {
   const pathTape = [];
   const attrNames = [];
-  const path8 = [];
+  const path9 = [];
   const previous = [];
   const pushPath = (attrName) => {
-    const pathLen = path8.length;
+    const pathLen = path9.length;
     const previousLen = previous.length;
     const limit = pathLen < previousLen ? pathLen : previousLen;
     let sharedDepth = 0;
-    while (sharedDepth < limit && previous[sharedDepth] === path8[sharedDepth]) {
+    while (sharedDepth < limit && previous[sharedDepth] === path9[sharedDepth]) {
       sharedDepth++;
     }
     pathTape.push(sharedDepth, pathLen - sharedDepth);
     for (let i = sharedDepth; i < pathLen; i++)
-      pathTape.push(path8[i]);
+      pathTape.push(path9[i]);
     pathTape.push(attrName ? attrNames.push(attrName) : 0);
     previous.length = pathLen;
     for (let i = 0; i < pathLen; i++)
-      previous[i] = path8[i];
+      previous[i] = path9[i];
   };
   const walk = (node) => {
     if (node.nodeType === 1) {
@@ -25995,16 +26019,16 @@ function createPaths(dom) {
     }
     const children2 = node.childNodes;
     for (let i = 0; i < children2.length; i++) {
-      path8.push(i);
+      path9.push(i);
       walk(children2[i]);
-      path8.pop();
+      path9.pop();
     }
   };
   const children = dom.childNodes;
   for (let i = 0; i < children.length; i++) {
-    path8.push(i);
+    path9.push(i);
     walk(children[i]);
-    path8.pop();
+    path9.pop();
   }
   return [pathTape, attrNames];
 }
@@ -26242,12 +26266,7 @@ function mapEmbeddingDraft(draft, _confirmed) {
       };
   }
 }
-var EMBEDDING_SECRET_KEYS = [
-  "localApiKey",
-  "remoteApiKey",
-  "remoteReadApiKey",
-  "remoteWriteApiKey"
-];
+var EMBEDDING_SECRET_KEYS = ["localApiKey", "remoteApiKey"];
 function isRecord3(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -26296,9 +26315,7 @@ function toEmbeddingDraft(patch) {
     model: stringOrEmpty(patch.model),
     dim: numberOrNull(patch.dim),
     localApiKey: stringOrEmpty(patch.localApiKey),
-    remoteApiKey: stringOrEmpty(patch.remoteApiKey),
-    remoteReadApiKey: stringOrEmpty(patch.remoteReadApiKey),
-    remoteWriteApiKey: stringOrEmpty(patch.remoteWriteApiKey)
+    remoteApiKey: stringOrEmpty(patch.remoteApiKey)
   };
 }
 function extractEmbeddingSecrets(draft) {
@@ -26437,9 +26454,7 @@ function categoryBaseline(category, loadResponse) {
         model: str(e.model),
         dim: typeof e.dim === "number" && Number.isFinite(e.dim) ? e.dim : 0,
         localApiKey: "",
-        remoteApiKey: "",
-        remoteReadApiKey: "",
-        remoteWriteApiKey: ""
+        remoteApiKey: ""
       };
     }
     case "agent-models": {
@@ -26628,12 +26643,7 @@ var SETTINGS_CATEGORIES = [
   "identities",
   "advanced"
 ];
-var SECRET_KEYS = [
-  "localApiKey",
-  "remoteApiKey",
-  "remoteReadApiKey",
-  "remoteWriteApiKey"
-];
+var SECRET_KEYS = ["localApiKey", "remoteApiKey"];
 function isRecord5(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -27730,15 +27740,11 @@ function setMode(opts, mode) {
   const patch = { mode };
   if (mode === "local") {
     patch.remoteApiKey = "";
-    patch.remoteReadApiKey = "";
-    patch.remoteWriteApiKey = "";
   } else if (mode === "remote") {
     patch.localApiKey = "";
   } else if (mode === "skip") {
     patch.localApiKey = "";
     patch.remoteApiKey = "";
-    patch.remoteReadApiKey = "";
-    patch.remoteWriteApiKey = "";
   }
   opts.onChange(patch);
 }
@@ -27842,30 +27848,12 @@ function providerGroup(opts, target) {
       autocomplete: "url"
     })}
 		${SecretField({
-      id: "oas-secret-remote-api-key",
+      id: "oas-secret-remote-key",
       label: "Remote API key",
       description: "Provider credential. Saved only when you press Save; the value is never displayed after save.",
       value: () => draft().remoteApiKey,
       onInput: (value) => opts.onChange({ remoteApiKey: value }),
       status: secretStatusFor(opts.secretStatus, "remoteApiKey"),
-      disabled: () => !canWrite()
-    })}
-		${SecretField({
-      id: "oas-secret-remote-read-key",
-      label: "Remote read API key",
-      description: "Provider credential. Saved only when you press Save; the value is never displayed after save.",
-      value: () => draft().remoteReadApiKey,
-      onInput: (value) => opts.onChange({ remoteReadApiKey: value }),
-      status: secretStatusFor(opts.secretStatus, "remoteReadApiKey"),
-      disabled: () => !canWrite()
-    })}
-		${SecretField({
-      id: "oas-secret-remote-write-key",
-      label: "Remote write API key",
-      description: "Provider credential. Saved only when you press Save; the value is never displayed after save.",
-      value: () => draft().remoteWriteApiKey,
-      onInput: (value) => opts.onChange({ remoteWriteApiKey: value }),
-      status: secretStatusFor(opts.secretStatus, "remoteWriteApiKey"),
       disabled: () => !canWrite()
     })}
 		<div class="setting-item">
@@ -27961,8 +27949,8 @@ function remoteModalGuidance() {
 	</div>
 	<div class="setting-item">
 		<div class="setting-item-info">
-			<div class="setting-item-description">Run ./scripts/install-modal.sh from the repository to see the required secret, deployment, and token handoff steps.</div>
-			<div class="setting-item-description">Enter service authentication in Remote API key or Remote read/write API key fields, never bridge authentication.</div>
+			<div class="setting-item-description">Paste the Modal token into the Remote API key field. The value is saved only when you press Save.</div>
+			<div class="setting-item-description">Enter service authentication in the Remote API key field, never bridge authentication.</div>
 			<div class="setting-item-description">If Test &amp; Fetch Models fails, check the Modal deploy, the token, and that the HuggingFace Gemma license/secret is configured.</div>
 		</div>
 	</div>`;
@@ -28073,8 +28061,6 @@ function syncDraftFromRecord(draft, record) {
   draft.dim = typeof record.dim === "number" ? record.dim : 0;
   draft.localApiKey = typeof record.localApiKey === "string" ? record.localApiKey : "";
   draft.remoteApiKey = typeof record.remoteApiKey === "string" ? record.remoteApiKey : "";
-  draft.remoteReadApiKey = typeof record.remoteReadApiKey === "string" ? record.remoteReadApiKey : "";
-  draft.remoteWriteApiKey = typeof record.remoteWriteApiKey === "string" ? record.remoteWriteApiKey : "";
 }
 function EmbeddingCategory(options) {
   const { state, adapter, save } = options;
@@ -28106,9 +28092,7 @@ function EmbeddingCategory(options) {
     model: typeof state.categories.embedding.draft.model === "string" ? state.categories.embedding.draft.model : "",
     dim: typeof state.categories.embedding.draft.dim === "number" ? state.categories.embedding.draft.dim : 0,
     localApiKey: typeof state.categories.embedding.draft.localApiKey === "string" ? String(state.categories.embedding.draft.localApiKey) : "",
-    remoteApiKey: typeof state.categories.embedding.draft.remoteApiKey === "string" ? String(state.categories.embedding.draft.remoteApiKey) : "",
-    remoteReadApiKey: typeof state.categories.embedding.draft.remoteReadApiKey === "string" ? String(state.categories.embedding.draft.remoteReadApiKey) : "",
-    remoteWriteApiKey: typeof state.categories.embedding.draft.remoteWriteApiKey === "string" ? String(state.categories.embedding.draft.remoteWriteApiKey) : ""
+    remoteApiKey: typeof state.categories.embedding.draft.remoteApiKey === "string" ? String(state.categories.embedding.draft.remoteApiKey) : ""
   });
   function draft() {
     return localDraft;
@@ -28143,7 +28127,7 @@ function EmbeddingCategory(options) {
     if ("localUrl" in patch || "localApiKey" in patch) {
       resetProbeTarget(probeState, "local");
     }
-    if ("remoteUrl" in patch || "remoteApiKey" in patch || "remoteReadApiKey" in patch || "remoteWriteApiKey" in patch) {
+    if ("remoteUrl" in patch || "remoteApiKey" in patch) {
       resetProbeTarget(probeState, "remote");
     }
     if ("model" in patch || "dim" in patch) {
@@ -28160,11 +28144,7 @@ function EmbeddingCategory(options) {
     probeState[target].phase = "loading";
     probeState[target].error = null;
     const currentDraft = draft();
-    const transientSecrets = target === "local" ? { apiKey: currentDraft.localApiKey } : {
-      apiKey: currentDraft.remoteApiKey,
-      readApiKey: currentDraft.remoteReadApiKey,
-      writeApiKey: currentDraft.remoteWriteApiKey
-    };
+    const transientSecrets = target === "local" ? { apiKey: currentDraft.localApiKey } : { apiKey: currentDraft.remoteApiKey };
     try {
       const response = await adapter.probeEmbedding({
         target,
@@ -28542,15 +28522,15 @@ function folderField(opts, key) {
     const current = queryNormalized();
     return current.length > 0 && !hasParentTraversal(value()) && !allFolders().some((folder) => folder.normalized === current);
   };
-  const applyPath = (path8) => {
+  const applyPath = (path9) => {
     anchor?.focus();
     state.open = false;
     state.typed = false;
     state.error = "";
-    opts.onChange({ [key]: path8 });
+    opts.onChange({ [key]: path9 });
   };
-  const createPath = async (path8) => {
-    const created = await opts.onCreateFolder(path8);
+  const createPath = async (path9) => {
+    const created = await opts.onCreateFolder(path9);
     applyPath(created.path);
   };
   const openChooser = (event) => {
@@ -28646,8 +28626,8 @@ function VaultLayoutCategory(options) {
     presentations: String(draft().presentations ?? ""),
     journal: String(draft().journal ?? "")
   });
-  const createFolder = async (path8) => {
-    const created = await adapter.createFolder(path8);
+  const createFolder = async (path9) => {
+    const created = await adapter.createFolder(path9);
     if (!folderOptions.items.some((folder) => folder.path === created.path)) {
       folderOptions.items = [...folderOptions.items, created];
     }
@@ -29069,15 +29049,15 @@ var RestConfigurationAdapter = class {
       graph: {
         ...typeof graph.enabled === "boolean" ? { enabled: graph.enabled } : {},
         ...typeof graph.canvasSync === "boolean" ? { canvasSync: graph.canvasSync } : {},
-        ...typeof graph.canvasPath === "string" ? { canvasPath: graph.canvasPath } : {}
+        ...typeof folders.canvasPath === "string" ? { canvasPath: folders.canvasPath } : typeof graph.canvasPath === "string" ? { canvasPath: graph.canvasPath } : {}
       },
       vaultLayout: {
         ...typeof folders.inbox === "string" ? { inbox: folders.inbox } : {},
         ...typeof folders.library === "string" ? { library: folders.library } : {},
         ...typeof folders.presentations === "string" ? { presentations: folders.presentations } : {},
         ...typeof folders.journal === "string" ? { journal: folders.journal } : {},
-        ...typeof defaultVault.path === "string" ? { vaultPath: defaultVault.path } : {},
-        ...typeof defaultVault.collectionPrefix === "string" ? { collectionPrefix: defaultVault.collectionPrefix } : {}
+        ...typeof folders.collectionPrefix === "string" ? { collectionPrefix: folders.collectionPrefix } : typeof defaultVault.collectionPrefix === "string" ? { collectionPrefix: defaultVault.collectionPrefix } : {},
+        ...typeof defaultVault.path === "string" ? { vaultPath: defaultVault.path } : {}
       },
       advanced: {
         ...typeof embedding.sync === "string" ? { sync: embedding.sync } : {},
@@ -29174,6 +29154,47 @@ var RestConfigurationAdapter = class {
     }
     return next;
   }
+  snapshotWithSetupMutation(snapshot, request) {
+    const next = structuredClone(snapshot);
+    if (request.preferences) {
+      next.automation = {
+        ...next.automation ?? {},
+        autoStart: request.preferences.autoStart,
+        contextAutomation: request.preferences.contextAutomation,
+        autoSync: request.preferences.autoSync,
+        autoSyncMinLength: request.preferences.autoSyncMinLength
+      };
+    }
+    if (request.folders) {
+      next.vaultLayout = {
+        ...next.vaultLayout ?? {},
+        inbox: request.folders.inbox ?? next.vaultLayout?.inbox ?? "",
+        library: request.folders.library ?? next.vaultLayout?.library ?? "",
+        presentations: request.folders.presentations ?? next.vaultLayout?.presentations ?? "",
+        journal: request.folders.journal ?? next.vaultLayout?.journal ?? "",
+        collectionPrefix: request.folders.collectionPrefix ?? next.vaultLayout?.collectionPrefix ?? ""
+      };
+      next.graph = {
+        ...next.graph ?? {},
+        canvasPath: request.folders.canvasPath ?? next.graph?.canvasPath ?? ""
+      };
+    }
+    if (typeof request.vault === "string") {
+      next.vaultLayout = {
+        ...next.vaultLayout ?? {},
+        vaultPath: request.vault
+      };
+    }
+    const embeddingConfig = this.mapEmbeddingToConfig(request.embedding);
+    next.embedding = {
+      localUrl: embeddingConfig.localUrl,
+      remoteUrl: embeddingConfig.remoteUrl,
+      model: embeddingConfig.model,
+      ...typeof embeddingConfig.dim === "number" ? { dim: embeddingConfig.dim } : {},
+      mode: embeddingConfig.localUrl && embeddingConfig.remoteUrl ? "both" : embeddingConfig.localUrl ? "local" : embeddingConfig.remoteUrl ? "remote" : "skip"
+    };
+    return next;
+  }
   isLocalSettingsSection(section) {
     return section === "connection" || section === "embedding" || section === "automation" || section === "indexing" || section === "knowledge-graph" || section === "vault-layout" || section === "advanced" || section === "agent-models";
   }
@@ -29230,6 +29251,35 @@ var RestConfigurationAdapter = class {
     });
     return true;
   }
+  async queueOfflineSetup(request, error) {
+    const store = this.options.localSettingsStore;
+    if (!store) return false;
+    const message = error instanceof Error ? error.message : String(error);
+    const createdAt = this.options.now();
+    const id = globalThis.crypto.randomUUID();
+    const setupBody = this.buildSetupBody(request);
+    await store.update((current) => {
+      const snapshot = this.snapshotWithSetupMutation(current.settingsSync.snapshot, request);
+      const mutation = {
+        id,
+        kind: "setup",
+        payload: snapshot,
+        patch: setupBody,
+        createdAt,
+        error: null
+      };
+      return {
+        ...current,
+        settingsSync: {
+          ...current.settingsSync,
+          snapshot,
+          outbox: [...current.settingsSync.outbox, mutation],
+          sync: { status: "pending", lastError: message }
+        }
+      };
+    });
+    return true;
+  }
   isBridgeUnavailable(error) {
     if (error instanceof HttpStatusError) return false;
     if (error instanceof TypeError) return true;
@@ -29268,15 +29318,23 @@ var RestConfigurationAdapter = class {
     });
     return true;
   }
+  async tryFlushOutbox(client) {
+    try {
+      await this.flushLocalOutbox(client);
+    } catch {
+    }
+  }
   async flushLocalOutbox(client) {
     const store = this.options.localSettingsStore;
     if (!store) return true;
     const state = await store.load();
-    const queued = state.settingsSync.outbox.filter((mutation) => mutation.kind === "config");
+    const queued = state.settingsSync.outbox.filter(
+      (mutation) => mutation.kind === "config" || mutation.kind === "setup"
+    );
     if (queued.length === 0) return true;
     let bridgeBase = null;
     for (const mutation of queued) {
-      if (!mutation.id || !mutation.section) {
+      if (!mutation.id || mutation.kind === "config" && !mutation.section) {
         await store.update((current) => ({
           ...current,
           settingsSync: {
@@ -29290,7 +29348,12 @@ var RestConfigurationAdapter = class {
         return false;
       }
       try {
-        if (mutation.section === "agent-models") {
+        if (mutation.kind === "setup") {
+          if (!mutation.patch) {
+            throw new Error("Queued setup cannot be replayed; run the setup wizard again.");
+          }
+          await client.setup(mutation.patch);
+        } else if (mutation.section === "agent-models") {
           const sequence = mutation.payload.agentModels?.sequence;
           if (!sequence || typeof client.putModelRouter !== "function") {
             throw new Error("Model routing is unavailable; reconnect and retry this change.");
@@ -29343,7 +29406,7 @@ var RestConfigurationAdapter = class {
         sync: remaining.length === 0 ? { status: "idle", lastError: null, lastSyncedAt: this.options.now() } : { status: "pending", lastError: null }
       }
     }));
-    return !remaining.some((mutation) => mutation.kind === "config");
+    return !remaining.some((mutation) => mutation.kind === "config" || mutation.kind === "setup");
   }
   async localLoadResponse(error) {
     const store = this.options.localSettingsStore;
@@ -29400,7 +29463,9 @@ var RestConfigurationAdapter = class {
               inbox: vaultLayout.inbox ?? "",
               library: vaultLayout.library ?? "",
               presentations: vaultLayout.presentations ?? "",
-              journal: vaultLayout.journal ?? ""
+              journal: vaultLayout.journal ?? "",
+              collectionPrefix: vaultLayout.collectionPrefix ?? "",
+              canvasPath: graph.canvasPath ?? ""
             },
             dataDir: indexing.dataDir ?? "",
             ftsEnabled: indexing.ftsEnabled ?? false,
@@ -29533,8 +29598,7 @@ var RestConfigurationAdapter = class {
     if (!this.isRecord(vaultMind)) return sanitized;
     const embedding = vaultMind["embedding"];
     if (this.isRecord(embedding)) {
-      for (const key of ["apiKey", "remoteApiKey", "remoteReadApiKey", "remoteWriteApiKey"])
-        delete embedding[key];
+      for (const key of ["apiKey", "remoteApiKey"]) delete embedding[key];
     }
     return sanitized;
   }
@@ -29553,6 +29617,9 @@ var RestConfigurationAdapter = class {
     try {
       const client = await this.createClient();
       const status = await client.status();
+      if (status.ok) {
+        await this.tryFlushOutbox(client);
+      }
       return {
         phase: status.ok ? "ready" : "error",
         piVersion: status.version,
@@ -29694,32 +29761,48 @@ var RestConfigurationAdapter = class {
     return client.putEmbeddingSecrets(request);
   }
   async saveSetup(request) {
-    const client = await this.createClient();
-    const currentConfig = await client.getConfig();
-    const baselineVault = this.getVaultMindDefault(currentConfig.config)?.["path"];
-    const setupBody = {
-      folders: request.folders,
-      preferences: request.preferences
-    };
-    if (request.vault !== baselineVault) setupBody.vault = request.vault;
-    Object.assign(setupBody, this.mapEmbeddingToSetup(request.embedding));
-    const embeddingConfigPatch = {};
-    const embeddingConfig = this.mapEmbeddingToConfig(request.embedding);
-    if (Object.keys(embeddingConfig).length > 0) {
-      embeddingConfigPatch.vaultMind = { embedding: embeddingConfig };
-    }
-    const extensionCompatibility = this.mapExtensionCompatibility(
-      currentConfig.config?.extensionCompatibility,
-      request.preferences.contextAutomation
-    );
-    if (Object.keys(extensionCompatibility).length > 0) {
-      embeddingConfigPatch.extensionCompatibility = extensionCompatibility;
-    }
     const effects = {
       config: "not-requested",
       secrets: "not-requested",
       pluginPreferences: "not-requested"
     };
+    let client;
+    let currentConfig;
+    let setupBody;
+    let embeddingConfigPatch;
+    try {
+      client = await this.createClient();
+      currentConfig = await client.getConfig();
+      const baselineVault = this.getVaultMindDefault(currentConfig.config)?.["path"];
+      setupBody = this.buildSetupBody(request, baselineVault);
+      embeddingConfigPatch = {};
+      const embeddingConfig = this.mapEmbeddingToConfig(request.embedding);
+      if (Object.keys(embeddingConfig).length > 0) {
+        embeddingConfigPatch.vaultMind = { embedding: embeddingConfig };
+      }
+      const extensionCompatibility = this.mapExtensionCompatibility(
+        currentConfig.config?.extensionCompatibility,
+        request.preferences.contextAutomation
+      );
+      if (Object.keys(extensionCompatibility).length > 0) {
+        embeddingConfigPatch.extensionCompatibility = extensionCompatibility;
+      }
+    } catch (e) {
+      if (this.isBridgeUnavailable(e) && await this.queueOfflineSetup(request, e)) {
+        effects.config = "applied";
+        const secrets2 = this.extractSecrets(request.embedding);
+        if (Object.keys(secrets2).length > 0) {
+          effects.secrets = "failed";
+          return {
+            ok: false,
+            effects,
+            error: "Setup saved locally. Reconnect to save the embedding credential."
+          };
+        }
+        return { ok: true, effects, error: null };
+      }
+      throw e;
+    }
     try {
       await client.setup(setupBody);
       effects.config = "applied";
@@ -29727,6 +29810,19 @@ var RestConfigurationAdapter = class {
         await client.updateConfig(embeddingConfigPatch);
       }
     } catch (e) {
+      if (this.isBridgeUnavailable(e) && await this.queueOfflineSetup(request, e)) {
+        effects.config = "applied";
+        const secrets2 = this.extractSecrets(request.embedding);
+        if (Object.keys(secrets2).length > 0) {
+          effects.secrets = "failed";
+          return {
+            ok: false,
+            effects,
+            error: "Setup saved locally. Reconnect to save the embedding credential."
+          };
+        }
+        return { ok: true, effects, error: null };
+      }
       const configEffect = effects.config === "applied" ? "applied" : "failed";
       return {
         ok: false,
@@ -29796,9 +29892,16 @@ var RestConfigurationAdapter = class {
     const secrets = {};
     if (embedding.localApiKey) secrets.localApiKey = embedding.localApiKey;
     if (embedding.remoteApiKey) secrets.remoteApiKey = embedding.remoteApiKey;
-    if (embedding.remoteReadApiKey) secrets.remoteReadApiKey = embedding.remoteReadApiKey;
-    if (embedding.remoteWriteApiKey) secrets.remoteWriteApiKey = embedding.remoteWriteApiKey;
     return secrets;
+  }
+  buildSetupBody(request, baselineVault) {
+    const setupBody = {
+      folders: request.folders,
+      preferences: request.preferences
+    };
+    if (request.vault !== baselineVault) setupBody.vault = request.vault;
+    Object.assign(setupBody, this.mapEmbeddingToSetup(request.embedding));
+    return setupBody;
   }
   async saveConnection(request) {
     const oldToken = await this.options.readBridgeToken();
@@ -30137,8 +30240,8 @@ var RestConfigurationAdapter = class {
     });
     return unique.map((item) => ({ path: item.normalized }));
   }
-  async createFolder(path8) {
-    const normalized = normalizeVaultFolderPath(path8);
+  async createFolder(path9) {
+    const normalized = normalizeVaultFolderPath(path9);
     const existing = this.options.app.vault.getAbstractFileByPath(normalized);
     if (existing) {
       if (this.isVaultFolder(existing)) return { path: normalized };
@@ -30293,21 +30396,19 @@ var ConfigurationSettingsTab = class extends import_obsidian4.PluginSettingTab {
 var import_obsidian6 = require("obsidian");
 
 // src/ui/views/SetupWizard/state.ts
+var import_node_fs3 = require("node:fs");
+var import_node_path4 = __toESM(require("node:path"), 1);
 var WIZARD_STEPS = [
   "runtime",
   "install",
   "provider",
   "folders",
   "preferences",
+  "configuration",
   "review",
   "done"
 ];
-var SECRET_KEYS2 = [
-  "localApiKey",
-  "remoteApiKey",
-  "remoteReadApiKey",
-  "remoteWriteApiKey"
-];
+var SECRET_KEYS2 = ["localApiKey", "remoteApiKey"];
 var wizardVaults = /* @__PURE__ */ new WeakMap();
 function emptyProbeTarget() {
   return {
@@ -30329,9 +30430,7 @@ function defaultEmbedding() {
     model: "embeddinggemma",
     dim: 768,
     localApiKey: "",
-    remoteApiKey: "",
-    remoteReadApiKey: "",
-    remoteWriteApiKey: ""
+    remoteApiKey: ""
   };
 }
 function defaultFolders() {
@@ -30339,7 +30438,9 @@ function defaultFolders() {
     inbox: "Agent/Inbox",
     library: "Agent/Library",
     presentations: "Agent/Presentations",
-    journal: "Agent/Journal"
+    journal: "Agent/Journal",
+    collectionPrefix: "",
+    canvasPath: ""
   };
 }
 function defaultFolderOptions() {
@@ -30384,7 +30485,15 @@ function createSetupWizardState(vault) {
     secretStatus: defaultSecretStatus(),
     folders: defaultFolders(),
     folderOptions: defaultFolderOptions(),
-    preferences: reactive({ autoStart: true, contextAutomation: false })
+    preferences: reactive({
+      autoStart: true,
+      contextAutomation: false,
+      autoSync: false,
+      autoSyncMinLength: 100
+    }),
+    modelRouter: { sequence: [] },
+    indexing: { dataDir: ".lancedb", ftsEnabled: true, autoIndex: false },
+    knowledgeGraph: { enabled: true, canvasSync: false }
   };
   Object.defineProperty(state, "step", {
     enumerable: true,
@@ -30545,8 +30654,8 @@ function replaceProbeTarget(state, target, next) {
 }
 var ACTIVE_SECRETS_BY_MODE = {
   local: ["localApiKey"],
-  remote: ["remoteApiKey", "remoteReadApiKey", "remoteWriteApiKey"],
-  both: ["localApiKey", "remoteApiKey", "remoteReadApiKey", "remoteWriteApiKey"],
+  remote: ["remoteApiKey"],
+  both: ["localApiKey", "remoteApiKey"],
   skip: []
 };
 function clearSecretsForMode(draft, mode) {
@@ -30567,7 +30676,7 @@ function updateSetupEmbedding(state, patch) {
     resetRemote = true;
   }
   if ("localUrl" in patch || "localApiKey" in patch) resetLocal = true;
-  if ("remoteUrl" in patch || "remoteApiKey" in patch || "remoteReadApiKey" in patch || "remoteWriteApiKey" in patch) {
+  if ("remoteUrl" in patch || "remoteApiKey" in patch) {
     resetRemote = true;
   }
   if ("model" in patch) {
@@ -30639,11 +30748,7 @@ async function probeSetupEmbedding(state, target, adapter) {
     }
     return;
   }
-  const transientSecrets = target === "local" ? { apiKey: state.embedding.localApiKey } : {
-    apiKey: state.embedding.remoteApiKey,
-    readApiKey: state.embedding.remoteReadApiKey,
-    writeApiKey: state.embedding.remoteWriteApiKey
-  };
+  const transientSecrets = target === "local" ? { apiKey: state.embedding.localApiKey } : { apiKey: state.embedding.remoteApiKey };
   const request = {
     target,
     url: captured.url,
@@ -30689,6 +30794,47 @@ function clearTransientSecrets(draft) {
     draft[key] = "";
   }
 }
+function scaffoldModelRouterOffline(vaultPath) {
+  const routerPath = import_node_path4.default.join(vaultPath, ".vault-mind", ".pi", "model-router.json");
+  if ((0, import_node_fs3.existsSync)(routerPath)) return;
+  (0, import_node_fs3.mkdirSync)(import_node_path4.default.dirname(routerPath), { recursive: true });
+  const primary = "ollama/gemma4:31b-cloud";
+  const fallbackSequence = [
+    "ollama/gemma4:31b-cloud",
+    "ollama/deepseek-v4-flash:cloud",
+    "ollama/minimax-m3:cloud",
+    "ollama/kimi-k2.7-code:cloud"
+  ];
+  const config = {
+    defaultProfile: "auto",
+    features: {
+      rateLimitFallback: true,
+      ollamaSync: false,
+      scopeShim: true,
+      perTurnRouting: false,
+      intentClassifier: false,
+      costBudgeting: false,
+      phaseMemory: false,
+      contextCompression: false
+    },
+    rateLimitFallback: {
+      enabled: true,
+      shortDelayThreshold: 30,
+      autoFallback: true,
+      autoRestore: true,
+      restoreCheckInterval: 300,
+      fallbackSequence
+    },
+    profiles: {
+      auto: {
+        high: { model: primary, thinking: "medium" },
+        medium: { model: primary, thinking: "low" },
+        low: { model: primary, thinking: "off" }
+      }
+    }
+  };
+  (0, import_node_fs3.writeFileSync)(routerPath, JSON.stringify(config, null, "	") + "\n", "utf-8");
+}
 async function saveSetupWizard(state, adapter) {
   if (state.savePhase === "saving" || state.savePhase === "verifying") return;
   state.savePhase = "saving";
@@ -30699,7 +30845,10 @@ async function saveSetupWizard(state, adapter) {
     vault,
     embedding: state.embedding,
     folders: state.folders,
-    preferences: state.preferences
+    preferences: state.preferences,
+    modelRouter: state.modelRouter,
+    indexing: state.indexing,
+    knowledgeGraph: state.knowledgeGraph
   };
   let response;
   try {
@@ -30718,6 +30867,7 @@ async function saveSetupWizard(state, adapter) {
     state.error = response.error;
     return;
   }
+  if (vault) scaffoldModelRouterOffline(vault);
   clearTransientSecrets(state.embedding);
   state.savePhase = "verifying";
   state.step = "review";
@@ -30739,6 +30889,140 @@ async function saveSetupWizard(state, adapter) {
   state.savePhase = "error";
   state.step = "review";
   state.error = "Verification failed: the server is reachable but still unconfigured.";
+}
+
+// src/ui/components/Toggle.ts
+var Toggle = (enabled, onToggle) => html`<div
+    class="${() => `checkbox-container${enabled() ? " is-enabled" : ""}`}"
+    @click="${onToggle}"
+  >
+    <input type="checkbox" tabindex="0" .checked="${() => enabled()}" />
+  </div>`;
+
+// src/ui/views/SetupWizard/steps/ConfigurationStep.ts
+function ConfigurationStep({ state, adapter }) {
+  const local = reactive({
+    phase: "loading",
+    models: [],
+    canWriteModelRouter: false,
+    error: null
+  });
+  const load = async () => {
+    try {
+      const [capabilities, modelsResponse, routerConfig] = await Promise.all([
+        adapter.getCapabilities(),
+        adapter.getPiModels(),
+        adapter.getModelRouter().catch(() => ({ sequence: [] }))
+      ]);
+      local.canWriteModelRouter = capabilities.configuration.canWriteModelRouter;
+      if (routerConfig.sequence.length > 0 && state.modelRouter.sequence.length === 0) {
+        state.modelRouter.sequence = [...routerConfig.sequence];
+      }
+      local.models = (modelsResponse.providers ?? []).flatMap((provider) => {
+        const providerId = provider.id ?? provider.name;
+        return provider.models.map((model) => ({
+          id: JSON.stringify([providerId, model.id]),
+          label: `${provider.name} \u2014 ${model.name}`,
+          ref: { providerId, modelId: model.id }
+        }));
+      });
+      local.phase = "ready";
+    } catch (error) {
+      local.error = error instanceof Error ? error.message : String(error);
+      local.phase = "error";
+    }
+  };
+  load();
+  return html`<div class="oas-setup-step">
+		${() => {
+    if (local.phase === "loading") {
+      return html`<div class="setting-item-description">Loading configuration options…</div>`;
+    }
+    if (local.phase === "error") {
+      return html`<div class="setting-item-description oas-text-error">${() => local.error ?? "Could not load configuration options."}</div>`;
+    }
+    return html`
+				<div class="setting-item setting-item-heading">
+					<div class="setting-item-info">
+						<div class="setting-item-name">Agent Models</div>
+						<div class="setting-item-description">Primary chat model and ordered fallbacks.</div>
+					</div>
+				</div>
+				${local.canWriteModelRouter ? ModelSequenceEditor({
+      sequence: () => state.modelRouter.sequence,
+      models: () => local.models,
+      onUpdate: (updated) => {
+        state.modelRouter.sequence = updated;
+      }
+    }) : html`<div class="setting-item">
+							<div class="setting-item-info">
+								<div class="setting-item-description">Model-router editing is unavailable because the connected agent runtime does not support the model-router read/write contract.</div>
+							</div>
+						</div>`}
+				<div class="setting-item setting-item-heading">
+					<div class="setting-item-info">
+						<div class="setting-item-name">Indexing</div>
+						<div class="setting-item-description">How Vault Mind builds and maintains the search index.</div>
+					</div>
+				</div>
+				${TextField({
+      id: "oas-setup-indexing-data-dir",
+      label: "Data directory",
+      description: "Directory used to store the local index data.",
+      value: () => state.indexing.dataDir,
+      onInput: (value) => {
+        state.indexing.dataDir = value;
+      }
+    })}
+				${ItemRow({
+      name: "Full-text search",
+      description: "Enable full-text search alongside semantic search.",
+      control: Toggle(
+        () => state.indexing.ftsEnabled,
+        () => {
+          state.indexing.ftsEnabled = !state.indexing.ftsEnabled;
+        }
+      )
+    })}
+				${ItemRow({
+      name: "Auto index",
+      description: "Index new and changed notes automatically.",
+      control: Toggle(
+        () => state.indexing.autoIndex,
+        () => {
+          state.indexing.autoIndex = !state.indexing.autoIndex;
+        }
+      )
+    })}
+				<div class="setting-item setting-item-heading">
+					<div class="setting-item-info">
+						<div class="setting-item-name">Knowledge Graph</div>
+						<div class="setting-item-description">Visual graph of your vault's connections.</div>
+					</div>
+				</div>
+				${ItemRow({
+      name: "Enable graph",
+      description: "Build and maintain a knowledge graph from vault links.",
+      control: Toggle(
+        () => state.knowledgeGraph.enabled,
+        () => {
+          state.knowledgeGraph.enabled = !state.knowledgeGraph.enabled;
+        }
+      )
+    })}
+				${ItemRow({
+      name: "Canvas sync",
+      description: "Mirror graph changes into Obsidian canvas files.",
+      control: Toggle(
+        () => state.knowledgeGraph.canvasSync,
+        () => {
+          state.knowledgeGraph.canvasSync = !state.knowledgeGraph.canvasSync;
+        }
+      )
+    })}
+			`;
+  }}
+	</div>`;
 }
 
 // src/ui/components/Card/Card.ts
@@ -30827,40 +31111,127 @@ function DoneStep({ state }) {
 }
 
 // src/ui/views/SetupWizard/steps/FoldersStep.ts
-function normalizeFolderInput(value) {
-  try {
-    return normalizeVaultFolderPath(value);
-  } catch {
-    return value;
-  }
-}
 function FoldersStep({ state, adapter }) {
   const local = reactive({
     draft: { ...state.folders },
-    options: [...state.folderOptions]
+    openKey: null,
+    anchor: null
   });
-  return html`<div class="oas-setup-step">
-		${FolderConfigSection({
-    draft: () => local.draft,
-    folders: () => local.options,
-    onChange: (patch) => {
-      const normalized = {};
-      for (const [key, value] of Object.entries(patch)) {
-        if (typeof value === "string") {
-          normalized[key] = normalizeFolderInput(value);
-        }
+  const allFolders = () => {
+    const seen = /* @__PURE__ */ new Set();
+    const result = [];
+    const options = state.folderOptions;
+    if (!options) return result;
+    for (const f of options) {
+      const n = normalizeVaultFolderPath(f.path);
+      if (!seen.has(n)) {
+        seen.add(n);
+        result.push(n);
       }
-      Object.assign(state.folders, normalized);
-      Object.assign(local.draft, normalized);
-    },
-    onCreateFolder: async (path8) => {
-      const normalized = normalizeVaultFolderPath(path8);
-      const created = await adapter.createFolder(normalized);
-      local.options.push(created);
-      state.folderOptions = [...state.folderOptions, created];
-      return created;
     }
-  })}
+    return result;
+  };
+  const updateField = (key, value) => {
+    try {
+      value = normalizeVaultFolderPath(value);
+    } catch {
+    }
+    local.draft[key] = value;
+    state.folders[key] = value;
+  };
+  const openChooser = (key, e) => {
+    local.anchor = e.target;
+    local.openKey = key;
+  };
+  const closeChooser = () => {
+    local.openKey = null;
+  };
+  const selectFolder = (key, path9) => {
+    updateField(key, path9);
+    closeChooser();
+  };
+  const createFolder = async (key, path9) => {
+    const created = await adapter.createFolder(path9);
+    state.folderOptions = [...state.folderOptions, created];
+    updateField(key, created.path);
+    closeChooser();
+  };
+  const folderField2 = (key, label, desc) => {
+    const id = `oas-folder-${key}`;
+    const value = () => local.draft[key] || "";
+    const isOpen = () => local.openKey === key;
+    const query = () => value().toLowerCase();
+    const visible = () => {
+      const q = query();
+      if (!q) return allFolders();
+      return allFolders().filter((f) => f.toLowerCase().includes(q));
+    };
+    const canCreate = () => {
+      const v = value();
+      return v.length > 0 && !allFolders().includes(v) && !v.includes("..");
+    };
+    return html`<div class="setting-item">
+			<div class="setting-item-info">
+				<div class="setting-item-name"><label for="${id}">${label}</label></div>
+				<div class="setting-item-description">${desc}</div>
+			</div>
+			<div class="setting-item-control" style="position:relative">
+				<input id="${id}" type="text" class="oas-input" autocomplete="off"
+					.value="${value}"
+					@focus="${(e) => openChooser(key, e)}"
+					@click="${(e) => openChooser(key, e)}"
+					@input="${(e) => {
+      updateField(key, e.target.value);
+      local.openKey = key;
+    }}" />
+				${() => isOpen() ? html`<div class="oas-popover-list" style="position:absolute;top:100%;left:0;right:0;z-index:10;background:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:var(--radius-m);max-height:200px;overflow-y:auto">
+					${visible().map((f) => html`<div class="oas-list-item" style="padding:4px 8px;cursor:pointer" @click="${() => selectFolder(key, f)}">${f}</div>`.key(f))}
+					${() => canCreate() ? html`<div class="oas-list-item" style="padding:4px 8px;cursor:pointer;color:var(--text-accent)" @click="${() => createFolder(key, value())}">Create "${value()}"</div>` : ""}
+				</div>` : ""}
+			</div>
+		</div>`;
+  };
+  const vaultName = (() => {
+    const vaultPath = state.vault;
+    if (typeof vaultPath !== "string") return "";
+    return vaultPath.split("/").pop() || vaultPath;
+  })();
+  const vaultSlug = vaultName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const suggestedPrefix = vaultSlug ? vaultSlug + "-" : "";
+  const suggestedCanvas = vaultSlug ? vaultSlug + "-graph.canvas" : "";
+  if (!local.draft.collectionPrefix && suggestedPrefix) {
+    local.draft.collectionPrefix = suggestedPrefix;
+    state.folders.collectionPrefix = suggestedPrefix;
+  }
+  if (!local.draft.canvasPath && suggestedCanvas) {
+    local.draft.canvasPath = suggestedCanvas;
+    state.folders.canvasPath = suggestedCanvas;
+  }
+  return html`<div class="oas-setup-step">
+		<div class="setting-item setting-item-heading">
+			<div class="setting-item-info">
+				<div class="setting-item-name">Folders</div>
+				<div class="setting-item-description">Where Vault Mind stores and organizes your content.</div>
+			</div>
+		</div>
+		${folderField2("inbox", "Inbox", "Where captured notes land.")}
+		${folderField2("library", "Library", "Long-term knowledge store.")}
+		${folderField2("presentations", "Presentations", "Generated presentations and reports.")}
+		${folderField2("journal", "Journal", "Daily notes and activity log.")}
+		<div class="setting-item setting-item-heading">
+			<div class="setting-item-info">
+				<div class="setting-item-name">Collections</div>
+				<div class="setting-item-description">How collections are named and isolated across vaults.</div>
+			</div>
+		</div>
+		${folderField2("collectionPrefix", "Collection prefix", `Prefix for collection names. Suggested: "${suggestedPrefix}"`)}
+		<div class="setting-item setting-item-heading">
+			<div class="setting-item-info">
+				<div class="setting-item-name">Knowledge Graph</div>
+				<div class="setting-item-description">Visual graph of your vault's connections.</div>
+			</div>
+		</div>
+		${folderField2("canvasPath", "Canvas file", `Path to the Obsidian Canvas file. Suggested: "${suggestedCanvas}"`)}
 	</div>`;
 }
 
@@ -30884,14 +31255,6 @@ function ProgressBar({ value }) {
 		<div class="oas-progress-fill" style="${width}"></div>
 	</div>`;
 }
-
-// src/ui/components/Toggle.ts
-var Toggle = (enabled, onToggle) => html`<div
-    class="${() => `checkbox-container${enabled() ? " is-enabled" : ""}`}"
-    @click="${onToggle}"
-  >
-    <input type="checkbox" tabindex="0" .checked="${() => enabled()}" />
-  </div>`;
 
 // src/ui/views/SetupWizard/steps/InstallStep.ts
 var PACKAGE_DETAILS = {
@@ -30994,26 +31357,57 @@ function InstallStep({
 // src/ui/views/SetupWizard/steps/PreferencesStep.ts
 function PreferencesStep({ state }) {
   return html`<div class="oas-setup-step">
-		${ItemRow({
-    name: "Auto-start",
-    description: "Start the bridge automatically when Obsidian loads.",
-    control: Toggle(
-      () => state.preferences.autoStart,
-      () => {
-        state.preferences.autoStart = !state.preferences.autoStart;
-      }
-    )
-  })}
-		${ItemRow({
-    name: "Context automation",
-    description: "Include the current note selection and editor context automatically.",
-    control: Toggle(
-      () => state.preferences.contextAutomation,
-      () => {
-        state.preferences.contextAutomation = !state.preferences.contextAutomation;
-      }
-    )
-  })}
+		<div class="setting-item">
+			<div class="setting-item-info">
+				<div class="setting-item-name">Auto-start</div>
+				<div class="setting-item-description">Start the bridge automatically when Obsidian loads.</div>
+			</div>
+			<div class="setting-item-control">
+				<div class="${() => "checkbox-container" + (state.preferences.autoStart ? " is-enabled" : "")}" @click="${() => {
+    state.preferences.autoStart = !state.preferences.autoStart;
+  }}">
+					<input type="checkbox" .checked="${() => state.preferences.autoStart}" />
+				</div>
+			</div>
+		</div>
+		<div class="setting-item">
+			<div class="setting-item-info">
+				<div class="setting-item-name">Context automation</div>
+				<div class="setting-item-description">Include the current note selection and editor context automatically.</div>
+			</div>
+			<div class="setting-item-control">
+				<div class="${() => "checkbox-container" + (state.preferences.contextAutomation ? " is-enabled" : "")}" @click="${() => {
+    state.preferences.contextAutomation = !state.preferences.contextAutomation;
+  }}">
+					<input type="checkbox" .checked="${() => state.preferences.contextAutomation}" />
+				</div>
+			</div>
+		</div>
+		<div class="setting-item">
+			<div class="setting-item-info">
+				<div class="setting-item-name">Auto-sync</div>
+				<div class="setting-item-description">Automatically sync new notes to the collection index.</div>
+			</div>
+			<div class="setting-item-control">
+				<div class="${() => "checkbox-container" + (state.preferences.autoSync ? " is-enabled" : "")}" @click="${() => {
+    state.preferences.autoSync = !state.preferences.autoSync;
+  }}">
+					<input type="checkbox" .checked="${() => state.preferences.autoSync}" />
+				</div>
+			</div>
+		</div>
+		<div class="setting-item">
+			<div class="setting-item-info">
+				<div class="setting-item-name">Auto-sync minimum length</div>
+				<div class="setting-item-description">Skip notes shorter than this character count.</div>
+			</div>
+			<div class="setting-item-control">
+				<input type="number" min="0" max="10000" class="oas-input" .value="${() => String(state.preferences.autoSyncMinLength)}" @input="${(e) => {
+    const v = parseInt(e.target.value, 10);
+    if (!isNaN(v)) state.preferences.autoSyncMinLength = v;
+  }}" />
+			</div>
+		</div>
 	</div>`;
 }
 
@@ -31091,15 +31485,13 @@ var MODE_LABELS2 = {
 };
 var ACTIVE_SECRET_KEYS = {
   local: ["localApiKey"],
-  remote: ["remoteApiKey", "remoteReadApiKey", "remoteWriteApiKey"],
-  both: ["localApiKey", "remoteApiKey", "remoteReadApiKey", "remoteWriteApiKey"],
+  remote: ["remoteApiKey"],
+  both: ["localApiKey", "remoteApiKey"],
   skip: []
 };
 var SECRET_LABELS = {
   localApiKey: "Local API key",
-  remoteApiKey: "Remote API key",
-  remoteReadApiKey: "Remote read API key",
-  remoteWriteApiKey: "Remote write API key"
+  remoteApiKey: "Remote API key"
 };
 function secretStatusText(state, key) {
   const draftValue = state.embedding[key];
@@ -31174,12 +31566,12 @@ function ReviewSaveStep({ state }) {
 			${() => {
     const options = state.folderOptions;
     const rows = (key, label) => {
-      const path8 = state.folders[key];
-      const normalized = normalizeVaultFolderPath(path8);
+      const path9 = state.folders[key];
+      const normalized = normalizeVaultFolderPath(path9);
       const exists = options.some((opt) => opt.path === normalized);
       return ItemRow({
         name: label,
-        description: () => exists ? path8 : `${path8} (will be created during setup save)`
+        description: () => exists ? path9 : `${path9} (will be created during setup save)`
       });
     };
     return html`
@@ -31187,6 +31579,7 @@ function ReviewSaveStep({ state }) {
 					${rows("library", "Library")}
 					${rows("presentations", "Presentations")}
 					${rows("journal", "Journal")}
+					${ItemRow({ name: "Collection prefix", description: () => state.folders.collectionPrefix || "(none)" })}
 				`;
   }}
 			<div class="setting-item setting-item-heading">
@@ -31195,12 +31588,20 @@ function ReviewSaveStep({ state }) {
 				</div>
 			</div>
 			${ItemRow({
+    name: "Knowledge graph canvas",
+    description: () => state.folders.canvasPath || "(none)"
+  })}
+			${ItemRow({
     name: "Auto-start",
     description: () => state.preferences.autoStart ? "Enabled" : "Disabled"
   })}
 			${ItemRow({
     name: "Context automation",
     description: () => state.preferences.contextAutomation ? "Enabled" : "Disabled"
+  })}
+			${ItemRow({
+    name: "Auto-sync",
+    description: () => state.preferences.autoSync ? `Enabled (min ${state.preferences.autoSyncMinLength} chars)` : "Disabled"
   })}
 		</div>`;
 }
@@ -31276,6 +31677,7 @@ var WIZARD_STEPS2 = [
   "provider",
   "folders",
   "preferences",
+  "configuration",
   "review",
   "done"
 ];
@@ -31283,8 +31685,9 @@ var STEP_LABELS = {
   runtime: "Welcome",
   install: "Install extensions",
   provider: "Embedding provider",
-  folders: "Folders",
+  folders: "Vault Locations",
   preferences: "Preferences",
+  configuration: "Configuration",
   review: "Review",
   done: "Complete"
 };
@@ -31357,13 +31760,21 @@ function applyLoadedState(state, loadRes) {
       inbox: typeof folders.inbox === "string" ? folders.inbox : state.folders.inbox,
       library: typeof folders.library === "string" ? folders.library : state.folders.library,
       presentations: typeof folders.presentations === "string" ? folders.presentations : state.folders.presentations,
-      journal: typeof folders.journal === "string" ? folders.journal : state.folders.journal
+      journal: typeof folders.journal === "string" ? folders.journal : state.folders.journal,
+      collectionPrefix: typeof folders.collectionPrefix === "string" ? folders.collectionPrefix : state.folders.collectionPrefix,
+      canvasPath: typeof folders.canvasPath === "string" ? folders.canvasPath : state.folders.canvasPath
     });
   }
   state.folderOptions = [...loadRes.folders];
   state.secretStatus = loadRes.embeddingSecrets;
   if (defaultVault && typeof defaultVault.autoStart === "boolean") {
     state.preferences.autoStart = defaultVault.autoStart;
+  }
+  if (defaultVault && typeof defaultVault.autoSync === "boolean") {
+    state.preferences.autoSync = defaultVault.autoSync;
+  }
+  if (defaultVault && typeof defaultVault.autoSyncMinLength === "number") {
+    state.preferences.autoSyncMinLength = defaultVault.autoSyncMinLength;
   }
   if (piContext && typeof piContext.enabled === "boolean") {
     state.preferences.contextAutomation = piContext.enabled;
@@ -31568,6 +31979,7 @@ function Wizard({
 			${() => state.step === "provider" ? ProviderStep({ state, adapter }) : ""}
 			${() => state.step === "folders" ? FoldersStep({ state, adapter }) : ""}
 			${() => state.step === "preferences" ? PreferencesStep({ state }) : ""}
+			${() => state.step === "configuration" ? ConfigurationStep({ state, adapter }) : ""}
 			${() => state.step === "review" ? ReviewSaveStep({ state, adapter }) : ""}
 			${() => state.step === "done" ? DoneStep({ state, onOpenChat }) : ""}
 		</div>
@@ -32404,7 +32816,7 @@ function exceedsCollapsedDiffThreshold(content) {
   return false;
 }
 function DiffCard({
-  path: path8,
+  path: path9,
   oldContent,
   newContent,
   status,
@@ -32417,7 +32829,7 @@ function DiffCard({
   return Card({
     tone: () => TONE[status()],
     icon: () => ICON[status()],
-    title: path8,
+    title: path9,
     meta: () => {
       const s = status();
       return s === "error" ? error() ?? META.error : META[s];
@@ -32548,6 +32960,7 @@ function PermissionCard({
   initialValue = "",
   id,
   autoFocus,
+  renderMarkdown,
   onResponse,
   onApprove,
   onDeny
@@ -32643,12 +33056,28 @@ function PermissionCard({
 			${Button({ label: "Deny", icon: "x", variant: "ghost", onClick: deny })}
 		</div>`;
   };
+  const body = (() => {
+    if (!renderMarkdown) return html`<p class="oas-permission-prompt">${prompt}</p>`;
+    const markdownHost = `permission-markdown-${focusId}`;
+    let tries = 0;
+    const fill = () => {
+      const el = document.querySelector(`[data-permission-md="${markdownHost}"]`);
+      if (el) {
+        el.removeAttribute("data-permission-md");
+        renderMarkdown(prompt, el);
+        return;
+      }
+      if (++tries < 30) globalThis.setTimeout(fill, 16);
+    };
+    globalThis.setTimeout(fill, 0);
+    return html`<div class="oas-permission-prompt markdown-rendered" data-permission-md="${markdownHost}"></div>`;
+  })();
   return html`<div class="oas-permission-card-wrapper">
 		${Card({
     tone: () => TONE3[s.decision],
     icon: () => ICON3[s.decision],
     title: () => s.decision ? LABEL2[s.decision] : title,
-    body: html`<p class="oas-permission-prompt">${prompt}</p>`,
+    body,
     footer: actions,
     collapsible: true,
     defaultExpanded: true,
@@ -32995,14 +33424,15 @@ function renderMessage(m, showRole, feedId, getDiffMessage, renderMarkdown) {
         autoFocus: m.autoFocus,
         onResponse: m.onResponse,
         onApprove: m.onApprove,
-        onDeny: m.onDeny
+        onDeny: m.onDeny,
+        renderMarkdown
       });
     case "diff": {
-      const { id, path: path8, oldContent, newContent, onAccept, onReject, onRetry } = m;
+      const { id, path: path9, oldContent, newContent, onAccept, onReject, onRetry } = m;
       let lastStatus = m.status;
       let lastError = m.error;
       return DiffCard({
-        path: path8,
+        path: path9,
         oldContent,
         newContent,
         status: () => {
@@ -33738,16 +34168,17 @@ function FirstRunCard(opts) {
       if (opts.isPersonalizing()) {
         return "We are preparing your vault's personalized AI. Please respond to any requests for permissions or information below.";
       }
-      const onboardingError = opts.onboardingError();
       return html`<div class="oas-flex oas-flex-col oas-gap-2">
-				<span>Personalize your AI by giving it a role, a goal, and a specific set of instructions for your vault.${onboardingError ? `
-
-${onboardingError}` : ""}</span>
-				<label class="oas-flex oas-flex-col oas-gap-1">
-					<span>Retry notes</span>
-					<textarea class="textarea" rows="2" .value="${opts.retryNotes}" @input="${(event) => opts.onRetryNotesChange(event.target.value)}"></textarea>
-					<span>Optional. Sent only when you click Personalize; use this to revise the personalization request.</span>
-				</label>
+				<span>Personalize your AI by giving it a role, a goal, and a specific set of instructions for your vault.</span>
+				${() => {
+        const onboardingError = opts.onboardingError();
+        return onboardingError ? html`<p>${onboardingError}</p>
+							<label class="oas-flex oas-flex-col oas-gap-1">
+								<span>Retry notes</span>
+								<textarea class="textarea" rows="2" .value="${opts.retryNotes}" @input="${(event) => opts.onRetryNotesChange(event.target.value)}"></textarea>
+								<span>Optional. Sent only when you click Personalize; use this to revise the personalization request.</span>
+							</label>` : "";
+      }}
 			</div>`;
     },
     footer: () => {
@@ -34429,13 +34860,21 @@ function seedSetupWizardState(state, loadRes, runtime) {
       inbox: typeof folders.inbox === "string" ? folders.inbox : state.folders.inbox,
       library: typeof folders.library === "string" ? folders.library : state.folders.library,
       presentations: typeof folders.presentations === "string" ? folders.presentations : state.folders.presentations,
-      journal: typeof folders.journal === "string" ? folders.journal : state.folders.journal
+      journal: typeof folders.journal === "string" ? folders.journal : state.folders.journal,
+      collectionPrefix: typeof folders.collectionPrefix === "string" ? folders.collectionPrefix : state.folders.collectionPrefix,
+      canvasPath: typeof folders.canvasPath === "string" ? folders.canvasPath : state.folders.canvasPath
     });
   }
   state.folderOptions = [...loadRes.folders];
   state.secretStatus = loadRes.embeddingSecrets;
   if (defaultVault && typeof defaultVault.autoStart === "boolean") {
     state.preferences.autoStart = defaultVault.autoStart;
+  }
+  if (defaultVault && typeof defaultVault.autoSync === "boolean") {
+    state.preferences.autoSync = defaultVault.autoSync;
+  }
+  if (defaultVault && typeof defaultVault.autoSyncMinLength === "number") {
+    state.preferences.autoSyncMinLength = defaultVault.autoSyncMinLength;
   }
   if (piContext && typeof piContext.enabled === "boolean") {
     state.preferences.contextAutomation = piContext.enabled;
@@ -34540,7 +34979,7 @@ var SetupWizardPanel = class extends import_obsidian6.ItemView {
 };
 
 // src/ui/integrations/VaultMindView/createVaultMindController.ts
-var import_node_path4 = __toESM(require("node:path"), 1);
+var import_node_path5 = __toESM(require("node:path"), 1);
 
 // src/chat/message-types.ts
 function generateMessageId() {
@@ -35048,8 +35487,8 @@ function mapSession(s) {
 }
 function createVaultMindController(opts) {
   const { client, vaultPath, messageStore, connection, revealPanel, openSearchHit } = opts;
-  const piConfigDir = import_node_path4.default.join(vaultPath, ".vault-mind", ".pi", "agent");
-  const defaultSessionPath = import_node_path4.default.join(piConfigDir, "sessions", "default.jsonl");
+  const piConfigDir = import_node_path5.default.join(vaultPath, ".vault-mind", ".pi", "agent");
+  const defaultSessionPath = import_node_path5.default.join(piConfigDir, "sessions", "default.jsonl");
   let currentSessionPath = messageStore.getLastSession() ?? defaultSessionPath;
   const sessionPaths = /* @__PURE__ */ new Map();
   const state = reactive({
@@ -35319,6 +35758,7 @@ function createVaultMindController(opts) {
   }
   function cancelPersonalization() {
     state.isPersonalizing = false;
+    state.onboardingError = "Personalization was cancelled. Add optional retry notes if you want to revise the request.";
     personalizationAttempt += 1;
     removePersonalizationPermissionCards();
     const serverCancellation = client.cancelPersonalization().then(() => void 0).catch(
@@ -35942,7 +36382,7 @@ var VaultMindPlugin = class extends import_obsidian7.Plugin {
     await bootstrapToken(this.app, this.vaultPath);
     const piConfigDir = resolvePluginAgentDir(vaultPath);
     const piBinary = detectPiBinary(this.settings.piBinaryPath, vaultPath) ?? this.settings.piBinaryPath;
-    const sessionsDir = import_node_path5.default.join(piConfigDir, "sessions");
+    const sessionsDir = import_node_path6.default.join(piConfigDir, "sessions");
     const token = await resolveToken(this.app) ?? "";
     const connection = new PiConnection({
       piBinaryPath: piBinary,
@@ -36013,6 +36453,23 @@ var VaultMindPlugin = class extends import_obsidian7.Plugin {
     };
     const runtimeLock = createVaultRuntimeLock(vaultPath);
     const runtimeStarter = async () => {
+      ensureMinimalVaultConfig(vaultPath);
+      const snapshot = await plugin.localSettingsStore.load();
+      if (snapshot.settingsSync.snapshot.vaultLayout?.vaultPath !== vaultPath) {
+        await plugin.localSettingsStore.update((state) => ({
+          ...state,
+          settingsSync: {
+            ...state.settingsSync,
+            snapshot: {
+              ...state.settingsSync.snapshot,
+              vaultLayout: {
+                ...state.settingsSync.snapshot.vaultLayout,
+                vaultPath
+              }
+            }
+          }
+        }));
+      }
       await ensureVaultRuntime({
         vaultPath,
         acquireLock: runtimeLock.acquire,
