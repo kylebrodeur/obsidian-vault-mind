@@ -22412,7 +22412,7 @@ var init_bootstrap = __esm({
     init_config();
     init_extension_packages();
     init_pi_detect();
-    BUNDLED_PROJECT_VERSION = true ? "0.16.22" : projectPackage.version;
+    BUNDLED_PROJECT_VERSION = true ? "0.16.23" : projectPackage.version;
     VaultBootstrap = class {
       vaultPath;
       piBinaryPath;
@@ -31799,7 +31799,7 @@ function buildInstallRequest(items) {
 function reconcileInstallItems(items, installedPackageIds) {
   const installed = new Set(installedPackageIds);
   return items.map((item) => {
-    if (item.kind !== "pi" || !item.optional || !item.confirmed) return { ...item };
+    if (item.kind !== "pi") return { ...item };
     return { ...item, outcome: installed.has(item.id) ? "installed" : "skipped" };
   });
 }
