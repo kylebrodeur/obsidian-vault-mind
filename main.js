@@ -22412,7 +22412,7 @@ var init_bootstrap = __esm({
     init_config();
     init_extension_packages();
     init_pi_detect();
-    BUNDLED_PROJECT_VERSION = true ? "0.16.14" : projectPackage.version;
+    BUNDLED_PROJECT_VERSION = true ? "0.16.15" : projectPackage.version;
     VaultBootstrap = class {
       vaultPath;
       piBinaryPath;
@@ -32060,31 +32060,6 @@ function SetupWizard(options) {
 // src/ui/integrations/VaultMindView/VaultMindPanel.ts
 var import_obsidian5 = require("obsidian");
 
-// src/model-utils.ts
-var KNOWN_EMBEDDING_MODELS = [
-  "embeddinggemma",
-  "nomic-embed-text",
-  "mxbai-embed-large",
-  "all-minilm",
-  "paraphrase-multilingual"
-];
-function getModelCapabilities(model) {
-  const explicitChat = model.capabilities?.chat;
-  const explicitEmbedding = model.capabilities?.embedding;
-  if (typeof explicitChat === "boolean" || typeof explicitEmbedding === "boolean") {
-    const embedding2 = typeof explicitEmbedding === "boolean" ? explicitEmbedding : false;
-    return {
-      chat: typeof explicitChat === "boolean" ? explicitChat : !embedding2,
-      embedding: embedding2
-    };
-  }
-  const id = model.id.toLowerCase();
-  const knownModel = KNOWN_EMBEDDING_MODELS.some((name) => id.includes(name));
-  const embeddingFamily = /(^|[/_:.-])(?:bge-|embed(?:ding)?(?:$|[/_:.-]))/.test(id);
-  const embedding = knownModel || embeddingFamily;
-  return { chat: !embedding, embedding };
-}
-
 // src/ui/components/Suggest/Suggest.ts
 function Suggest(o) {
   return Popover({
@@ -33847,6 +33822,31 @@ function TabBar({
 	</div>`;
 }
 
+// src/model-utils.ts
+var KNOWN_EMBEDDING_MODELS = [
+  "embeddinggemma",
+  "nomic-embed-text",
+  "mxbai-embed-large",
+  "all-minilm",
+  "paraphrase-multilingual"
+];
+function getModelCapabilities(model) {
+  const explicitChat = model.capabilities?.chat;
+  const explicitEmbedding = model.capabilities?.embedding;
+  if (typeof explicitChat === "boolean" || typeof explicitEmbedding === "boolean") {
+    const embedding2 = typeof explicitEmbedding === "boolean" ? explicitEmbedding : false;
+    return {
+      chat: typeof explicitChat === "boolean" ? explicitChat : !embedding2,
+      embedding: embedding2
+    };
+  }
+  const id = model.id.toLowerCase();
+  const knownModel = KNOWN_EMBEDDING_MODELS.some((name) => id.includes(name));
+  const embeddingFamily = /(^|[/_:.-])(?:bge-|embed(?:ding)?(?:$|[/_:.-]))/.test(id);
+  const embedding = knownModel || embeddingFamily;
+  return { chat: !embedding, embedding };
+}
+
 // src/ui/views/VaultMindView/records.ts
 var ROLE_ICON = {
   miner: "pickaxe",
@@ -34190,14 +34190,6 @@ function FirstRunCard(opts) {
         return Button({ label: "Get started", variant: "cta", onClick: opts.onStartSetup });
       }
       return html`<div class="oas-card-footer oas-flex-row">
-				${() => !opts.isPersonalizing() ? ModelPicker({
-        models: opts.models,
-        value: () => opts.currentModel()?.key ?? "",
-        selectedLabel: () => opts.currentModel()?.label ?? "Model",
-        key: (model) => model.key,
-        itemLabel: (model) => model.label,
-        onSelect: opts.onModelSelect
-      }) : null}
 				${Button({
         label: () => opts.isPersonalizing() ? "Personalizing..." : "Personalize",
         variant: "cta",
@@ -34595,29 +34587,13 @@ function VaultMindView(opts) {
     onStartSetup: opts.onStartSetup,
     onPersonalize,
     onCancelPersonalization: demo.cancelPersonalization,
-    models: modelItems,
-    currentModel: currentModelItem,
-    onModelSelect,
     isConfigured: () => s.isConfigured,
     isPersonalizing: () => s.isPersonalizing,
     onboardingError: () => s.onboardingError,
     retryNotes: () => s.personalizationRetryNotes,
     onRetryNotesChange: demo.setPersonalizationRetryNotes
   });
-  const onboardingSurface = html`<div class="oas-onboarding-surface">
-		${() => {
-    if (!s.isPersonalizing) return null;
-    const safeMessages = demo.chat.messages.filter(
-      (message) => message.kind === "permission" || message.kind === "system"
-    );
-    return safeMessages.length > 0 ? MessageFeed({
-      messages: () => safeMessages,
-      streaming: () => false,
-      renderMarkdown: opts.renderMarkdown
-    }) : null;
-  }}
-		${firstRunCard}
-	</div>`;
+  const showOnboarding = () => !s.isConfigured || !s.isPersonalized;
   let messageFeed = null;
   const getMessageFeed = () => messageFeed ??= MessageFeed({
     messages: () => demo.chat.messages,
@@ -34639,8 +34615,7 @@ function VaultMindView(opts) {
 
 			<div class="oas-shell-view-body">
 				<div class="${() => panelClass("chat")}">
-					<div class="${() => s.isConfigured && s.isPersonalized ? "is-hidden" : ""}">${onboardingSurface}</div>
-					<div class="${() => s.isConfigured && s.isPersonalized ? "" : "is-hidden"}">${() => s.isConfigured && s.isPersonalized ? getMessageFeed() : null}</div>
+					${() => getMessageFeed()}
 				</div>
 				<div class="${() => panelClass("activity")}">
 					${ActivityView({
@@ -34687,10 +34662,9 @@ function VaultMindView(opts) {
 			</div>
 
 			<div class="${() => `oas-shell-view-footer${s.activeTab === "chat" ? "" : " is-hidden"}`}">
-				<div
-					class="${() => s.isConfigured && s.isPersonalized ? "oas-composer-surface" : "oas-composer-surface is-hidden"}"
-				>
-					${() => s.isConfigured && s.isPersonalized ? Composer(
+				${() => showOnboarding() ? html`<div class="oas-onboarding-surface">${firstRunCard}</div>` : ""}
+				<div class="oas-composer-surface">
+					${Composer(
     {
       initialContext: opts.initialContext,
       runState: () => demo.chat.streaming ? "running" : "idle",
@@ -34708,7 +34682,7 @@ function VaultMindView(opts) {
       tools: () => demo.tools ?? opts.composerData.tools
     },
     opts.composerData
-  ) : null}
+  )}
 				</div>
 			</div>
 
