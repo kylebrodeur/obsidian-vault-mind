@@ -22412,7 +22412,7 @@ var init_bootstrap = __esm({
     init_config();
     init_extension_packages();
     init_pi_detect();
-    BUNDLED_PROJECT_VERSION = true ? "0.16.19" : projectPackage.version;
+    BUNDLED_PROJECT_VERSION = true ? "0.16.20" : projectPackage.version;
     VaultBootstrap = class {
       vaultPath;
       piBinaryPath;
@@ -30502,7 +30502,6 @@ var WIZARD_STEPS = [
   "install",
   "provider",
   "folders",
-  "preferences",
   "configuration",
   "review",
   "done"
@@ -30746,11 +30745,6 @@ function nextSetupWizard(state, options = {}) {
   }
   if (state.step === "folders") {
     if (!canAdvanceFolders(state)) return;
-    state.step = "preferences";
-    recordVisit(state, "preferences");
-    return;
-  }
-  if (state.step === "preferences") {
     state.step = "configuration";
     recordVisit(state, "configuration");
     return;
@@ -31017,95 +31011,142 @@ function ConfigurationStep({ state, adapter }) {
     }
   };
   load();
-  return html`<div class="oas-setup-step">
-		${() => {
+  const agentModelsSection = () => {
     if (local.phase === "loading") {
-      return html`<div class="setting-item-description">Loading configuration options…</div>`;
+      return html`<div class="setting-item-description">Loading model catalog…</div>`;
     }
     if (local.phase === "error") {
-      return html`<div class="setting-item-description oas-text-error">${() => local.error ?? "Could not load configuration options."}</div>`;
+      return html`<div class="setting-item-description oas-text-error">${() => local.error ?? "Could not load model catalog."}</div>`;
     }
     return html`
-				<div class="setting-item setting-item-heading">
-					<div class="setting-item-info">
-						<div class="setting-item-name">Agent Models</div>
-						<div class="setting-item-description">Primary chat model and ordered fallbacks.</div>
-					</div>
-				</div>
-				${local.canWriteModelRouter ? ModelSequenceEditor({
+			${local.canWriteModelRouter ? ModelSequenceEditor({
       sequence: () => state.modelRouter.sequence,
       models: () => local.models,
       onUpdate: (updated) => {
         state.modelRouter.sequence = updated;
       }
     }) : html`<div class="setting-item">
-							<div class="setting-item-info">
-								<div class="setting-item-description">Model-router editing is unavailable because the connected agent runtime does not support the model-router read/write contract.</div>
-							</div>
-						</div>`}
-				<div class="setting-item setting-item-heading">
-					<div class="setting-item-info">
-						<div class="setting-item-name">Indexing</div>
-						<div class="setting-item-description">How Vault Mind builds and maintains the search index.</div>
-					</div>
-				</div>
-				${TextField({
-      id: "oas-setup-indexing-data-dir",
-      label: "Data directory",
-      description: "Directory used to store the local index data.",
-      value: () => state.indexing.dataDir,
-      onInput: (value) => {
-        state.indexing.dataDir = value;
+						<div class="setting-item-info">
+							<div class="setting-item-description">Model-router editing is unavailable because the connected agent runtime does not support the model-router read/write contract.</div>
+						</div>
+					</div>`}
+		`;
+  };
+  return html`<div class="oas-setup-step">
+		<div class="setting-item setting-item-heading">
+			<div class="setting-item-info">
+				<div class="setting-item-name">Agent Models</div>
+				<div class="setting-item-description">Primary chat model and ordered fallbacks.</div>
+			</div>
+		</div>
+		${agentModelsSection}
+		<div class="setting-item setting-item-heading">
+			<div class="setting-item-info">
+				<div class="setting-item-name">Indexing</div>
+				<div class="setting-item-description">How Vault Mind builds and maintains the search index.</div>
+			</div>
+		</div>
+		${TextField({
+    id: "oas-setup-indexing-data-dir",
+    label: "Data directory",
+    description: "Directory used to store the local index data.",
+    value: () => state.indexing.dataDir,
+    onInput: (value) => {
+      state.indexing.dataDir = value;
+    }
+  })}
+		${ItemRow({
+    name: "Full-text search",
+    description: "Enable full-text search alongside semantic search.",
+    control: Toggle(
+      () => state.indexing.ftsEnabled,
+      () => {
+        state.indexing.ftsEnabled = !state.indexing.ftsEnabled;
       }
-    })}
-				${ItemRow({
-      name: "Full-text search",
-      description: "Enable full-text search alongside semantic search.",
-      control: Toggle(
-        () => state.indexing.ftsEnabled,
-        () => {
-          state.indexing.ftsEnabled = !state.indexing.ftsEnabled;
-        }
-      )
-    })}
-				${ItemRow({
-      name: "Auto index",
-      description: "Index new and changed notes automatically.",
-      control: Toggle(
-        () => state.indexing.autoIndex,
-        () => {
-          state.indexing.autoIndex = !state.indexing.autoIndex;
-        }
-      )
-    })}
-				<div class="setting-item setting-item-heading">
-					<div class="setting-item-info">
-						<div class="setting-item-name">Knowledge Graph</div>
-						<div class="setting-item-description">Visual graph of your vault's connections.</div>
-					</div>
-				</div>
-				${ItemRow({
-      name: "Enable graph",
-      description: "Build and maintain a knowledge graph from vault links.",
-      control: Toggle(
-        () => state.knowledgeGraph.enabled,
-        () => {
-          state.knowledgeGraph.enabled = !state.knowledgeGraph.enabled;
-        }
-      )
-    })}
-				${ItemRow({
-      name: "Canvas sync",
-      description: "Mirror graph changes into Obsidian canvas files.",
-      control: Toggle(
-        () => state.knowledgeGraph.canvasSync,
-        () => {
-          state.knowledgeGraph.canvasSync = !state.knowledgeGraph.canvasSync;
-        }
-      )
-    })}
-			`;
-  }}
+    )
+  })}
+		${ItemRow({
+    name: "Auto index",
+    description: "Index new and changed notes automatically.",
+    control: Toggle(
+      () => state.indexing.autoIndex,
+      () => {
+        state.indexing.autoIndex = !state.indexing.autoIndex;
+      }
+    )
+  })}
+		<div class="setting-item setting-item-heading">
+			<div class="setting-item-info">
+				<div class="setting-item-name">Knowledge Graph</div>
+				<div class="setting-item-description">Visual graph of your vault's connections.</div>
+			</div>
+		</div>
+		${ItemRow({
+    name: "Enable graph",
+    description: "Build and maintain a knowledge graph from vault links.",
+    control: Toggle(
+      () => state.knowledgeGraph.enabled,
+      () => {
+        state.knowledgeGraph.enabled = !state.knowledgeGraph.enabled;
+      }
+    )
+  })}
+		${ItemRow({
+    name: "Canvas sync",
+    description: "Mirror graph changes into Obsidian canvas files.",
+    control: Toggle(
+      () => state.knowledgeGraph.canvasSync,
+      () => {
+        state.knowledgeGraph.canvasSync = !state.knowledgeGraph.canvasSync;
+      }
+    )
+  })}
+		<div class="setting-item setting-item-heading">
+			<div class="setting-item-info">
+				<div class="setting-item-name">Automation</div>
+				<div class="setting-item-description">Background tasks and context handling.</div>
+			</div>
+		</div>
+		${ItemRow({
+    name: "Auto-start",
+    description: "Start the bridge automatically when Obsidian loads.",
+    control: Toggle(
+      () => state.preferences.autoStart,
+      () => {
+        state.preferences.autoStart = !state.preferences.autoStart;
+      }
+    )
+  })}
+		${ItemRow({
+    name: "Context automation",
+    description: "Include the current note selection and editor context automatically.",
+    control: Toggle(
+      () => state.preferences.contextAutomation,
+      () => {
+        state.preferences.contextAutomation = !state.preferences.contextAutomation;
+      }
+    )
+  })}
+		${ItemRow({
+    name: "Auto-sync",
+    description: "Automatically sync new notes to the collection index.",
+    control: Toggle(
+      () => state.preferences.autoSync,
+      () => {
+        state.preferences.autoSync = !state.preferences.autoSync;
+      }
+    )
+  })}
+		${TextField({
+    id: "oas-setup-auto-sync-min-length",
+    label: "Auto-sync minimum length",
+    description: "Skip notes shorter than this character count.",
+    value: () => String(state.preferences.autoSyncMinLength),
+    onInput: (value) => {
+      const v = parseInt(value, 10);
+      if (!isNaN(v)) state.preferences.autoSyncMinLength = v;
+    }
+  })}
 	</div>`;
 }
 
@@ -31130,24 +31171,8 @@ function DoneStep({ state }) {
 // src/ui/views/SetupWizard/steps/FoldersStep.ts
 function FoldersStep({ state, adapter }) {
   const local = reactive({
-    draft: { ...state.folders },
-    openKey: null,
-    anchor: null
+    draft: { ...state.folders }
   });
-  const allFolders = () => {
-    const seen = /* @__PURE__ */ new Set();
-    const result = [];
-    const options = state.folderOptions;
-    if (!options) return result;
-    for (const f of options) {
-      const n = normalizeVaultFolderPath(f.path);
-      if (!seen.has(n)) {
-        seen.add(n);
-        result.push(n);
-      }
-    }
-    return result;
-  };
   const updateField = (key, value) => {
     try {
       value = normalizeVaultFolderPath(value);
@@ -31155,58 +31180,6 @@ function FoldersStep({ state, adapter }) {
     }
     local.draft[key] = value;
     state.folders[key] = value;
-  };
-  const openChooser = (key, e) => {
-    local.anchor = e.target;
-    local.openKey = key;
-  };
-  const closeChooser = () => {
-    local.openKey = null;
-  };
-  const selectFolder = (key, path8) => {
-    updateField(key, path8);
-    closeChooser();
-  };
-  const createFolder = async (key, path8) => {
-    const created = await adapter.createFolder(path8);
-    state.folderOptions = [...state.folderOptions, created];
-    updateField(key, created.path);
-    closeChooser();
-  };
-  const folderField2 = (key, label, desc) => {
-    const id = `oas-folder-${key}`;
-    const value = () => local.draft[key] || "";
-    const isOpen = () => local.openKey === key;
-    const query = () => value().toLowerCase();
-    const visible = () => {
-      const q = query();
-      if (!q) return allFolders();
-      return allFolders().filter((f) => f.toLowerCase().includes(q));
-    };
-    const canCreate = () => {
-      const v = value();
-      return v.length > 0 && !allFolders().includes(v) && !v.includes("..");
-    };
-    return html`<div class="setting-item">
-			<div class="setting-item-info">
-				<div class="setting-item-name"><label for="${id}">${label}</label></div>
-				<div class="setting-item-description">${desc}</div>
-			</div>
-			<div class="setting-item-control" style="position:relative">
-				<input id="${id}" type="text" class="oas-input" autocomplete="off"
-					.value="${value}"
-					@focus="${(e) => openChooser(key, e)}"
-					@click="${(e) => openChooser(key, e)}"
-					@input="${(e) => {
-      updateField(key, e.target.value);
-      local.openKey = key;
-    }}" />
-				${() => isOpen() ? html`<div class="oas-popover-list" style="position:absolute;top:100%;left:0;right:0;z-index:10;background:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:var(--radius-m);max-height:200px;overflow-y:auto">
-					${visible().map((f) => html`<div class="oas-list-item" style="padding:4px 8px;cursor:pointer" @click="${() => selectFolder(key, f)}">${f}</div>`.key(f))}
-					${() => canCreate() ? html`<div class="oas-list-item" style="padding:4px 8px;cursor:pointer;color:var(--text-accent)" @click="${() => createFolder(key, value())}">Create "${value()}"</div>` : ""}
-				</div>` : ""}
-			</div>
-		</div>`;
   };
   const vaultName = (() => {
     const vaultPath = state.vault;
@@ -31224,17 +31197,42 @@ function FoldersStep({ state, adapter }) {
     local.draft.canvasPath = suggestedCanvas;
     state.folders.canvasPath = suggestedCanvas;
   }
+  const folderField2 = (key, label, desc) => {
+    const id = `oas-folder-${key}`;
+    const value = () => local.draft[key] || "";
+    return html`<div class="setting-item">
+			<div class="setting-item-info">
+				<div class="setting-item-name"><label for="${id}">${label}</label></div>
+				<div class="setting-item-description">${desc}</div>
+			</div>
+			<div class="setting-item-control">
+				<input id="${id}" type="text" class="oas-input" autocomplete="off"
+					.value="${value}"
+					@input="${(e) => updateField(key, e.target.value)}" />
+			</div>
+		</div>`;
+  };
   return html`<div class="oas-setup-step">
 		<div class="setting-item setting-item-heading">
 			<div class="setting-item-info">
-				<div class="setting-item-name">Folders</div>
+				<div class="setting-item-name">Vault Locations</div>
 				<div class="setting-item-description">Where Vault Mind stores and organizes your content.</div>
 			</div>
 		</div>
-		${folderField2("inbox", "Inbox", "Where captured notes land.")}
-		${folderField2("library", "Library", "Long-term knowledge store.")}
-		${folderField2("presentations", "Presentations", "Generated presentations and reports.")}
-		${folderField2("journal", "Journal", "Daily notes and activity log.")}
+		${FolderConfigSection({
+    draft: () => local.draft,
+    folders: () => [...state.folderOptions ?? []],
+    onChange: (patch) => {
+      for (const [key, value] of Object.entries(patch)) {
+        updateField(key, value);
+      }
+    },
+    onCreateFolder: async (path8) => {
+      const created = await adapter.createFolder(path8);
+      state.folderOptions = [...state.folderOptions, created];
+      return created;
+    }
+  })}
 		<div class="setting-item setting-item-heading">
 			<div class="setting-item-info">
 				<div class="setting-item-name">Collections</div>
@@ -31251,9 +31249,6 @@ function FoldersStep({ state, adapter }) {
 		${folderField2("canvasPath", "Canvas file", `Path to the Obsidian Canvas file. Suggested: "${suggestedCanvas}"`)}
 	</div>`;
 }
-
-// src/ui/views/SetupWizard/steps/InstallStep.ts
-init_extension_packages();
 
 // src/ui/components/Chip/Chip.ts
 function Chip({ label, icon: iconName, title, onRemove }) {
@@ -31274,6 +31269,7 @@ function ProgressBar({ value }) {
 }
 
 // src/ui/views/SetupWizard/steps/InstallStep.ts
+init_extension_packages();
 var PACKAGE_DETAILS = {
   "npm:pi-vault-mind": {
     label: "Vault Mind agent extension",
@@ -31313,31 +31309,22 @@ function willInstall(item) {
 function resolveInstallStatus(item) {
   return item.outcome ?? (willInstall(item) ? "installed" : "skipped");
 }
-function resolveInstallDisplayStatus(item, phase, requiredExtensionsDetected) {
+function resolveInstallDisplayStatus(item, phase) {
   if (item.id === "npm:pi-vault-mind") return "installed";
   if (phase === "loading") return willInstall(item) ? "installing" : "skipped";
-  if (phase === "ready" || !item.optional && requiredExtensionsDetected) {
-    return resolveInstallStatus(item);
-  }
+  if (phase === "ready") return resolveInstallStatus(item);
   return item.optional ? "selectable" : "pending";
 }
 function InstallStep({
   state,
-  local,
-  onStart,
-  onRecheck
+  local
 }) {
   const installPhase = () => {
     void local.installing;
     return state.install;
   };
-  const requiredExtensionsDetected = () => state.runtime.phase === "ready" && state.runtime.serverReachable;
   const itemControl = (item) => () => {
-    const status = resolveInstallDisplayStatus(
-      item,
-      installPhase(),
-      requiredExtensionsDetected()
-    );
+    const status = resolveInstallDisplayStatus(item, installPhase());
     if (status === "selectable") {
       return Toggle(
         () => !!item.confirmed,
@@ -31350,87 +31337,16 @@ function InstallStep({
     if (status === "pending") return Chip({ label: "Will install", icon: "clock" });
     return status === "installed" ? Chip({ label: "Installed", icon: "check" }) : Chip({ label: "Skipped", icon: "x" });
   };
-  const showRuntimeActions = () => state.runtime.phase !== "ready" || !state.runtime.serverReachable;
-  const toInstallCount = () => local.installItems.filter((item) => {
-    const status = resolveInstallDisplayStatus(
-      item,
-      installPhase(),
-      requiredExtensionsDetected()
-    );
-    return status === "pending" || status === "selectable" && item.confirmed;
-  }).length;
   return html`<div class="oas-setup-step oas-setup-install">
-		<div class="setting-item setting-item-heading"><div class="setting-item-info"><div class="setting-item-name">Install Bridge & Extensions</div><div class="setting-item-description">Installing the agent extensions that power Vault Mind. Once complete, the bridge will start automatically.</div></div></div>
-		${() => state.runtime.message ? html`<div class="setting-item" role="alert"><div class="setting-item-info"><div class="setting-item-description">${state.runtime.message.replace(/\bpi\b/gi, "agent runtime")}</div>${() => showRuntimeActions() ? html`<div class="oas-flex oas-flex-row oas-gap-2" style="margin-top: 0.75rem;">${Button({ label: "Start", icon: "play", variant: "cta", disabled: () => local.installing || local.rechecking, onClick: () => void onStart?.() })}${Button({ label: "Recheck", icon: "refresh-cw", variant: "ghost", disabled: () => local.installing || local.rechecking, onClick: () => void onRecheck?.() })}</div>` : ""}</div></div>` : ""}
+		<div class="setting-item setting-item-heading"><div class="setting-item-info"><div class="setting-item-name">Install Extensions</div><div class="setting-item-description">Installing the agent extensions that power Vault Mind. Once complete, the runtime will start automatically.</div></div></div>
 		${() => local.installItems.map((item) => ItemRow({ name: item.label, description: item.desc, control: itemControl(item) }))}
 		${() => {
     void local.installing;
     if (state.install === "loading") return ProgressBar({ value: () => local.installProgress });
     if (state.install === "error")
       return html`<div class="setting-item" role="alert"><div class="setting-item-info"><div class="setting-item-description">Install failed. Check that the agent runtime and Obsidian are reachable and try again.</div></div></div>`;
-    const count = toInstallCount();
-    if (count > 0 && state.install !== "ready") {
-      return html`<div style="margin-top: 0.5rem;">${Button({ label: () => "Install " + toInstallCount(), icon: "download", variant: "cta", disabled: () => local.installing, onClick: () => void onStart?.() })}</div>`;
-    }
     return "";
   }}
-	</div>`;
-}
-
-// src/ui/views/SetupWizard/steps/PreferencesStep.ts
-function PreferencesStep({ state }) {
-  return html`<div class="oas-setup-step">
-		<div class="setting-item">
-			<div class="setting-item-info">
-				<div class="setting-item-name">Auto-start</div>
-				<div class="setting-item-description">Start the bridge automatically when Obsidian loads.</div>
-			</div>
-			<div class="setting-item-control">
-				<div class="${() => "checkbox-container" + (state.preferences.autoStart ? " is-enabled" : "")}" @click="${() => {
-    state.preferences.autoStart = !state.preferences.autoStart;
-  }}">
-					<input type="checkbox" .checked="${() => state.preferences.autoStart}" />
-				</div>
-			</div>
-		</div>
-		<div class="setting-item">
-			<div class="setting-item-info">
-				<div class="setting-item-name">Context automation</div>
-				<div class="setting-item-description">Include the current note selection and editor context automatically.</div>
-			</div>
-			<div class="setting-item-control">
-				<div class="${() => "checkbox-container" + (state.preferences.contextAutomation ? " is-enabled" : "")}" @click="${() => {
-    state.preferences.contextAutomation = !state.preferences.contextAutomation;
-  }}">
-					<input type="checkbox" .checked="${() => state.preferences.contextAutomation}" />
-				</div>
-			</div>
-		</div>
-		<div class="setting-item">
-			<div class="setting-item-info">
-				<div class="setting-item-name">Auto-sync</div>
-				<div class="setting-item-description">Automatically sync new notes to the collection index.</div>
-			</div>
-			<div class="setting-item-control">
-				<div class="${() => "checkbox-container" + (state.preferences.autoSync ? " is-enabled" : "")}" @click="${() => {
-    state.preferences.autoSync = !state.preferences.autoSync;
-  }}">
-					<input type="checkbox" .checked="${() => state.preferences.autoSync}" />
-				</div>
-			</div>
-		</div>
-		<div class="setting-item">
-			<div class="setting-item-info">
-				<div class="setting-item-name">Auto-sync minimum length</div>
-				<div class="setting-item-description">Skip notes shorter than this character count.</div>
-			</div>
-			<div class="setting-item-control">
-				<input type="number" min="0" max="10000" class="oas-input" .value="${() => String(state.preferences.autoSyncMinLength)}" @input="${(e) => {
-    const v = parseInt(e.target.value, 10);
-    if (!isNaN(v)) state.preferences.autoSyncMinLength = v;
-  }}" />
-			</div>
-		</div>
 	</div>`;
 }
 
@@ -31702,7 +31618,6 @@ var WIZARD_STEPS2 = [
   "install",
   "provider",
   "folders",
-  "preferences",
   "configuration",
   "review",
   "done"
@@ -31712,7 +31627,6 @@ var STEP_LABELS = {
   install: "Install extensions",
   provider: "Embedding provider",
   folders: "Vault Locations",
-  preferences: "Preferences",
   configuration: "Configuration",
   review: "Review",
   done: "Complete"
@@ -31738,11 +31652,11 @@ function willInstall2(item) {
   return !item.optional || !!item.confirmed;
 }
 function countQueuedInstallItems(items) {
-  return items.filter((item) => item.kind === "pi" && willInstall2(item)).length;
+  return items.filter((item) => item.kind === "pi" && item.id !== "npm:pi-vault-mind" && willInstall2(item)).length;
 }
 function buildInstallRequest(items) {
   return {
-    requiredPackageIds: items.filter((item) => item.kind === "pi" && !item.optional).map((item) => item.id),
+    requiredPackageIds: items.filter((item) => item.kind === "pi" && !item.optional && item.id !== "npm:pi-vault-mind").map((item) => item.id),
     optionalPackageIds: items.filter((item) => item.kind === "pi" && item.optional && willInstall2(item)).map((item) => item.id)
   };
 }
@@ -31778,17 +31692,17 @@ function applyLoadedState(state, loadRes) {
       localUrl: persistedLocalUrl || state.embedding.localUrl,
       remoteUrl: persistedRemoteUrl,
       model: typeof embedding.model === "string" ? embedding.model : state.embedding.model,
-      dim: typeof embedding.dim === "number" || embedding.dim === null ? embedding.dim : state.embedding.dim
+      dim: typeof embedding.dim === "number" && Number.isInteger(embedding.dim) && embedding.dim > 0 ? embedding.dim : state.embedding.dim
     });
   }
   if (folders) {
     Object.assign(state.folders, {
-      inbox: typeof folders.inbox === "string" ? folders.inbox : state.folders.inbox,
-      library: typeof folders.library === "string" ? folders.library : state.folders.library,
-      presentations: typeof folders.presentations === "string" ? folders.presentations : state.folders.presentations,
-      journal: typeof folders.journal === "string" ? folders.journal : state.folders.journal,
-      collectionPrefix: typeof folders.collectionPrefix === "string" ? folders.collectionPrefix : state.folders.collectionPrefix,
-      canvasPath: typeof folders.canvasPath === "string" ? folders.canvasPath : state.folders.canvasPath
+      inbox: typeof folders.inbox === "string" && folders.inbox ? folders.inbox : state.folders.inbox,
+      library: typeof folders.library === "string" && folders.library ? folders.library : state.folders.library,
+      presentations: typeof folders.presentations === "string" && folders.presentations ? folders.presentations : state.folders.presentations,
+      journal: typeof folders.journal === "string" && folders.journal ? folders.journal : state.folders.journal,
+      collectionPrefix: typeof folders.collectionPrefix === "string" && folders.collectionPrefix ? folders.collectionPrefix : state.folders.collectionPrefix,
+      canvasPath: typeof folders.canvasPath === "string" && folders.canvasPath ? folders.canvasPath : state.folders.canvasPath
     });
   }
   state.folderOptions = [...loadRes.folders];
@@ -31804,6 +31718,20 @@ function applyLoadedState(state, loadRes) {
   }
   if (piContext && typeof piContext.enabled === "boolean") {
     state.preferences.contextAutomation = piContext.enabled;
+  }
+  if (loadRes.modelRouter) {
+    state.modelRouter.sequence = Array.isArray(loadRes.modelRouter.sequence) ? [...loadRes.modelRouter.sequence] : [];
+  }
+  const vmIndexing = vaultMind && isRecord6(vaultMind.indexing) ? vaultMind.indexing : null;
+  if (vmIndexing) {
+    state.indexing.dataDir = typeof vmIndexing.dataDir === "string" ? vmIndexing.dataDir : state.indexing.dataDir;
+    state.indexing.ftsEnabled = typeof vmIndexing.ftsEnabled === "boolean" ? vmIndexing.ftsEnabled : state.indexing.ftsEnabled;
+    state.indexing.autoIndex = typeof vmIndexing.autoIndex === "boolean" ? vmIndexing.autoIndex : state.indexing.autoIndex;
+  }
+  const vmGraph = vaultMind && isRecord6(vaultMind.graph) ? vaultMind.graph : null;
+  if (vmGraph) {
+    state.knowledgeGraph.enabled = typeof vmGraph.enabled === "boolean" ? vmGraph.enabled : state.knowledgeGraph.enabled;
+    state.knowledgeGraph.canvasSync = typeof vmGraph.canvasSync === "boolean" ? vmGraph.canvasSync : state.knowledgeGraph.canvasSync;
   }
 }
 function Wizard({
@@ -31939,12 +31867,12 @@ function Wizard({
           onClick: () => void recheck()
         };
       }
-      if (isManagedInstall()) {
-        const queued = countQueuedInstallItems(local.installItems);
+      const queued = countQueuedInstallItems(local.installItems);
+      if (queued > 0) {
         return {
           label: local.installing ? "Installing\u2026" : `Install ${queued} package${queued !== 1 ? "s" : ""}`,
           icon: "download",
-          disabled: local.installing || queued === 0,
+          disabled: local.installing,
           onClick: () => void installRuntime()
         };
       }
@@ -32002,10 +31930,9 @@ function Wizard({
 		</div>
 		<div class="oas-shell-view-body oas-wizard-body">
 			${() => state.step === "runtime" ? RuntimeStep({ state, local, onStart: startRuntime, onRecheck: recheck }) : ""}
-			${() => state.step === "install" ? InstallStep({ state, local, onStart: startRuntime, onRecheck: recheck }) : ""}
+			${() => state.step === "install" ? InstallStep({ state, local }) : ""}
 			${() => state.step === "provider" ? ProviderStep({ state, adapter }) : ""}
 			${() => state.step === "folders" ? FoldersStep({ state, adapter }) : ""}
-			${() => state.step === "preferences" ? PreferencesStep({ state }) : ""}
 			${() => state.step === "configuration" ? ConfigurationStep({ state, adapter }) : ""}
 			${() => state.step === "review" ? ReviewSaveStep({ state, adapter }) : ""}
 			${() => state.step === "done" ? DoneStep({ state, onOpenChat }) : ""}
@@ -32054,6 +31981,7 @@ function Wizard({
     disabled: () => false,
     onClick: () => onOpenChat()
   })}
+					</div>
 					</div>
 				</div>
 			</div>
@@ -34227,7 +34155,9 @@ function FirstRunCard(opts) {
       })}
 				${() => opts.isPersonalizing() ? Button({ label: "Cancel", onClick: opts.onCancelPersonalization }) : null}
 			</div>`;
-    }
+    },
+    collapsible: true,
+    defaultExpanded: !opts.isPersonalizing()
   });
 }
 
@@ -34859,7 +34789,7 @@ function seedSetupWizardState(state, loadRes, runtime) {
       localUrl: persistedLocalUrl || state.embedding.localUrl,
       remoteUrl: persistedRemoteUrl,
       model: typeof embedding.model === "string" ? embedding.model : state.embedding.model,
-      dim: typeof embedding.dim === "number" || embedding.dim === null ? embedding.dim : state.embedding.dim
+      dim: typeof embedding.dim === "number" && Number.isInteger(embedding.dim) && embedding.dim > 0 ? embedding.dim : state.embedding.dim
     });
   }
   if (folders) {
@@ -36583,7 +36513,6 @@ var VaultMindPlugin = class extends import_obsidian7.Plugin {
         void openOrRevealSetupWizardLeaf(this.app.workspace);
       },
       onOpenFile: (filePath) => {
-        const fullPath = `${this.vaultPath}/${filePath}`;
         const file = this.app.vault.getAbstractFileByPath(filePath);
         if (file) {
           void this.app.workspace.openLinkText(filePath, "", false);
