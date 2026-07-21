@@ -22412,7 +22412,7 @@ var init_bootstrap = __esm({
     init_config();
     init_extension_packages();
     init_pi_detect();
-    BUNDLED_PROJECT_VERSION = true ? "0.16.12" : projectPackage.version;
+    BUNDLED_PROJECT_VERSION = true ? "0.16.13" : projectPackage.version;
     VaultBootstrap = class {
       vaultPath;
       piBinaryPath;
@@ -22558,6 +22558,7 @@ var init_bootstrap = __esm({
               phase: "error",
               piVersion: null,
               extensionVersion: null,
+              piBinaryPath: null,
               serverReachable: false,
               message: e instanceof Error ? e.message : String(e)
             }
@@ -22570,6 +22571,7 @@ var init_bootstrap = __esm({
             phase: "checking",
             piVersion: null,
             extensionVersion: null,
+            piBinaryPath: null,
             serverReachable: false,
             message: "Required packages installed. Ready to start runtime."
           }
@@ -29618,6 +29620,7 @@ var RestConfigurationAdapter = class {
         phase: "missing",
         piVersion: null,
         extensionVersion: null,
+        piBinaryPath: null,
         serverReachable: false,
         message: "Agent runtime binary not found. Install the agent runtime and configure its path in Settings \u2192 Advanced \u2192 Agent runtime binary path."
       };
@@ -29632,6 +29635,7 @@ var RestConfigurationAdapter = class {
         phase: status.ok ? "ready" : "error",
         piVersion: status.version,
         extensionVersion: status.version,
+        piBinaryPath: null,
         serverReachable: status.ok,
         message: status.ok ? null : "Agent runtime found but bridge server is not running. Click Start to launch it."
       };
@@ -29642,6 +29646,7 @@ var RestConfigurationAdapter = class {
           phase: "missing",
           piVersion: null,
           extensionVersion: null,
+          piBinaryPath: null,
           serverReachable: false,
           message: "Agent runtime found but bridge server is not running. Click Start to launch it."
         };
@@ -29650,6 +29655,7 @@ var RestConfigurationAdapter = class {
         phase: "error",
         piVersion: null,
         extensionVersion: null,
+        piBinaryPath: null,
         serverReachable: false,
         message: "Agent runtime found but bridge server check failed: " + message
       };
@@ -29669,6 +29675,7 @@ var RestConfigurationAdapter = class {
         phase: "error",
         piVersion: null,
         extensionVersion: null,
+        piBinaryPath: null,
         serverReachable: false,
         message: `Runtime launch blocked: bootstrap failure. ${message}`
       };
@@ -29678,6 +29685,7 @@ var RestConfigurationAdapter = class {
         phase: "error",
         piVersion: null,
         extensionVersion: null,
+        piBinaryPath: null,
         serverReachable: false,
         message: `Runtime launch blocked: bootstrap failure. ${verify.runtime.message}`
       };
@@ -29687,6 +29695,7 @@ var RestConfigurationAdapter = class {
         phase: "error",
         piVersion: null,
         extensionVersion: null,
+        piBinaryPath: null,
         serverReachable: false,
         message: "Runtime start is not available in this context. Start the agent runtime manually and click Recheck."
       };
@@ -29699,6 +29708,7 @@ var RestConfigurationAdapter = class {
         phase: "missing",
         piVersion: null,
         extensionVersion: null,
+        piBinaryPath: null,
         serverReachable: false,
         message: "Could not start the agent runtime: " + message
       };
@@ -29713,6 +29723,7 @@ var RestConfigurationAdapter = class {
             phase: "ready",
             piVersion: status.version,
             extensionVersion: status.version,
+            piBinaryPath: null,
             serverReachable: true,
             message: null
           };
@@ -29724,6 +29735,7 @@ var RestConfigurationAdapter = class {
       phase: "error",
       piVersion: null,
       extensionVersion: null,
+      piBinaryPath: null,
       serverReachable: false,
       message: "Agent runtime started but bridge did not become ready. Check your installation."
     };
@@ -29749,6 +29761,7 @@ var RestConfigurationAdapter = class {
           phase: "error",
           piVersion: null,
           extensionVersion: null,
+          piBinaryPath: null,
           serverReachable: false,
           message
         },
@@ -30474,6 +30487,7 @@ function defaultRuntime() {
     phase: "checking",
     piVersion: null,
     extensionVersion: null,
+    piBinaryPath: null,
     serverReachable: false,
     message: null
   };
@@ -31349,7 +31363,7 @@ function InstallStep({
   };
   const showRuntimeActions = () => state.runtime.phase !== "ready" || !state.runtime.serverReachable;
   return html`<div class="oas-setup-step oas-setup-install">
-		<div class="setting-item setting-item-heading"><div class="setting-item-info"><div class="setting-item-name">Install extensions</div><div class="setting-item-description">Vault Mind needs the Obsidian plugin and the agent extension before it can configure embeddings and folders.</div></div></div>
+		<div class="setting-item setting-item-heading"><div class="setting-item-info"><div class="setting-item-name">Install Bridge & Extensions</div><div class="setting-item-description">Installing the agent extensions that power Vault Mind. Once complete, the bridge will start automatically.</div></div></div>
 		${() => state.runtime.message ? html`<div class="setting-item" role="alert"><div class="setting-item-info"><div class="setting-item-description">${state.runtime.message.replace(/\bpi\b/gi, "agent runtime")}</div>${() => showRuntimeActions() ? html`<div class="oas-flex oas-flex-row oas-gap-2" style="margin-top: 0.75rem;">${Button({ label: "Start", icon: "play", variant: "cta", disabled: () => local.installing || local.rechecking, onClick: () => void onStart?.() })}${Button({ label: "Recheck", icon: "refresh-cw", variant: "ghost", disabled: () => local.installing || local.rechecking, onClick: () => void onRecheck?.() })}</div>` : ""}</div></div>` : ""}
 		${() => local.installItems.map((item) => ItemRow({ name: item.label, description: item.desc, control: itemControl(item) }))}
 		${() => {
@@ -31632,16 +31646,19 @@ function RuntimeStep({
         tone: "running",
         icon: "loader",
         spinIcon: true,
-        title: isStarting ? "Starting Connection\u2026" : "Detecting Agent Runtime\u2026",
-        body: html`<p style="color: var(--text-muted);">${isStarting ? "Establishing a secure connection to the agent runtime and checking the bridge server\u2026" : "Detecting agent runtime and checking the bridge server\u2026"}</p>`
+        title: isStarting ? "Starting Bridge\u2026" : "Detecting Agent Runtime\u2026",
+        body: html`<p style="color: var(--text-muted);">${isStarting ? "Installing extensions and starting the bridge server\u2026" : "Looking for the agent runtime on your system\u2026"}</p>`
       });
     }
     if (isReady()) {
       return Card({
         tone: "done",
         icon: "check-circle",
-        title: "Runtime ready",
-        body: html`<p style="color: var(--text-success);">Agent runtime detected and bridge server is running. Vault Mind is ready to connect.</p>`
+        title: "Agent Runtime Found",
+        body: html`<div class="oas-flex oas-flex-col oas-gap-1">
+					<p style="color: var(--text-success);">Agent runtime detected. Extensions will be installed and the bridge will start when you continue.</p>
+					${() => state.runtime.piVersion ? html`<p style="color: var(--text-muted); font-size: var(--font-small);">pi ${state.runtime.piVersion} · extension ${state.runtime.extensionVersion}${state.runtime.piBinaryPath ? ` \xB7 ${state.runtime.piBinaryPath}` : ""}</p>` : ""}
+				</div>`
       });
     }
     const message = state.runtime.message ?? "Agent runtime is not available.";
@@ -31673,7 +31690,7 @@ function RuntimeStep({
   };
   return html`<div class="oas-setup-step">
 		<h2 class="setting-item-heading">Welcome to Vault Mind</h2>
-		<div class="setting-item-description">Vault Mind connects your Obsidian vault to AI. This wizard will set up the runtime, install extensions, and configure your embedding providers.</div>
+		<div class="setting-item-description">Vault Mind connects your Obsidian vault to AI. First we detect the agent runtime, then install extensions and start the bridge.</div>
 		${() => runtimeStatus()}
 	</div>`;
 }
@@ -31839,6 +31856,7 @@ function Wizard({
         phase: "error",
         piVersion: null,
         extensionVersion: null,
+        piBinaryPath: null,
         serverReachable: false,
         message: err instanceof Error ? err.message : String(err)
       };
