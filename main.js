@@ -22412,7 +22412,7 @@ var init_bootstrap = __esm({
     init_config();
     init_extension_packages();
     init_pi_detect();
-    BUNDLED_PROJECT_VERSION = true ? "0.16.18" : projectPackage.version;
+    BUNDLED_PROJECT_VERSION = true ? "0.16.19" : projectPackage.version;
     VaultBootstrap = class {
       vaultPath;
       piBinaryPath;
