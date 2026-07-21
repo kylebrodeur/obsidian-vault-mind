@@ -22412,7 +22412,7 @@ var init_bootstrap = __esm({
     init_config();
     init_extension_packages();
     init_pi_detect();
-    BUNDLED_PROJECT_VERSION = true ? "0.16.21" : projectPackage.version;
+    BUNDLED_PROJECT_VERSION = true ? "0.16.22" : projectPackage.version;
     VaultBootstrap = class {
       vaultPath;
       piBinaryPath;
@@ -27160,13 +27160,14 @@ function filterableBody(v) {
 	`;
 }
 function groupedBody(v) {
+  const isMulti = v.select === "multi";
   return html`<div class="oas-popover-list">
 		${() => v.groups().flatMap((g) => [
     SectionLabel(g.label).key(`section:${g.label}`),
     ...g.items.map(
       (it) => row(it, v.key, v.label, v.onSelect, {
         selected: v.selected,
-        trailing: v.trailing
+        trailing: isMulti ? v.selected?.(it) ? "check" : void 0 : v.trailing
       })
     )
   ])}
@@ -27261,6 +27262,7 @@ function Picker(o) {
       ...v,
       onSelect: (i) => {
         v.onSelect(i);
+        if (v.kind === "grouped" && v.select === "multi") return;
         close();
       }
     };
@@ -32554,7 +32556,160 @@ function ThinkingPicker({
   });
 }
 
+// src/ui/components/tool-labels.ts
+var TOOL_LABELS = {
+  vm_search: "Search",
+  vm_query: "Query entries",
+  vm_graph_query: "Graph query",
+  vm_ingest: "Ingest note",
+  vm_export: "Export",
+  vm_promote: "Promote entry",
+  vm_sync: "Sync",
+  vm_reindex: "Reindex",
+  vm_configure: "Configure",
+  vm_append: "Append entry",
+  vm_stats: "Stats",
+  vm_status: "Status",
+  vm_describe: "Describe",
+  vm_codegraph_impact: "Code impact",
+  read: "Read file",
+  write: "Write file",
+  edit: "Edit file",
+  bash: "Run command",
+  grep: "Search text",
+  find: "Find files",
+  ls: "List files"
+};
+var SENSITIVE_KEY_PARTS = [
+  "password",
+  "secret",
+  "token",
+  "apikey",
+  "authorization",
+  "cookie",
+  "credential"
+];
+var REDACTED = "[REDACTED]";
+function titleize(raw) {
+  return raw.replace(/[_-]+/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").trim().replace(/\b\w/g, (c) => c.toUpperCase());
+}
+function normalizeKey(raw) {
+  return raw.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+function isRecord7(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function scalarText(value) {
+  return value === null ? "null" : String(value);
+}
+function parseToolPayload(raw) {
+  if (!raw) return void 0;
+  const text = raw.trim();
+  if (text.length === 0) return void 0;
+  try {
+    return { kind: "json", value: JSON.parse(text) };
+  } catch {
+    return { kind: "text", text };
+  }
+}
+function isSensitiveToolKey(key) {
+  const normalized = normalizeKey(key);
+  if (normalized === "token" || [
+    "accesstoken",
+    "refreshtoken",
+    "authtoken",
+    "sessiontoken",
+    "bearertoken",
+    "apitoken",
+    "bridgetoken"
+  ].includes(normalized)) {
+    return true;
+  }
+  return SENSITIVE_KEY_PARTS.some(
+    (part) => part === "token" ? false : normalized === part || normalized.endsWith(part)
+  );
+}
+function redactToolPayloadValue(value, parentKey) {
+  if (parentKey && isSensitiveToolKey(parentKey)) {
+    return REDACTED;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => redactToolPayloadValue(item));
+  }
+  if (isRecord7(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [key, redactToolPayloadValue(child, key)])
+    );
+  }
+  return value;
+}
+function humanizeFieldLabel(raw) {
+  return titleize(raw).replace(/\bApi\b/g, "API").replace(/\bUrl\b/g, "URL").replace(/\bId\b/g, "ID").replace(/\bJson\b/g, "JSON");
+}
+function summarizeToolPayloadValue(value, options = {}) {
+  const itemLimit = options.itemLimit ?? 3;
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "No items";
+    const shown = value.slice(0, itemLimit).map((item) => summarizeToolPayloadValue(item)).join(" \xB7 ");
+    return value.length > itemLimit ? `${shown} \xB7 +${value.length - itemLimit} more` : shown;
+  }
+  if (isRecord7(value)) {
+    const entries = Object.entries(value);
+    if (entries.length === 0) return "No fields";
+    const shown = entries.slice(0, itemLimit).map(([key, child]) => `${humanizeFieldLabel(key)}: ${summarizeToolPayloadValue(child)}`).join(" \xB7 ");
+    return entries.length > itemLimit ? `${shown} \xB7 +${entries.length - itemLimit} more` : shown;
+  }
+  return scalarText(value);
+}
+function parseMaskedToolPayload(raw) {
+  const parsed = parseToolPayload(raw);
+  if (!parsed) return void 0;
+  if (parsed.kind === "text") return parsed;
+  return { kind: "json", value: redactToolPayloadValue(parsed.value) };
+}
+function formatMaskedToolPayload(raw) {
+  const parsed = parseMaskedToolPayload(raw);
+  if (!parsed) return void 0;
+  return parsed.kind === "text" ? parsed.text : JSON.stringify(parsed.value, null, 2);
+}
+function toolLabel(name) {
+  const key = name.trim();
+  if (TOOL_LABELS[key]) return TOOL_LABELS[key];
+  if (/\s/.test(key) || /^[A-Z]/.test(key) && !key.includes("_")) return key;
+  return titleize(key.replace(/^vm_/, ""));
+}
+function formatToolDetail(raw) {
+  const parsed = parseMaskedToolPayload(raw);
+  if (!parsed) return void 0;
+  if (parsed.kind === "text") return parsed.text;
+  if (Array.isArray(parsed.value)) {
+    return `${parsed.value.length} item${parsed.value.length === 1 ? "" : "s"}`;
+  }
+  if (!isRecord7(parsed.value)) {
+    return summarizeToolPayloadValue(parsed.value);
+  }
+  const parts = [];
+  if (typeof parsed.value.query === "string") parts.push(`"${parsed.value.query}"`);
+  for (const key of ["mode", "collection", "path", "file", "limit"]) {
+    const value = parsed.value[key];
+    if (value !== void 0 && value !== null && value !== "") {
+      parts.push(typeof value === "string" ? value : summarizeToolPayloadValue(value));
+    }
+  }
+  if (parts.length === 0) return Object.keys(parsed.value).map(humanizeFieldLabel).join(", ");
+  return parts.join(" \xB7 ");
+}
+
 // src/ui/components/ToolsPicker.ts
+function groupByKind(tools) {
+  const map = /* @__PURE__ */ new Map();
+  for (const t of tools) {
+    const group = map.get(t.kind) ?? [];
+    group.push(t.name);
+    map.set(t.kind, group);
+  }
+  return Array.from(map.entries()).map(([label, items]) => ({ label, items }));
+}
 function ToolsPicker({
   tools,
   selected,
@@ -32562,8 +32717,10 @@ function ToolsPicker({
   onSelectAll,
   onClearAll
 }) {
-  const items = () => typeof tools === "function" ? tools() : tools;
-  const allSelected = () => selected().length === items().length && items().length > 0;
+  const allSelected = () => {
+    const all = tools();
+    return all.length > 0 && selected().length === all.length;
+  };
   const noneSelected = () => selected().length === 0;
   return Picker({
     label: () => `Tools (${selected().length})`,
@@ -32571,31 +32728,20 @@ function ToolsPicker({
 			<div class="oas-picker-header-row">
 				<span>Tools</span>
 				<div class="oas-picker-header-actions">
-					${Button({
-      label: "All",
-      variant: "ghost",
-      disabled: allSelected,
-      onClick: () => onSelectAll?.()
-    })}
-					${Button({
-      label: "Clear",
-      variant: "ghost",
-      disabled: noneSelected,
-      onClick: () => onClearAll?.()
-    })}
+					${Button({ label: "All", variant: "ghost", disabled: allSelected, onClick: () => onSelectAll?.() })}
+					${Button({ label: "Clear", variant: "ghost", disabled: noneSelected, onClick: () => onClearAll?.() })}
 				</div>
 			</div>
 		`,
     width: "280px",
     variant: {
-      kind: "filterable",
-      items,
+      kind: "grouped",
+      groups: () => groupByKind(tools()),
       key: (i) => i,
-      label: (i) => i,
-      select: "multi",
+      label: (i) => toolLabel(i),
       selected: (i) => selected().includes(i),
-      onSelect: onToggle,
-      placeholder: "Search tools\u2026"
+      select: "multi",
+      onSelect: onToggle
     }
   });
 }
@@ -32678,24 +32824,24 @@ function Composer(opts = {}, data = DEFAULT_DATA) {
     s.model = model.key;
     opts.onModelSelect?.(model.modelId);
   };
-  const toolItems = opts.tools ?? (() => data.tools);
-  let previousToolItems = null;
-  const currentToolItems = () => {
-    const available = toolItems();
-    const catalogChanged = previousToolItems === null || previousToolItems.length !== available.length || previousToolItems.some((tool, index2) => tool !== available[index2]);
+  const toolItems = opts.tools ?? (() => data.tools.map((t) => ({ name: t, kind: "other" })));
+  let previousToolNames = null;
+  const currentToolNames = () => {
+    const available = toolItems().map((t) => t.name);
+    const catalogChanged = previousToolNames === null || previousToolNames.length !== available.length || previousToolNames.some((tool, index2) => tool !== available[index2]);
     if (catalogChanged) {
       const valid = s.tools.filter((tool) => available.includes(tool));
       s.tools = valid.length > 0 ? valid : available.length > 0 ? [available[0]] : [];
-      previousToolItems = [...available];
+      previousToolNames = [...available];
     }
     return available;
   };
   const selectedTools = () => {
-    const available = currentToolItems();
+    const available = currentToolNames();
     return s.tools.filter((tool) => available.includes(tool));
   };
   const toggleTool = (tool) => {
-    const available = currentToolItems();
+    const available = currentToolNames();
     if (!available.includes(tool)) return;
     const selected = selectedTools();
     s.tools = selected.includes(tool) ? selected.filter((candidate) => candidate !== tool) : [...selected, tool];
@@ -32783,11 +32929,11 @@ function Composer(opts = {}, data = DEFAULT_DATA) {
       s.thinkingLevel = l;
     }
   })}${ToolsPicker({
-    tools: currentToolItems,
+    tools: toolItems,
     selected: selectedTools,
     onToggle: toggleTool,
     onSelectAll: () => {
-      s.tools = [...currentToolItems()];
+      s.tools = [...currentToolNames()];
     },
     onClearAll: () => {
       s.tools = [];
@@ -32810,7 +32956,7 @@ function Composer(opts = {}, data = DEFAULT_DATA) {
     onThinkingLevel: (l) => {
       s.thinkingLevel = l;
     },
-    tools: currentToolItems,
+    tools: currentToolNames,
     selectedTools,
     onToolToggle: toggleTool
   })}
@@ -33276,150 +33422,6 @@ function ThinkingBlock({ content, isStreaming }) {
     collapsible: true,
     defaultExpanded: !!isStreaming
   });
-}
-
-// src/ui/components/tool-labels.ts
-var TOOL_LABELS = {
-  vm_search: "Search",
-  vm_query: "Query entries",
-  vm_graph_query: "Graph query",
-  vm_ingest: "Ingest note",
-  vm_export: "Export",
-  vm_promote: "Promote entry",
-  vm_sync: "Sync",
-  vm_reindex: "Reindex",
-  vm_configure: "Configure",
-  vm_append: "Append entry",
-  vm_stats: "Stats",
-  vm_status: "Status",
-  vm_describe: "Describe",
-  vm_codegraph_impact: "Code impact",
-  read: "Read file",
-  write: "Write file",
-  edit: "Edit file",
-  bash: "Run command",
-  grep: "Search text",
-  find: "Find files",
-  ls: "List files"
-};
-var SENSITIVE_KEY_PARTS = [
-  "password",
-  "secret",
-  "token",
-  "apikey",
-  "authorization",
-  "cookie",
-  "credential"
-];
-var REDACTED = "[REDACTED]";
-function titleize(raw) {
-  return raw.replace(/[_-]+/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").trim().replace(/\b\w/g, (c) => c.toUpperCase());
-}
-function normalizeKey(raw) {
-  return raw.toLowerCase().replace(/[^a-z0-9]/g, "");
-}
-function isRecord7(value) {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-function scalarText(value) {
-  return value === null ? "null" : String(value);
-}
-function parseToolPayload(raw) {
-  if (!raw) return void 0;
-  const text = raw.trim();
-  if (text.length === 0) return void 0;
-  try {
-    return { kind: "json", value: JSON.parse(text) };
-  } catch {
-    return { kind: "text", text };
-  }
-}
-function isSensitiveToolKey(key) {
-  const normalized = normalizeKey(key);
-  if (normalized === "token" || [
-    "accesstoken",
-    "refreshtoken",
-    "authtoken",
-    "sessiontoken",
-    "bearertoken",
-    "apitoken",
-    "bridgetoken"
-  ].includes(normalized)) {
-    return true;
-  }
-  return SENSITIVE_KEY_PARTS.some(
-    (part) => part === "token" ? false : normalized === part || normalized.endsWith(part)
-  );
-}
-function redactToolPayloadValue(value, parentKey) {
-  if (parentKey && isSensitiveToolKey(parentKey)) {
-    return REDACTED;
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => redactToolPayloadValue(item));
-  }
-  if (isRecord7(value)) {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, child]) => [key, redactToolPayloadValue(child, key)])
-    );
-  }
-  return value;
-}
-function humanizeFieldLabel(raw) {
-  return titleize(raw).replace(/\bApi\b/g, "API").replace(/\bUrl\b/g, "URL").replace(/\bId\b/g, "ID").replace(/\bJson\b/g, "JSON");
-}
-function summarizeToolPayloadValue(value, options = {}) {
-  const itemLimit = options.itemLimit ?? 3;
-  if (Array.isArray(value)) {
-    if (value.length === 0) return "No items";
-    const shown = value.slice(0, itemLimit).map((item) => summarizeToolPayloadValue(item)).join(" \xB7 ");
-    return value.length > itemLimit ? `${shown} \xB7 +${value.length - itemLimit} more` : shown;
-  }
-  if (isRecord7(value)) {
-    const entries = Object.entries(value);
-    if (entries.length === 0) return "No fields";
-    const shown = entries.slice(0, itemLimit).map(([key, child]) => `${humanizeFieldLabel(key)}: ${summarizeToolPayloadValue(child)}`).join(" \xB7 ");
-    return entries.length > itemLimit ? `${shown} \xB7 +${entries.length - itemLimit} more` : shown;
-  }
-  return scalarText(value);
-}
-function parseMaskedToolPayload(raw) {
-  const parsed = parseToolPayload(raw);
-  if (!parsed) return void 0;
-  if (parsed.kind === "text") return parsed;
-  return { kind: "json", value: redactToolPayloadValue(parsed.value) };
-}
-function formatMaskedToolPayload(raw) {
-  const parsed = parseMaskedToolPayload(raw);
-  if (!parsed) return void 0;
-  return parsed.kind === "text" ? parsed.text : JSON.stringify(parsed.value, null, 2);
-}
-function toolLabel(name) {
-  const key = name.trim();
-  if (TOOL_LABELS[key]) return TOOL_LABELS[key];
-  if (/\s/.test(key) || /^[A-Z]/.test(key) && !key.includes("_")) return key;
-  return titleize(key.replace(/^vm_/, ""));
-}
-function formatToolDetail(raw) {
-  const parsed = parseMaskedToolPayload(raw);
-  if (!parsed) return void 0;
-  if (parsed.kind === "text") return parsed.text;
-  if (Array.isArray(parsed.value)) {
-    return `${parsed.value.length} item${parsed.value.length === 1 ? "" : "s"}`;
-  }
-  if (!isRecord7(parsed.value)) {
-    return summarizeToolPayloadValue(parsed.value);
-  }
-  const parts = [];
-  if (typeof parsed.value.query === "string") parts.push(`"${parsed.value.query}"`);
-  for (const key of ["mode", "collection", "path", "file", "limit"]) {
-    const value = parsed.value[key];
-    if (value !== void 0 && value !== null && value !== "") {
-      parts.push(typeof value === "string" ? value : summarizeToolPayloadValue(value));
-    }
-  }
-  if (parts.length === 0) return Object.keys(parsed.value).map(humanizeFieldLabel).join(", ");
-  return parts.join(" \xB7 ");
 }
 
 // src/ui/components/StructuredPayload/StructuredPayload.ts
@@ -34810,7 +34812,7 @@ function VaultMindView(opts) {
       modelItems,
       currentModel: currentModelItem,
       onModelItemSelect: onModelSelect,
-      tools: () => demo.tools ?? opts.composerData.tools
+      tools: () => demo.tools.length > 0 ? demo.tools : opts.composerData.tools.map((t) => ({ name: t, kind: "other" }))
     },
     opts.composerData
   )}
@@ -35644,7 +35646,11 @@ function createVaultMindController(opts) {
   });
   async function refreshTools() {
     const response = await client.listTools();
-    toolState.tools.splice(0, toolState.tools.length, ...response.tools.map((tool) => tool.name));
+    toolState.tools.splice(
+      0,
+      toolState.tools.length,
+      ...response.tools.map((tool) => ({ name: tool.name, kind: tool.kind }))
+    );
   }
   async function loadModels() {
     if (!connection.isConnected()) connection.connect();
