@@ -22412,7 +22412,7 @@ var init_bootstrap = __esm({
     init_config();
     init_extension_packages();
     init_pi_detect();
-    BUNDLED_PROJECT_VERSION = true ? "0.16.16" : projectPackage.version;
+    BUNDLED_PROJECT_VERSION = true ? "0.16.17" : projectPackage.version;
     VaultBootstrap = class {
       vaultPath;
       piBinaryPath;
@@ -31252,6 +31252,9 @@ function FoldersStep({ state, adapter }) {
 	</div>`;
 }
 
+// src/ui/views/SetupWizard/steps/InstallStep.ts
+init_extension_packages();
+
 // src/ui/components/Chip/Chip.ts
 function Chip({ label, icon: iconName, title, onRemove }) {
   return html`<span class="oas-chip" title="${title ?? label}">
@@ -31271,7 +31274,6 @@ function ProgressBar({ value }) {
 }
 
 // src/ui/views/SetupWizard/steps/InstallStep.ts
-init_extension_packages();
 var PACKAGE_DETAILS = {
   "npm:pi-vault-mind": {
     label: "Vault Mind agent extension",
@@ -32080,31 +32082,6 @@ function SetupWizard(options) {
 
 // src/ui/integrations/VaultMindView/VaultMindPanel.ts
 var import_obsidian5 = require("obsidian");
-
-// src/model-utils.ts
-var KNOWN_EMBEDDING_MODELS = [
-  "embeddinggemma",
-  "nomic-embed-text",
-  "mxbai-embed-large",
-  "all-minilm",
-  "paraphrase-multilingual"
-];
-function getModelCapabilities(model) {
-  const explicitChat = model.capabilities?.chat;
-  const explicitEmbedding = model.capabilities?.embedding;
-  if (typeof explicitChat === "boolean" || typeof explicitEmbedding === "boolean") {
-    const embedding2 = typeof explicitEmbedding === "boolean" ? explicitEmbedding : false;
-    return {
-      chat: typeof explicitChat === "boolean" ? explicitChat : !embedding2,
-      embedding: embedding2
-    };
-  }
-  const id = model.id.toLowerCase();
-  const knownModel = KNOWN_EMBEDDING_MODELS.some((name) => id.includes(name));
-  const embeddingFamily = /(^|[/_:.-])(?:bge-|embed(?:ding)?(?:$|[/_:.-]))/.test(id);
-  const embedding = knownModel || embeddingFamily;
-  return { chat: !embedding, embedding };
-}
 
 // src/ui/components/Suggest/Suggest.ts
 function Suggest(o) {
@@ -32984,8 +32961,10 @@ function PermissionCard({
   placeholder = "",
   initialValue = "",
   id,
-  autoFocus,
+  autoFocus = false,
   renderMarkdown,
+  filePath,
+  onOpenFile,
   onResponse,
   onApprove,
   onDeny
@@ -33079,6 +33058,7 @@ function PermissionCard({
     return html`<div class="oas-permission-actions">
 			${Button({ label: "Approve", id: focusId, icon: "check", variant: "cta", onClick: approve })}
 			${Button({ label: "Deny", icon: "x", variant: "ghost", onClick: deny })}
+			${() => filePath && onOpenFile ? Button({ label: "Open in editor", icon: "external-link", variant: "ghost", onClick: () => onOpenFile(filePath) }) : ""}
 		</div>`;
   };
   const body = (() => {
@@ -33413,7 +33393,7 @@ function ToolCard({ toolName, status, args, result }) {
 }
 
 // src/ui/components/MessageFeed/MessageFeed.ts
-function renderMessage(m, showRole, feedId, getDiffMessage, renderMarkdown) {
+function renderMessage(m, showRole, feedId, getDiffMessage, renderMarkdown, onOpenFile) {
   switch (m.kind) {
     case "user":
       return MessageBubble({
@@ -33450,6 +33430,8 @@ function renderMessage(m, showRole, feedId, getDiffMessage, renderMarkdown) {
         onResponse: m.onResponse,
         onApprove: m.onApprove,
         onDeny: m.onDeny,
+        filePath: m.filePath,
+        onOpenFile,
         renderMarkdown
       });
     case "diff": {
@@ -33497,7 +33479,8 @@ var feedSeq = 0;
 function MessageFeed({
   messages,
   streaming,
-  renderMarkdown
+  renderMarkdown,
+  onOpenFile
 }) {
   const feedId = `feed-${(feedSeq++).toString(36)}`;
   const cardCache = /* @__PURE__ */ new Map();
@@ -33508,12 +33491,12 @@ function MessageFeed({
     if (m.kind === "permission" || m.kind === "diff") {
       let tpl = cardCache.get(m.id);
       if (!tpl) {
-        tpl = renderMessage(m, showRole, feedId, getDiffMessage, renderMarkdown);
+        tpl = renderMessage(m, showRole, feedId, getDiffMessage, renderMarkdown, onOpenFile);
         cardCache.set(m.id, tpl);
       }
       return tpl;
     }
-    return renderMessage(m, showRole, feedId, getDiffMessage, renderMarkdown);
+    return renderMessage(m, showRole, feedId, getDiffMessage, renderMarkdown, onOpenFile);
   };
   const awaitingReply = () => {
     const msgs = messages();
@@ -33866,6 +33849,31 @@ function TabBar({
     }).key(key(tab))
   )}
 	</div>`;
+}
+
+// src/model-utils.ts
+var KNOWN_EMBEDDING_MODELS = [
+  "embeddinggemma",
+  "nomic-embed-text",
+  "mxbai-embed-large",
+  "all-minilm",
+  "paraphrase-multilingual"
+];
+function getModelCapabilities(model) {
+  const explicitChat = model.capabilities?.chat;
+  const explicitEmbedding = model.capabilities?.embedding;
+  if (typeof explicitChat === "boolean" || typeof explicitEmbedding === "boolean") {
+    const embedding2 = typeof explicitEmbedding === "boolean" ? explicitEmbedding : false;
+    return {
+      chat: typeof explicitChat === "boolean" ? explicitChat : !embedding2,
+      embedding: embedding2
+    };
+  }
+  const id = model.id.toLowerCase();
+  const knownModel = KNOWN_EMBEDDING_MODELS.some((name) => id.includes(name));
+  const embeddingFamily = /(^|[/_:.-])(?:bge-|embed(?:ding)?(?:$|[/_:.-]))/.test(id);
+  const embedding = knownModel || embeddingFamily;
+  return { chat: !embedding, embedding };
 }
 
 // src/ui/views/VaultMindView/records.ts
@@ -34619,7 +34627,8 @@ function VaultMindView(opts) {
   const getMessageFeed = () => messageFeed ??= MessageFeed({
     messages: () => demo.chat.messages,
     streaming: () => demo.chat.streaming,
-    renderMarkdown: opts.renderMarkdown
+    renderMarkdown: opts.renderMarkdown,
+    onOpenFile: opts.onOpenFile
   });
   return html`
 		<div class="oas-shell-view">
@@ -34812,13 +34821,12 @@ var VaultMindPanel = class extends import_obsidian5.ItemView {
     await this.context.controller.refreshStatus().catch((error) => {
       console.error("[VaultMindPanel] Failed to refresh status:", error);
     });
-    if (generation !== this.mountGeneration) return;
-    this.rendererClosed = false;
     const view = VaultMindView({
       controller: this.context.controller,
       composerData: this.context.composerData,
       renderMarkdown: this.trackedMarkdownRenderer(),
-      onStartSetup: this.context.onStartSetup
+      onStartSetup: this.context.onStartSetup,
+      onOpenFile: this.context.onOpenFile
     });
     const result = view(this.contentEl);
     this.disposer = typeof result === "function" ? result : null;
@@ -35365,15 +35373,18 @@ function toolFeed(msg) {
 function permissionFeed(msg, sendRaw, onResponse) {
   const req = msg.permissionRequest;
   if (!req) return null;
+  const title = req.title ?? "Permission request";
+  const filePathMatch = title.match(/^(?:Create|Update)\s+(.+?)\?$/);
   return {
     kind: "permission",
     id: `perm-${req.id}`,
-    title: req.title ?? "Permission request",
+    title,
     prompt: req.message ?? req.title ?? "",
     permissionType: mapPermissionMethod(req.method),
     options: req.options,
     placeholder: req.placeholder,
     initialValue: req.initialValue,
+    filePath: filePathMatch ? filePathMatch[1] : void 0,
     onResponse: (response) => {
       onResponse?.(req.id);
       sendRaw({ type: "extension_ui_response", id: req.id, ...response });
@@ -36559,6 +36570,13 @@ var VaultMindPlugin = class extends import_obsidian7.Plugin {
       },
       onStartSetup: () => {
         void openOrRevealSetupWizardLeaf(this.app.workspace);
+      },
+      onOpenFile: (filePath) => {
+        const fullPath = `${this.vaultPath}/${filePath}`;
+        const file = this.app.vault.getAbstractFileByPath(filePath);
+        if (file) {
+          void this.app.workspace.openLinkText(filePath, "", false);
+        }
       }
     };
     this.registerView(VIEW_TYPE_VAULT_MIND, (leaf) => new VaultMindPanel(leaf, panelContext));
